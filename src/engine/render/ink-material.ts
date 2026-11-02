@@ -3,7 +3,8 @@
 //
 // Colour code = paletteIndex + 0.9 * saturation. Saturation comes from:
 //   aSurface >= 0  per-surface state texture (0 drained, 1 original, 2+n graffiti colour n)
-//   aSurface <  0  the derived wilderness drain (nearby cities' progress) times uSceneSat
+//   aSurface = -1  the derived wilderness drain (nearby cities' progress) times uSceneSat
+//   aSurface = -2  always full colour (pickups, markers: things that must stand out)
 // Geometry provides aColor (original palette index) and aSurface per vertex.
 import * as THREE from 'three';
 import { TUNING } from '@/content/tuning';
@@ -59,6 +60,8 @@ void main() {
     int st = int(state + 0.5);
     if (st == 0) sat = 0.0;
     else { sat = 1.0; if (st >= 2) idx = float(st - 2); }
+  } else if (aSurface < -1.5) {
+    sat = 1.0;
   } else {
     sat = derivedSat(world.xyz) * uSceneSat;
   }

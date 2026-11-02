@@ -83,8 +83,22 @@ export const TUNING = {
     secondsPerSurface: 1,
     range: 6,
     largeSurfaceArea: 120,
-    startingGeneric: 60,
+    startingGeneric: 30,
     startingColored: 6,
+  },
+  economy: {
+    /** Ink from one city ink stain. design: a stronghold's ink restores 40–60% of a block */
+    inkPerStain: 6,
+    /** Ink stains scattered on the roads of each city chunk. */
+    stainsPerChunk: 14,
+    /** Walk within this many metres of a stain to soak it up. */
+    stainPickupRadius: 1.8,
+    /** Studio refining: this much ink makes one generic pigment. design: 2 ink = 1 */
+    inkPerGeneric: 2,
+    /** A chunk's studio opens once this share of its surfaces has colour. design: 有色 at 70% */
+    studioOpenRatio: 0.7,
+    /** Seconds of play before a harvested wilderness source grows back. design: 10 min */
+    regrowSeconds: 600,
   },
   save: {
     debounceMs: 1500,

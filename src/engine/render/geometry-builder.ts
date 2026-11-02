@@ -5,6 +5,8 @@ import * as THREE from 'three';
 
 /** aSurface value for geometry whose colour follows the scene/derived saturation. */
 export const NO_SURFACE = -1;
+/** aSurface value for geometry that is always drawn in full colour (pickups, markers). */
+export const ALWAYS_COLOR = -2;
 
 export type BoxFace = 'px' | 'nx' | 'py' | 'ny' | 'pz' | 'nz';
 export type PerFace<T> = Partial<Record<BoxFace, T>>;

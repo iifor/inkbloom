@@ -22,6 +22,14 @@
 2. 同文件 `RULES`：在兜底规则（草原）**之前**加一条 `{ biome, when }`。`when` 拿到的是 `relief / moisture / water / wildness`
 3. 如果新群系要新的地形起伏，在 [src/world/wilderness/generator.ts](../src/world/wilderness/generator.ts) 的 `rawHeightAt` 里加一项。改了这里，所有已有世界的地形都会变（种子相同，函数变了）
 
+## 加一种野外颜料点
+
+[src/content/pigment-sources.ts](../src/content/pigment-sources.ts) 的 `PIGMENT_SOURCES` **末尾**追加一项：出现在哪些群系、放在哪（`land` 平地 / `shore` 水边 / `high` 高处）、给哪些颜色、给多少颜料和墨、每区块出现的概率。下标是颜料点 ID 的一部分，所以只能追加。外形在 [src/systems/wilderness/build-source.ts](../src/systems/wilderness/build-source.ts) 按 `key` 加一个分支，不加就用默认外形。
+
+## 调颜料经济
+
+都在 `tuning.ts` 的 `economy`：每个墨渍给多少墨、每街区多少墨渍、几墨换一份通用颜料、画室开门要多少有色率、颜料点多久长回来。改墨渍数量或位置只会重置城里的墨渍，不会重置涂色进度。
+
 ## 加一种建筑 / 地标模板
 
 [src/content/templates.ts](../src/content/templates.ts) 的 `BUILDINGS` 或 `LANDMARKS` 加一项。参数都是范围或可选列表；生成器从里面挑。`weight` 越大越常见。
@@ -86,3 +94,4 @@ const release = ctx.interactions.add({
 
 - v1（2026-11-02）：初版
 - v2（2026-11-02）：每座城的状态附带布局指纹（`surfaceFingerprint`）。v1 存档读入时，表面数量一致就沿用，否则该城重置
+- v2 补充（2026-11-02）：新增可选字段 `inventory.ink`、`clock`、`harvested`，城市存档新增 `sf`/`st`（墨渍指纹与已吸走标记）。旧 v2 存档读入时取默认值，不需要升版本

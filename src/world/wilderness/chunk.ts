@@ -3,6 +3,7 @@ import { BIOMES } from '@/content/biomes';
 import { TUNING } from '@/content/tuning';
 import { hashAt, unit } from '../math/hash';
 import { type Entrance, type Wilderness, WATER_LEVEL } from './generator';
+import { type PigmentSource, sourcesInChunk } from './sources';
 
 export interface Tree {
   readonly x: number;
@@ -29,6 +30,7 @@ export interface WildChunk {
   readonly trees: readonly Tree[];
   readonly hasWater: boolean;
   readonly entrance: Entrance | null;
+  readonly sources: readonly PigmentSource[];
 }
 
 export const chunkKey = (cx: number, cz: number): string => `${cx},${cz}`;
@@ -89,5 +91,8 @@ export function generateWildChunk(w: Wilderness, cx: number, cz: number): WildCh
       });
     }
 
-  return { cx, cz, x0, z0, n, cell, heights, biomes, trees, hasWater, entrance };
+  const sources = sourcesInChunk(w, cx, cz);
+  // keep trees off the sources so they stay visible and reachable
+  const clearTrees = trees.filter((t) => !sources.some((src) => Math.hypot(t.x - src.x, t.z - src.z) < 4));
+  return { cx, cz, x0, z0, n, cell, heights, biomes, trees: clearTrees, hasWater, entrance, sources };
 }

@@ -10,6 +10,7 @@ import { TUNING } from '@/content/tuning';
 import { color } from '@/content/palette';
 import { Rng } from '../math/rng';
 import type { SurfaceInfo, SurfaceKind } from '../paint/surfaces';
+import { type CitySkeleton, placeFeatures } from './features';
 
 export const ROAD_NONE = 0;
 export const ROAD_ALLEY = 1;
@@ -59,7 +60,7 @@ export interface Block {
   readonly ground: number;
 }
 
-export interface CityLayout {
+export interface CityLayout extends CitySkeleton {
   readonly id: string;
   readonly seed: number;
   readonly name: string;
@@ -466,7 +467,7 @@ export function generateCity(id: string, seed: number): CityLayout {
     spawnDepth = d;
   }
   const name = rng.pick(CITY_PREFIX) + rng.pick(CITY_SUFFIX);
-  return {
+  const base = {
     id,
     seed,
     name,
@@ -486,4 +487,5 @@ export function generateCity(id: string, seed: number): CityLayout {
       yaw: 0,
     },
   };
+  return { ...base, ...placeFeatures({ seed, n, cell, roads, surfaces, buildings, spawn: base.spawn }) };
 }

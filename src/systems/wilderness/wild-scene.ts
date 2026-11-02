@@ -1,5 +1,6 @@
 // The infinite wilderness. Streams chunks around the player (one build per frame so walking
-// never hitches), owns their colliders, and registers each city entrance as an interactable.
+// never hitches), owns their colliders, and registers each city entrance and pigment source
+// as an interactable.
 import * as THREE from 'three';
 import { TUNING } from '@/content/tuning';
 import { PhysicsWorld } from '@/engine/physics/world';
@@ -10,6 +11,7 @@ import type { GameContext, GameScene } from '@/game/types';
 import { chunkKey, generateWildChunk } from '@/world/wilderness/chunk';
 import { buildChunkGeometry, addChunkColliders } from './build-chunk';
 import { buildLandmark } from './build-landmark';
+import { WildSources } from './pigment-sources';
 
 interface Loaded {
   readonly mesh: THREE.Mesh;
@@ -26,9 +28,11 @@ export class WildScene implements GameScene {
   private readonly material = makeInkMaterial();
   private readonly loaded = new Map<string, Loaded>();
   private drainT = 0;
+  private readonly sources: WildSources;
 
   constructor(private readonly ctx: GameContext) {
     this.root.name = 'wild';
+    this.sources = new WildSources(ctx, this.material, this.root);
   }
 
   spawn(): { pos: THREE.Vector3; yaw: number } {
@@ -69,6 +73,7 @@ export class WildScene implements GameScene {
       const [cx, cz] = key.split(',').map(Number) as [number, number];
       if (Math.max(Math.abs(cx - pcx), Math.abs(cz - pcz)) > W.unloadRadius) this.unload(key, item);
     }
+    this.sources.update(dt);
     this.drainT -= dt;
     if (this.drainT <= 0) {
       this.drainT = 0.5;
@@ -110,6 +115,7 @@ export class WildScene implements GameScene {
         }),
       );
     }
+    release.push(this.sources.add(chunk.sources));
     const mesh = new THREE.Mesh(g.build(), this.material);
     mesh.name = group;
     this.root.add(mesh);

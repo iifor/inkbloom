@@ -3,7 +3,8 @@
 // SAVE_VERSION and a note in docs/EXTENDING.md.
 import { PALETTE, PAINTABLE, color } from '@/content/palette';
 import { TUNING } from '@/content/tuning';
-import { type SurfaceInfo, surfaceFingerprint } from './paint/surfaces';
+import { surfaceFingerprint } from './paint/surfaces';
+import { type CitySkeleton, stainFingerprint } from './city/features';
 
 export const SAVE_VERSION = 2;
 
@@ -14,6 +15,8 @@ export interface Inventory {
   generic: number;
   /** Coloured pigment by palette index, used by the graffiti brush. */
   colored: number[];
+  /** Raw ink, refined into generic pigment at a studio. */
+  ink: number;
 }
 
 export interface PlayerSave {
@@ -35,12 +38,20 @@ export interface WorldState {
   /** Per-city surface states, created when a city is first entered. */
   cities: Map<string, CitySave>;
   player: PlayerSave | null;
+  /** Seconds of play in this world. Cooldowns use this, so nothing grows while offline. */
+  clock: number;
+  /** Wilderness source id -> clock time it was last harvested. */
+  harvested: Map<string, number>;
 }
 
 export interface CitySave {
   /** surfaceFingerprint of the skeleton the states belong to; null for v1 saves. */
   fingerprint: number | null;
   states: Uint8Array;
+  /** stainFingerprint of the stain list `stains` belongs to. */
+  stainFingerprint: number | null;
+  /** 1 per ink stain already soaked up. */
+  stains: Uint8Array;
 }
 
 export const STARTING_COLORS = [color('red'), color('blue'), color('yellow'), color('green')];
@@ -53,34 +64,59 @@ export function createWorldState(id: string, seed: number, name = '新世界'): 
     id,
     seed,
     name,
-    inventory: { generic: TUNING.brush.startingGeneric, colored },
+    inventory: { generic: TUNING.brush.startingGeneric, colored, ink: 0 },
     unlocked: [...STARTING_COLORS],
     cities: new Map(),
     player: null,
+    clock: 0,
+    harvested: new Map(),
   };
 }
 
 /**
- * Surface states for a city, created all-drained on first use. When the saved states were
- * made for a different skeleton (generator or content changed), they are replaced with a
- * fresh drained array and `reset` is true so the caller can tell the player.
+ * Saved state for a city, created all-drained on first use. Surface states and stain flags
+ * are each checked against the skeleton they were made for: when generator code or content
+ * changed a list, that part is replaced with a fresh array. `reset` reports a surface reset
+ * (lost painting progress) so the caller can tell the player; stain resets are silent.
  */
 export function cityStates(
   state: WorldState,
   cityId: string,
-  surfaces: readonly SurfaceInfo[],
-): { states: Uint8Array; reset: boolean } {
-  const fingerprint = surfaceFingerprint(surfaces);
-  const saved = state.cities.get(cityId);
+  skel: CitySkeleton,
+): { states: Uint8Array; stains: Uint8Array; reset: boolean } {
+  const fingerprint = surfaceFingerprint(skel.surfaces);
+  const stainFp = stainFingerprint(skel.stains);
+  let saved = state.cities.get(cityId);
+  let reset = false;
   if (saved) {
     // v1 saves carry no fingerprint: adopt them when the surface count still matches
-    if (saved.fingerprint === null && saved.states.length === surfaces.length)
+    if (saved.fingerprint === null && saved.states.length === skel.surfaces.length)
       saved.fingerprint = fingerprint;
-    if (saved.fingerprint === fingerprint) return { states: saved.states, reset: false };
+    if (saved.fingerprint !== fingerprint) {
+      saved.fingerprint = fingerprint;
+      saved.states = new Uint8Array(skel.surfaces.length);
+      reset = true;
+    }
+  } else {
+    saved = {
+      fingerprint,
+      states: new Uint8Array(skel.surfaces.length),
+      stainFingerprint: stainFp,
+      stains: new Uint8Array(skel.stains.length),
+    };
+    state.cities.set(cityId, saved);
   }
-  const fresh: CitySave = { fingerprint, states: new Uint8Array(surfaces.length) };
-  state.cities.set(cityId, fresh);
-  return { states: fresh.states, reset: saved !== undefined };
+  if (saved.stainFingerprint !== stainFp) {
+    saved.stainFingerprint = stainFp;
+    saved.stains = new Uint8Array(skel.stains.length);
+  }
+  return { states: saved.states, stains: saved.stains, reset };
+}
+
+/** Whether a wilderness source can be harvested now. */
+export function sourceReady(state: WorldState, id: string): boolean {
+  const t = state.harvested.get(id);
+  return t === undefined || state.clock - t >= TUNING.economy.regrowSeconds;
 }
 
 /** Share of coloured surfaces from saved state alone (no skeleton needed). */
@@ -101,9 +137,11 @@ interface WorldJson {
   name: string;
   inventory: Inventory;
   unlocked: number[];
-  /** v2: { f: fingerprint, s: base64 states }; v1: base64 states. */
-  cities: Record<string, { f: number; s: string } | string>;
+  /** v2: { f, s, sf?, st? } (fingerprints and base64 bytes); v1: base64 states. */
+  cities: Record<string, { f: number; s: string; sf?: number; st?: string } | string>;
   player: PlayerSave | null;
+  clock?: number;
+  harvested?: Record<string, number>;
 }
 
 const toBase64 = (bytes: Uint8Array): string => {
@@ -128,10 +166,22 @@ export function serializeWorld(state: WorldState): string {
     unlocked: state.unlocked,
     cities: Object.fromEntries(
       [...state.cities].map(([k, v]) =>
-        v.fingerprint === null ? [k, toBase64(v.states)] : [k, { f: v.fingerprint, s: toBase64(v.states) }],
+        v.fingerprint === null
+          ? [k, toBase64(v.states)]
+          : [
+              k,
+              {
+                f: v.fingerprint,
+                s: toBase64(v.states),
+                ...(v.stainFingerprint === null ? {} : { sf: v.stainFingerprint, st: toBase64(v.stains) }),
+              },
+            ],
       ),
     ),
     player: state.player,
+    clock: state.clock,
+    // grown-back sources are the same as never harvested; drop them to keep saves small
+    harvested: Object.fromEntries([...state.harvested].filter(([id]) => !sourceReady(state, id))),
   };
   return JSON.stringify(json);
 }
@@ -155,15 +205,34 @@ export function deserializeWorld(text: string): WorldState {
     id: json.id,
     seed: json.seed,
     name: String(json.name ?? '世界'),
-    inventory: { generic: Math.max(0, Math.floor(json.inventory?.generic ?? 0)), colored },
+    inventory: {
+      generic: Math.max(0, Math.floor(json.inventory?.generic ?? 0)),
+      colored,
+      ink: Math.max(0, Math.floor(json.inventory?.ink ?? 0)),
+    },
     unlocked: (json.unlocked ?? []).filter((c) => PAINTABLE.includes(c)),
     cities: new Map(
       Object.entries(json.cities ?? {}).map(([k, v]): [string, CitySave] =>
         typeof v === 'string'
-          ? [k, { fingerprint: null, states: fromBase64(v) }]
-          : [k, { fingerprint: Number.isInteger(v.f) ? v.f : null, states: fromBase64(v.s) }],
+          ? [
+              k,
+              { fingerprint: null, states: fromBase64(v), stainFingerprint: null, stains: new Uint8Array() },
+            ]
+          : [
+              k,
+              {
+                fingerprint: Number.isInteger(v.f) ? v.f : null,
+                states: fromBase64(v.s),
+                stainFingerprint: Number.isInteger(v.sf) ? v.sf! : null,
+                stains: v.st ? fromBase64(v.st) : new Uint8Array(),
+              },
+            ],
       ),
     ),
     player: json.player ?? null,
+    clock: Number.isFinite(json.clock) ? Math.max(0, json.clock!) : 0,
+    harvested: new Map(
+      Object.entries(json.harvested ?? {}).filter((e): e is [string, number] => Number.isFinite(e[1])),
+    ),
   };
 }

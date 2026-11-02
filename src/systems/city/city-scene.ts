@@ -11,6 +11,8 @@ import { isColored } from '@/world/paint/surfaces';
 import { cityStates } from '@/world/state';
 import type { Entrance } from '@/world/wilderness/generator';
 import { buildCity } from './build-city';
+import { InkStains } from './ink-stains';
+import { Studios } from './studios';
 
 export class CityScene implements GameScene {
   readonly ref: { readonly kind: 'city'; readonly id: string };
@@ -28,6 +30,8 @@ export class CityScene implements GameScene {
   private exiting = false;
   /** True when the saved states belonged to an older layout and were discarded. */
   readonly wasReset: boolean;
+  readonly stains: InkStains;
+  private readonly studios: Studios;
 
   constructor(
     private readonly ctx: GameContext,
@@ -37,7 +41,7 @@ export class CityScene implements GameScene {
     this.ref = { kind: 'city', id: layout.id };
     this.name = layout.name;
     this.root.name = `city:${layout.id}`;
-    const { states, reset } = cityStates(ctx.state, layout.id, layout.surfaces);
+    const { states, stains, reset } = cityStates(ctx.state, layout.id, layout);
     this.states = states;
     this.wasReset = reset;
     if (reset) ctx.events.emit('toast', { text: `${layout.name}的布局已更新，颜色进度已重置`, seconds: 6 });
@@ -55,10 +59,13 @@ export class CityScene implements GameScene {
     this.material = makeInkMaterial({ state: this.texture });
     const g = buildCity(layout, this.physics);
     this.root.add(new THREE.Mesh(g.build(), this.material));
+    this.stains = new InkStains(ctx, layout, stains, this.material, this.root);
+    this.studios = new Studios(ctx, layout, states, (c) => this.progress(c), this.material, this.root);
 
     this.release.push(
       ctx.events.on('patch:applied', ({ patch }) => {
-        if (patch.kind === 'grant' || patch.city !== layout.id) return;
+        if (patch.kind !== 'restore' && patch.kind !== 'paint' && patch.kind !== 'drain') return;
+        if (patch.city !== layout.id) return;
         const before = isColored(this.texture.get(patch.surface));
         const after = isColored(this.states[patch.surface]!);
         if (before !== after) {
@@ -120,6 +127,7 @@ export class CityScene implements GameScene {
   /** Walking out through a gate leaves the city, same as pressing E there. */
   update(): void {
     if (this.exiting) return;
+    this.stains.update();
     const p = this.ctx.player.position;
     const s = this.layout.size;
     if (p.x < 0 || p.z < 0 || p.x > s || p.z > s) {
@@ -129,6 +137,8 @@ export class CityScene implements GameScene {
   }
 
   dispose(): void {
+    this.stains.dispose();
+    this.studios.dispose();
     for (const r of this.release) r();
     this.texture.dispose();
     this.material.dispose();

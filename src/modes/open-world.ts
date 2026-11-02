@@ -7,6 +7,7 @@ import { Loop } from '@/game/loop';
 import type { GameContext, System } from '@/game/types';
 import { Hud } from '@/shell/hud';
 import { CityRegistry } from '@/systems/city/city-registry';
+import { ClockSystem } from '@/systems/clock/clock';
 import { DebugPanel } from '@/systems/debug/debug-panel';
 import { InteractionSystem } from '@/systems/interaction/interaction';
 import { PlayerSystem } from '@/systems/player/player';
@@ -19,6 +20,7 @@ import { applyPatch } from '@/world/patch';
 import type { WorldState } from '@/world/state';
 import type { WorldStore } from '@/world/store';
 import { createWilderness } from '@/world/wilderness/generator';
+import { sourceById } from '@/world/wilderness/sources';
 
 type Mutable<T> = { -readonly [K in keyof T]: T[K] };
 
@@ -48,7 +50,8 @@ export function startOpenWorld(opts: {
   ctx.cities = new CityRegistry(ctx);
   ctx.apply = (patch) => {
     const result = applyPatch(ctx.state, patch, {
-      surfacesOf: (id) => ctx.cities.byId(id)?.surfaces ?? null,
+      cityOf: (id) => ctx.cities.byId(id) ?? null,
+      sourceOf: (id) => sourceById(ctx.wilderness, id),
     });
     if (result.ok) ctx.events.emit('patch:applied', { patch });
     else ctx.events.emit('patch:rejected', { patch, reason: result.reason });
@@ -63,12 +66,13 @@ export function startOpenWorld(opts: {
   ctx.scenes = scenes;
   const belt = new ToolBelt(ctx, [new Brush(ctx)]);
   const save = new SaveSystem(ctx, opts.store);
+  const clock = new ClockSystem(ctx);
   const hud = new Hud(ctx, opts.hudRoot, belt, scenes);
   const debug = new DebugPanel(ctx, opts.hudRoot.parentElement ?? opts.hudRoot);
 
   // Order matters: movement, then the scene streams around the new position, then
   // interaction/tools read the settled camera, then HUD and save observe the result.
-  const systems: System[] = [player, scenes, interactions, belt, hud, save, debug];
+  const systems: System[] = [clock, player, scenes, interactions, belt, hud, save, debug];
 
   scenes.restore(opts.state.player);
 

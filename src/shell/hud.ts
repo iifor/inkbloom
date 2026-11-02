@@ -11,7 +11,7 @@ const css = (rgb: readonly number[]): string => `rgb(${rgb.map((v) => Math.round
 export class Hud implements System {
   readonly id = 'hud';
   private readonly el: Record<
-    'place' | 'progress' | 'slots' | 'lines' | 'bar' | 'barFill' | 'prompt' | 'toasts' | 'swatch',
+    'place' | 'progress' | 'res' | 'slots' | 'lines' | 'bar' | 'barFill' | 'prompt' | 'toasts' | 'swatch',
     HTMLElement
   >;
   private readonly cache = new Map<string, string>();
@@ -24,7 +24,7 @@ export class Hud implements System {
     private readonly scenes: SceneManager,
   ) {
     root.innerHTML = `
-      <div class="hud-place"><b data-k="place"></b><span data-k="progress"></span></div>
+      <div class="hud-place"><b data-k="place"></b><span data-k="progress"></span><div class="hud-res" data-k="res"></div></div>
       <div class="hud-cross"></div>
       <div class="hud-bar" data-k="bar"><i data-k="barFill"></i></div>
       <div class="hud-prompt" data-k="prompt"></div>
@@ -34,6 +34,7 @@ export class Hud implements System {
     this.el = {
       place: q('place'),
       progress: q('progress'),
+      res: q('res'),
       slots: q('slots'),
       lines: q('lines'),
       bar: q('bar'),
@@ -62,13 +63,17 @@ export class Hud implements System {
     const scene = this.scenes.active;
     this.set('place', this.el.place, scene.name);
     if (scene instanceof CityScene) {
-      const here = scene.progress(scene.chunkAt(this.ctx.player.position));
+      const chunk = scene.chunkAt(this.ctx.player.position);
+      const here = scene.progress(chunk);
+      const stains = scene.stains.remaining(chunk);
       this.set(
         'progress',
         this.el.progress,
-        ` 街区有色 ${Math.round(here * 100)}% · 全城 ${Math.round(scene.progress() * 100)}%`,
+        ` 街区有色 ${Math.round(here * 100)}% · 全城 ${Math.round(scene.progress() * 100)}% · 本街区墨渍 ${stains}`,
       );
     } else this.set('progress', this.el.progress, '');
+    const inv = this.ctx.state.inventory;
+    this.set('res', this.el.res, `墨 ${inv.ink} · 通用颜料 ${inv.generic}`);
 
     this.set(
       'slots',
