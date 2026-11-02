@@ -45,9 +45,19 @@ export class CombatSystem implements System, CombatApi {
     if (best) {
       const killed = best.damage(damage, origin);
       this.ctx.events.emit('shot:hit', { killed });
-      return { point: origin.clone().addScaledVector(dir, best.dist), hitTarget: true, killed };
+      return {
+        point: origin.clone().addScaledVector(dir, best.dist),
+        hitTarget: true,
+        hitWorld: false,
+        killed,
+      };
     }
-    return { point: origin.clone().addScaledVector(dir, wallDist), hitTarget: false, killed: false };
+    return {
+      point: origin.clone().addScaledVector(dir, wallDist),
+      hitTarget: false,
+      hitWorld: wall !== null,
+      killed: false,
+    };
   }
 
   strike(

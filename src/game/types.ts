@@ -109,6 +109,8 @@ export interface ShotResult {
   readonly point: THREE.Vector3;
   /** A target (not the world) was hit. */
   readonly hitTarget: boolean;
+  /** The shot stopped on the world (a wall or the ground) rather than flying out of range. */
+  readonly hitWorld: boolean;
   readonly killed: boolean;
 }
 

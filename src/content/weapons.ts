@@ -17,6 +17,25 @@ export interface SkillDef {
   readonly help: string;
 }
 
+/** How a shot looks and feels in hand. Pure presentation: no effect on damage or aim. */
+export interface ShotLook {
+  /** Muzzle position in the viewmodel's own space (metres). */
+  readonly muzzle: readonly [number, number, number];
+  /** Muzzle flash size; 0 for none. */
+  readonly flash: number;
+  /** Viewmodel kick per shot (1 = rifle). */
+  readonly recoil: number;
+  /** The visible bullet, flying from the muzzle to where the shot landed. Hits are instant. */
+  readonly tracer?: {
+    /** Metres per second; slower reads as heavier and is easier to see. */
+    readonly speed: number;
+    /** Streak length and thickness, metres. */
+    readonly length: number;
+    readonly width: number;
+    readonly color: number;
+  };
+}
+
 export interface WeaponDef {
   readonly key: string;
   readonly name: string;
@@ -35,6 +54,7 @@ export interface WeaponDef {
   readonly unlock: Unlock;
   /** Viewmodel: main and accent colours. */
   readonly look: readonly [number, number];
+  readonly shot?: ShotLook;
 }
 
 export const WEAPONS = [
@@ -52,6 +72,12 @@ export const WEAPONS = [
     skill: { name: '战术闪避', cooldown: 7, help: '向移动方向闪避，得到 4 秒护盾' },
     unlock: { kind: 'start' },
     look: [color('charcoal'), color('brown')],
+    shot: {
+      muzzle: [0, 0.003, -0.63],
+      flash: 1,
+      recoil: 1,
+      tracer: { speed: 320, length: 3.5, width: 0.02, color: color('yellow') },
+    },
   },
   {
     key: 'katana',
@@ -82,6 +108,12 @@ export const WEAPONS = [
     skill: { name: '专注射击', cooldown: 10, help: '4 秒内伤害 ×1.5，视野拉近' },
     unlock: { kind: 'level', level: 3, text: '升到 3 级' },
     look: [color('teal'), color('charcoal')],
+    shot: {
+      muzzle: [0, 0.004, -0.96],
+      flash: 1.7,
+      recoil: 2.6,
+      tracer: { speed: 520, length: 9, width: 0.03, color: color('cream') },
+    },
   },
   {
     key: 'launcher',
@@ -97,6 +129,7 @@ export const WEAPONS = [
     skill: { name: '蓄力炮击', cooldown: 10, help: '一发大炮弹，范围和伤害翻倍' },
     unlock: { kind: 'milestone', id: 'first-tide', text: '第一次守住墨潮' },
     look: [color('orange'), color('charcoal')],
+    shot: { muzzle: [0, -0.01, -0.62], flash: 2.2, recoil: 2.2 },
   },
   {
     key: 'staff',
@@ -112,6 +145,12 @@ export const WEAPONS = [
     skill: { name: '墨能法阵', cooldown: 8, help: '在准星处放一个 4 秒的法阵，持续伤害' },
     unlock: { kind: 'restored', count: 1, text: '恢复第一座城' },
     look: [color('purple'), color('yellow')],
+    shot: {
+      muzzle: [0, -0.27, -0.33],
+      flash: 0.9,
+      recoil: 0.5,
+      tracer: { speed: 140, length: 1.6, width: 0.07, color: color('purple') },
+    },
   },
 ] as const satisfies readonly WeaponDef[];
 

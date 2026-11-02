@@ -46,6 +46,9 @@ export class AudioSystem implements System {
       on('shot:hit', ({ killed }) =>
         s.tone({ freq: killed ? 1400 : 2200, dur: killed ? 0.12 : 0.05, gain: 0.08, type: 'square' }),
       ),
+      on('shot:impact', ({ at }) =>
+        s.noise({ dur: 0.05, gain: 0.12, type: 'bandpass', freq: 2600, q: 1.4, pos: at }),
+      ),
       on('monster:hit', ({ at }) =>
         s.noise({ dur: 0.09, gain: 0.35, type: 'bandpass', freq: 650, q: 3, pos: at }),
       ),

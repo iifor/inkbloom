@@ -49,7 +49,7 @@
 
 - 墨怪种类：[src/content/enemies.ts](../src/content/enemies.ts) 的 `ENEMIES` **末尾**追加（生命、速度、体型、发现距离、掉墨、攻击方式）。攻击方式 `melee`（近身咬）或 `spit`（远程吐墨）决定 AI 走哪一支；要新的行为，在 [src/systems/combat/monsters.ts](../src/systems/combat/monsters.ts) 的 `update` 里按 `attack.kind` 加一支
 - 据点规模、墨潮带几只、玩家生命和回血、死亡掉墨比例：`tuning.ts` 的 `combat`
-- 步枪：`tuning.ts` 的 `rifle`。新武器写成一个 `Tool`（参考 [src/systems/tools/rifle.ts](../src/systems/tools/rifle.ts)），用 `ctx.combat.shoot()` 打，自己不需要知道有哪些墨怪
+- 武器数值在 [src/content/weapons.ts](../src/content/weapons.ts)（见下一节）。攻击都走 `ctx.combat.shoot()` / `strike()` / `blast()`，武器自己不需要知道有哪些墨怪
 - 让新的东西能被打：实现 `TargetSource`，用 `ctx.combat.addTargets()` 注册（`MonsterGroup` 就是这样做的）
 - 改据点数量或位置只会重置"已打败"标记，不会重置涂色进度
 - 野外墨怪多少：`tuning.ts` 的 `combat.wild`（按地面饱和度分档）和 `combat.wildRespawnSeconds`
@@ -58,6 +58,13 @@
 ## 加一种武器
 
 [src/content/weapons.ts](../src/content/weapons.ts) 的 `WEAPONS` **末尾**追加：种类（`gun` 枪 / `melee` 近战 / `launcher` 炮）、伤害、射速、弹匣、范围、技能、解锁条件（开局 / 某个里程碑 / 等级 / 恢复几座城）、外观颜色。持枪模型和技能效果在 [src/systems/tools/weapons.ts](../src/systems/tools/weapons.ts) 按 `key` 加分支（`viewModel` 和 `skill`）。
+
+开枪的手感在同一项的 `shot` 里，只管画面，不影响伤害和准度：
+
+- `muzzle`：枪口在持枪模型里的位置，子弹和火光从这里出来；改了 `viewModel` 的枪管长度要跟着改
+- `flash`：枪口火光大小（0 不要火光）；`recoil`：每枪后坐的力度（步枪为 1）
+- `tracer`：飞出去的弹道，速度（米/秒）、长度、粗细、颜色。命中是瞬间判定的，弹道只是让眼睛跟得上，太慢会出现"数字先跳、子弹后到"
+- 画法在 [src/systems/tools/shot-fx.ts](../src/systems/tools/shot-fx.ts)：弹道离枪口 0.35 米才开始画（不会和枪管粘在一起），远处自动加粗保持约 2 像素；打到墙时发 `shot:impact`，特效和声音在各自系统里响应
 
 ## 调成长
 

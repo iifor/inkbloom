@@ -45,6 +45,8 @@ export interface GameEvents {
   'player:land': { readonly impact: number };
   'player:died': { readonly lostInk: number };
   'shot:hit': { readonly killed: boolean };
+  /** A bullet's streak reached the wall or ground it hit (a little after the instant hit). */
+  'shot:impact': { readonly at: Point3 };
   toast: { readonly text: string; readonly seconds?: number };
 }
 

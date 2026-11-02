@@ -71,6 +71,11 @@ export class EffectsSystem implements System {
       on('paint:drained', ({ at }) =>
         this.burst(at, { count: 8, color: ink, speed: 1.5, size: 0.08, lift: -6 }),
       ),
+      on('shot:impact', ({ at }) => {
+        // a puff of paper dust and a few ink chips off the wall
+        this.burst(at, { count: 4, color: color('cream'), speed: 1.2, size: 0.07, lift: -2, life: 0.4 });
+        this.burst(at, { count: 3, color: ink, speed: 2.5, up: 1, size: 0.035, lift: -9, life: 0.5 });
+      }),
       on('monster:hit', ({ at }) => this.burst(at, { count: 6, color: ink, speed: 4, size: 0.09, lift: -9 })),
       on('monster:died', ({ at }) => {
         this.burst(at, { count: 26, color: ink, speed: 6, up: 2, size: 0.14, lift: -9, life: 0.9 });
