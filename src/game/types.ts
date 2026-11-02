@@ -38,6 +38,8 @@ export interface Interactable {
   readonly radius: number;
   label(): string;
   activate(): void;
+  /** Optional second action on F, shown under the main prompt (null hides it). */
+  alt?: { label(): string | null; activate(): void };
 }
 
 export interface PlayerApi {

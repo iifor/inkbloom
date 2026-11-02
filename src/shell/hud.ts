@@ -5,6 +5,7 @@ import type { GameContext, System } from '@/game/types';
 import { CityScene } from '@/systems/city/city-scene';
 import type { SceneManager } from '@/systems/scenes/scene-manager';
 import type { ToolBelt } from '@/systems/tools/tool';
+import type { ObjectiveSystem } from './objectives';
 import { SIDE_NAMES, type TideStatus } from '@/systems/city/ink-tide';
 import { BLOCK_NAMES, blockState } from '@/world/city/blocks';
 
@@ -24,6 +25,7 @@ export class Hud implements System {
     | 'place'
     | 'progress'
     | 'res'
+    | 'goal'
     | 'tide'
     | 'slots'
     | 'lines'
@@ -42,9 +44,10 @@ export class Hud implements System {
     private readonly root: HTMLElement,
     private readonly belt: ToolBelt,
     private readonly scenes: SceneManager,
+    private readonly objectives: ObjectiveSystem,
   ) {
     root.innerHTML = `
-      <div class="hud-place"><b data-k="place"></b><span data-k="progress"></span><div class="hud-res" data-k="res"></div></div>
+      <div class="hud-place"><b data-k="place"></b><span data-k="progress"></span><div class="hud-res" data-k="res"></div><div class="hud-goal" data-k="goal"></div></div>
       <div class="hud-tide" data-k="tide"></div>
       <div class="hud-cross"></div>
       <div class="hud-bar" data-k="bar"><i data-k="barFill"></i></div>
@@ -56,6 +59,7 @@ export class Hud implements System {
       place: q('place'),
       progress: q('progress'),
       res: q('res'),
+      goal: q('goal'),
       tide: q('tide'),
       slots: q('slots'),
       lines: q('lines'),
@@ -100,6 +104,7 @@ export class Hud implements System {
     }
     const inv = this.ctx.state.inventory;
     this.set('res', this.el.res, `墨 ${inv.ink} · 通用颜料 ${inv.generic}`);
+    this.set('goal', this.el.goal, this.objectives.text);
 
     this.set(
       'slots',
@@ -118,7 +123,9 @@ export class Hud implements System {
     const p = hud?.progress ?? null;
     this.el.bar.style.visibility = p === null ? 'hidden' : 'visible';
     if (p !== null) this.el.barFill.style.width = `${Math.round(p * 100)}%`;
-    this.set('prompt', this.el.prompt, this.ctx.interactions.focused?.label() ?? '');
+    const focused = this.ctx.interactions.focused;
+    const alt = focused?.alt?.label() ?? null;
+    this.set('prompt', this.el.prompt, focused ? focused.label() + (alt ? `\n${alt}` : '') : '');
   }
 
   dispose(): void {

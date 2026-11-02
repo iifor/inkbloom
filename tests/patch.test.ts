@@ -3,7 +3,15 @@ import { color } from '@/content/palette';
 import { TUNING } from '@/content/tuning';
 import { applyPatch, type PatchContext } from '@/world/patch';
 import { DRAINED, ORIGINAL, coloredRatio, graffiti, type SurfaceInfo } from '@/world/paint/surfaces';
-import { SaveError, cityStates, createWorldState, deserializeWorld, serializeWorld } from '@/world/state';
+import {
+  SaveError,
+  cityStates,
+  createWorldState,
+  deserializeWorld,
+  savedProgress,
+  serializeWorld,
+} from '@/world/state';
+import { BRUSH_TIERS } from '@/content/brush-tiers';
 import { KeyValueStore, MemoryKeyValue } from '@/world/store';
 import type { CitySkeleton } from '@/world/city/features';
 import type { PigmentSource } from '@/world/wilderness/sources';
@@ -14,6 +22,7 @@ const SURFACES: SurfaceInfo[] = [
   { kind: 'door', chunk: 1, color: color('blue'), area: 4, x: 140, z: 10 },
 ];
 const SKEL: CitySkeleton = {
+  chunks: 2,
   surfaces: SURFACES,
   stains: [
     { x: 10, z: 10, chunk: 0, size: 1 },
@@ -283,5 +292,45 @@ describe('spend', () => {
     expect(applyPatch(s, { kind: 'spend', generic: g }, ctx)).toEqual({ ok: false, reason: '通用颜料不足' });
     expect(applyPatch(s, { kind: 'spend', ink: 5 }, ctx).ok).toBe(false);
     expect(s.inventory.ink).toBe(2);
+  });
+});
+
+describe('city completion', () => {
+  const ONE: CitySkeleton = { ...SKEL, chunks: 1, surfaces: SURFACES.map((x) => ({ ...x, chunk: 0 })) };
+  const one: PatchContext = { ...ctx, cityOf: (id) => (id === 'c' ? ONE : null) };
+
+  it('needs every block coloured, pays once, and reads as fully restored', () => {
+    const s = createWorldState('w', 1);
+    s.inventory.generic = 100;
+    expect(applyPatch(s, { kind: 'complete', city: 'c' }, one)).toEqual({
+      ok: false,
+      reason: '还有街区没有颜色',
+    });
+    for (let i = 0; i < 3; i++) applyPatch(s, { kind: 'restore', city: 'c', surface: i }, one);
+    const before = s.inventory.generic;
+    expect(applyPatch(s, { kind: 'complete', city: 'c' }, one).ok).toBe(true);
+    expect(s.inventory.generic).toBe(before + TUNING.city.completeReward.generic);
+    expect(applyPatch(s, { kind: 'complete', city: 'c' }, one).ok).toBe(false);
+    expect(savedProgress(s, 'c')).toBe(1);
+    expect(deserializeWorld(serializeWorld(s)).cities.get('c')!.completed).toBe(true);
+  });
+});
+
+describe('brush upgrades', () => {
+  it('buy the next tier, refuse when short, stop at the top', () => {
+    const s = createWorldState('w', 1);
+    s.inventory.generic = 0;
+    expect(applyPatch(s, { kind: 'upgrade', tool: 'brush' }, ctx).ok).toBe(false);
+    s.inventory.generic = 1000;
+    s.inventory.ink = 1000;
+    for (let t = 1; t < BRUSH_TIERS.length; t++) {
+      expect(applyPatch(s, { kind: 'upgrade', tool: 'brush' }, ctx).ok).toBe(true);
+      expect(s.inventory.brushTier).toBe(t);
+    }
+    expect(applyPatch(s, { kind: 'upgrade', tool: 'brush' }, ctx)).toEqual({
+      ok: false,
+      reason: '笔刷已经是最好的了',
+    });
+    expect(deserializeWorld(serializeWorld(s)).inventory.brushTier).toBe(BRUSH_TIERS.length - 1);
   });
 });

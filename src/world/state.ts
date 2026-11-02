@@ -3,6 +3,7 @@
 // SAVE_VERSION and a note in docs/EXTENDING.md.
 import { PALETTE, PAINTABLE, color } from '@/content/palette';
 import { TUNING } from '@/content/tuning';
+import { BRUSH_TIERS } from '@/content/brush-tiers';
 import { surfaceFingerprint } from './paint/surfaces';
 import { type CitySkeleton, stainFingerprint } from './city/features';
 
@@ -17,6 +18,8 @@ export interface Inventory {
   colored: number[];
   /** Raw ink, refined into generic pigment at a studio. */
   ink: number;
+  /** Index into BRUSH_TIERS. */
+  brushTier: number;
 }
 
 export interface PlayerSave {
@@ -52,6 +55,8 @@ export interface CitySave {
   stainFingerprint: number | null;
   /** 1 per ink stain already soaked up. */
   stains: Uint8Array;
+  /** Every block had colour at once; the city is restored for good. */
+  completed: boolean;
 }
 
 export const STARTING_COLORS = [color('red'), color('blue'), color('yellow'), color('green')];
@@ -64,7 +69,7 @@ export function createWorldState(id: string, seed: number, name = '新世界'): 
     id,
     seed,
     name,
-    inventory: { generic: TUNING.brush.startingGeneric, colored, ink: 0 },
+    inventory: { generic: TUNING.brush.startingGeneric, colored, ink: 0, brushTier: 0 },
     unlocked: [...STARTING_COLORS],
     cities: new Map(),
     player: null,
@@ -95,6 +100,7 @@ export function cityStates(
     if (saved.fingerprint !== fingerprint) {
       saved.fingerprint = fingerprint;
       saved.states = new Uint8Array(skel.surfaces.length);
+      saved.completed = false;
       reset = true;
     }
   } else {
@@ -103,6 +109,7 @@ export function cityStates(
       states: new Uint8Array(skel.surfaces.length),
       stainFingerprint: stainFp,
       stains: new Uint8Array(skel.stains.length),
+      completed: false,
     };
     state.cities.set(cityId, saved);
   }
@@ -119,9 +126,10 @@ export function sourceReady(state: WorldState, id: string): boolean {
   return t === undefined || state.clock - t >= TUNING.economy.regrowSeconds;
 }
 
-/** Share of coloured surfaces from saved state alone (no skeleton needed). */
+/** Share of coloured surfaces from saved state alone (no skeleton needed); 1 once restored. */
 export function savedProgress(state: WorldState, cityId: string): number {
   const saved = state.cities.get(cityId);
+  if (saved?.completed) return 1;
   if (!saved || saved.states.length === 0) return 0;
   let colored = 0;
   for (const s of saved.states) if (s !== 0) colored++;
@@ -138,7 +146,7 @@ interface WorldJson {
   inventory: Inventory;
   unlocked: number[];
   /** v2: { f, s, sf?, st? } (fingerprints and base64 bytes); v1: base64 states. */
-  cities: Record<string, { f: number; s: string; sf?: number; st?: string } | string>;
+  cities: Record<string, { f: number; s: string; sf?: number; st?: string; c?: 1 } | string>;
   player: PlayerSave | null;
   clock?: number;
   harvested?: Record<string, number>;
@@ -174,6 +182,7 @@ export function serializeWorld(state: WorldState): string {
                 f: v.fingerprint,
                 s: toBase64(v.states),
                 ...(v.stainFingerprint === null ? {} : { sf: v.stainFingerprint, st: toBase64(v.stains) }),
+                ...(v.completed ? { c: 1 as const } : {}),
               },
             ],
       ),
@@ -209,6 +218,7 @@ export function deserializeWorld(text: string): WorldState {
       generic: Math.max(0, Math.floor(json.inventory?.generic ?? 0)),
       colored,
       ink: Math.max(0, Math.floor(json.inventory?.ink ?? 0)),
+      brushTier: Math.min(BRUSH_TIERS.length - 1, Math.max(0, Math.floor(json.inventory?.brushTier ?? 0))),
     },
     unlocked: (json.unlocked ?? []).filter((c) => PAINTABLE.includes(c)),
     cities: new Map(
@@ -216,7 +226,13 @@ export function deserializeWorld(text: string): WorldState {
         typeof v === 'string'
           ? [
               k,
-              { fingerprint: null, states: fromBase64(v), stainFingerprint: null, stains: new Uint8Array() },
+              {
+                fingerprint: null,
+                states: fromBase64(v),
+                stainFingerprint: null,
+                stains: new Uint8Array(),
+                completed: false,
+              },
             ]
           : [
               k,
@@ -225,6 +241,7 @@ export function deserializeWorld(text: string): WorldState {
                 states: fromBase64(v.s),
                 stainFingerprint: Number.isInteger(v.sf) ? v.sf! : null,
                 stains: v.st ? fromBase64(v.st) : new Uint8Array(),
+                completed: v.c === 1,
               },
             ],
       ),

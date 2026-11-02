@@ -30,7 +30,7 @@ export class Erosion {
         (this.owed.get(c) ?? 0) + (this.host.surfaceCount(c) * TUNING.blocks.erosionPerMinute * dt) / 60;
       const from = drainedSides(blocks, c)[0]!;
       while (owed >= 1) {
-        const s = nextToErode(this.states, this.layout.surfaces, c, from, this.layout.size);
+        const s = nextToErode(this.states, this.layout.surfaces, c, from, this.layout);
         if (s < 0) break;
         this.ctx.apply({ kind: 'drain', city: this.layout.id, surface: s });
         owed -= 1;

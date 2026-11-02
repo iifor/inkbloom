@@ -14,7 +14,7 @@ export class CityRegistry implements CityApi {
   layout(entrance: Entrance): CityLayout {
     let l = this.layouts.get(entrance.cityId);
     if (!l) {
-      l = generateCity(entrance.cityId, entrance.seed);
+      l = generateCity(entrance.cityId, entrance.seed, entrance.chunks);
       this.layouts.set(entrance.cityId, l);
       this.entrances.set(entrance.cityId, entrance);
     }

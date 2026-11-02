@@ -19,6 +19,8 @@ export interface Entrance {
   readonly y: number;
   readonly landmark: number;
   readonly seed: number;
+  /** City size in blocks per side. */
+  readonly chunks: number;
   /** Unit direction from the landmark to its door, axis-aligned. */
   readonly door: readonly [number, number];
 }
@@ -111,6 +113,7 @@ export function createWilderness(seed: number): Wilderness {
         y: Math.round(Math.max(base, 0.5) / W.terraceStep) * W.terraceStep,
         landmark: h % LANDMARKS.length,
         seed: h,
+        chunks: first ? TUNING.city.firstCityChunks : TUNING.city.chunks,
         door,
       };
     }

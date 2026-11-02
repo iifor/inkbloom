@@ -34,6 +34,17 @@
 
 `tuning.ts` 的 `blocks`：清理中 / 有色 / 繁荣的比例门槛、侵蚀速度。有色门槛同时是画室开门的条件。`tide`：间隔、首次延迟、预警和持续时间、墨帘推进多深（`reach`）、推回速度和花费、守住的门槛、奖励。规则本身在 [src/world/city/blocks.ts](../src/world/city/blocks.ts)（纯函数，有测试），表现和计时在 [src/systems/city/ink-tide.ts](../src/systems/city/ink-tide.ts)、[erosion.ts](../src/systems/city/erosion.ts)。开发时可在控制台用 `inkbloom.tide()` 立刻触发一次墨潮。
 
+## 调第一座城、通关奖励、笔刷升级
+
+- 第一座城的大小：`tuning.ts` 的 `city.firstCityChunks`；其他城：`city.chunks`。改了会重置那座城的进度（布局变了）
+- 通关奖励：`city.completeReward`
+- 笔刷档位：[src/content/brush-tiers.ts](../src/content/brush-tiers.ts)，**末尾**追加；`cost` 是从上一档升到这一档的花费
+- 目标提示的文字和顺序：[src/world/objectives.ts](../src/world/objectives.ts) 的 `objective()`，有测试
+
+## 给"按 E"的东西加第二个动作
+
+`Interactable` 可以带 `alt: { label, activate }`，玩家按 F 触发，提示显示在主提示下面；`label()` 返回 `null` 时隐藏。画室的"升级笔刷"就是这样做的。
+
 ## 加一种建筑 / 地标模板
 
 [src/content/templates.ts](../src/content/templates.ts) 的 `BUILDINGS` 或 `LANDMARKS` 加一项。参数都是范围或可选列表；生成器从里面挑。`weight` 越大越常见。

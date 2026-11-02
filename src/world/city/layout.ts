@@ -61,6 +61,8 @@ export interface Block {
 }
 
 export interface CityLayout extends CitySkeleton {
+  /** Blocks (chunks) per side. */
+  readonly chunks: number;
   readonly id: string;
   readonly seed: number;
   readonly name: string;
@@ -83,10 +85,10 @@ export interface CityLayout extends CitySkeleton {
   readonly spawn: { readonly x: number; readonly z: number; readonly yaw: number };
 }
 
-export function generateCity(id: string, seed: number): CityLayout {
+export function generateCity(id: string, seed: number, chunks: number = TUNING.city.chunks): CityLayout {
   const cfg = TUNING.city;
   const cell = cfg.cell;
-  const n = Math.round((cfg.chunks * TUNING.world.chunkSize) / cell);
+  const n = Math.round((chunks * TUNING.world.chunkSize) / cell);
   const rng = new Rng(seed);
   const idx = (ix: number, iz: number): number => iz * n + ix;
   const inside = (ix: number, iz: number): boolean => ix >= 1 && iz >= 1 && ix < n - 1 && iz < n - 1;
@@ -316,8 +318,8 @@ export function generateCity(id: string, seed: number): CityLayout {
   const surfaces: SurfaceInfo[] = [];
   const chunkCells = TUNING.world.chunkSize / cell;
   const chunkOf = (x: number, z: number): number =>
-    Math.min(cfg.chunks - 1, Math.floor(z / chunkCells)) * cfg.chunks +
-    Math.min(cfg.chunks - 1, Math.floor(x / chunkCells));
+    Math.min(chunks - 1, Math.floor(z / chunkCells)) * chunks +
+    Math.min(chunks - 1, Math.floor(x / chunkCells));
   const addSurface = (
     kind: SurfaceKind,
     chunk: number,
@@ -493,6 +495,7 @@ export function generateCity(id: string, seed: number): CityLayout {
   const name = rng.pick(CITY_PREFIX) + rng.pick(CITY_SUFFIX);
   const base = {
     id,
+    chunks,
     seed,
     name,
     n,
@@ -511,5 +514,8 @@ export function generateCity(id: string, seed: number): CityLayout {
       yaw: 0,
     },
   };
-  return { ...base, ...placeFeatures({ seed, n, cell, roads, surfaces, buildings, spawn: base.spawn }) };
+  return {
+    ...base,
+    ...placeFeatures({ seed, n, cell, chunks, roads, surfaces, buildings, spawn: base.spawn }),
+  };
 }

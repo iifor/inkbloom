@@ -24,6 +24,8 @@ export interface Studio {
 
 /** The parts of a city that saves and patches are checked against. */
 export interface CitySkeleton {
+  /** Blocks per side. */
+  readonly chunks: number;
   readonly surfaces: readonly SurfaceInfo[];
   readonly stains: readonly Stain[];
   readonly studios: readonly Studio[];
@@ -34,6 +36,8 @@ export interface CitySkeleton {
 interface FeatureInput {
   readonly seed: number;
   readonly n: number;
+  /** Blocks per side. */
+  readonly chunks: number;
   readonly cell: number;
   readonly roads: Uint8Array;
   readonly surfaces: readonly SurfaceInfo[];
@@ -50,9 +54,9 @@ interface FeatureInput {
   readonly spawn: { readonly x: number; readonly z: number };
 }
 
-export function placeFeatures(c: FeatureInput): Omit<CitySkeleton, 'surfaces'> {
+export function placeFeatures(c: FeatureInput): Omit<CitySkeleton, 'surfaces' | 'chunks'> {
   const { n, cell, roads } = c;
-  const side = TUNING.city.chunks;
+  const side = c.chunks;
   const chunkCells = n / side;
   const chunkOfCell = (ix: number, iz: number): number =>
     Math.min(side - 1, Math.floor(iz / chunkCells)) * side + Math.min(side - 1, Math.floor(ix / chunkCells));

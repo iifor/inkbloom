@@ -2,7 +2,7 @@
 // graffiti mode paints a chosen colour with that colour's pigment. Hold the use button on a
 // surface for secondsPerSurface; switching target resets progress.
 import { PALETTE } from '@/content/palette';
-import { TUNING } from '@/content/tuning';
+import { BRUSH_TIERS } from '@/content/brush-tiers';
 import { surfaceAt } from '@/engine/physics/world';
 import type { GameContext } from '@/game/types';
 import { ORIGINAL, graffiti, surfaceCost } from '@/world/paint/surfaces';
@@ -47,7 +47,8 @@ export class Brush implements Tool {
     }
     const cityId = scene.ref.id;
     const layout = this.ctx.cities.byId(cityId);
-    const hit = scene.physics.raycast(player.eye, player.forward, TUNING.brush.range);
+    const tier = BRUSH_TIERS[this.ctx.state.inventory.brushTier] ?? BRUSH_TIERS[0];
+    const hit = scene.physics.raycast(player.eye, player.forward, tier.range);
     const surface = hit ? surfaceAt(hit) : null;
     if (surface === null || !layout) {
       this.target = null;
@@ -90,7 +91,7 @@ export class Brush implements Tool {
       this.progress = Math.max(0, this.progress - dt * 2);
       return;
     }
-    this.progress += dt / TUNING.brush.secondsPerSurface;
+    this.progress += dt / tier.secondsPerSurface;
     if (this.progress < 1) return;
     this.progress = 0;
     const r =

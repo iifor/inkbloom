@@ -41,6 +41,10 @@ export class InkStains {
     });
   }
 
+  isCollected(i: number): boolean {
+    return this.collected[i] === 1;
+  }
+
   remaining(chunk?: number): number {
     let n = 0;
     this.layout.stains.forEach((s, i) => {

@@ -7,6 +7,7 @@ export interface GameEvents {
   'patch:applied': { readonly patch: Patch };
   'patch:rejected': { readonly patch: Patch; readonly reason: string };
   'scene:entered': { readonly ref: SceneRef; readonly name: string };
+  'city:completed': { readonly city: string; readonly name: string };
   toast: { readonly text: string; readonly seconds?: number };
 }
 

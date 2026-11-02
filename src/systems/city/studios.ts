@@ -5,6 +5,7 @@
 import * as THREE from 'three';
 import { color } from '@/content/palette';
 import { TUNING } from '@/content/tuning';
+import { BRUSH_TIERS } from '@/content/brush-tiers';
 import { ALWAYS_COLOR, GeometryBuilder } from '@/engine/render/geometry-builder';
 import type { GameContext } from '@/game/types';
 import type { CityLayout } from '@/world/city/layout';
@@ -72,6 +73,7 @@ export class Studios {
           radius: 3,
           label: () => this.label(i),
           activate: () => this.refine(i),
+          alt: { label: () => this.upgradeLabel(i), activate: () => this.upgrade() },
         }),
       );
     });
@@ -90,6 +92,24 @@ export class Studios {
     return made > 0
       ? `E 画室：墨 ${made * per} → 通用颜料 ${made}`
       : `画室：墨不够（每 ${per} 墨提炼 1 通用颜料）`;
+  }
+
+  private upgradeLabel(i: number): string | null {
+    if (!studioOpen(this.layout, this.states, i)) return null;
+    const next = BRUSH_TIERS[this.ctx.state.inventory.brushTier + 1];
+    if (!next?.cost) return '笔刷已经是最好的了';
+    return `F 升级为${next.name}（通用颜料 ${next.cost.generic}，墨 ${next.cost.ink}）`;
+  }
+
+  private upgrade(): void {
+    const r = this.ctx.apply({ kind: 'upgrade', tool: 'brush' });
+    const tier = BRUSH_TIERS[this.ctx.state.inventory.brushTier]!;
+    this.ctx.events.emit('toast', {
+      text: r.ok
+        ? `换上了${tier.name}：够得更远（${tier.range} 米），涂得更快（${tier.secondsPerSurface} 秒一面）`
+        : r.reason,
+      seconds: r.ok ? 5 : 2.5,
+    });
   }
 
   private refine(i: number): void {

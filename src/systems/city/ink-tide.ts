@@ -65,7 +65,7 @@ export class InkTide {
     root: THREE.Object3D,
   ) {
     this.nextAt = ctx.state.clock + T.firstDelay;
-    this.per = layout.size / TUNING.city.chunks;
+    this.per = layout.size / layout.chunks;
     this.curtain = new THREE.Mesh(buildCurtain(this.per), material);
     this.curtain.visible = false;
     this.curtain.frustumCulled = false;
@@ -119,12 +119,12 @@ export class InkTide {
     if (!targets.length) return false;
     // strike near the player so the tide is something they can answer
     const here = this.host.chunkAt(this.ctx.player.position);
-    const side = TUNING.city.chunks;
+    const side = this.layout.chunks;
     const dist = (c: number): number =>
       Math.abs((c % side) - (here % side)) + Math.abs(Math.floor(c / side) - Math.floor(here / side));
     targets.sort((a, b) => dist(a.chunk) - dist(b.chunk));
     const { chunk, from } = targets[0]!;
-    const bounds = blockBounds(chunk, this.layout.size);
+    const bounds = blockBounds(chunk, this.layout);
     const order = this.layout.surfaces
       .flatMap((s, i) => (s.chunk === chunk ? [i] : []))
       .sort(
@@ -173,7 +173,7 @@ export class InkTide {
 
   private aimingAtCurtain(w: Wave): boolean {
     const { eye, forward } = this.ctx.player;
-    const b = blockBounds(w.chunk, this.layout.size);
+    const b = blockBounds(w.chunk, this.layout);
     // the curtain is the plane at depth `front` from the entry edge
     const alongX = w.from === 0 || w.from === 2;
     const plane =
@@ -196,7 +196,7 @@ export class InkTide {
   }
 
   private drainPassed(w: Wave): void {
-    const bounds = blockBounds(w.chunk, this.layout.size);
+    const bounds = blockBounds(w.chunk, this.layout);
     for (const i of w.order) {
       if (depthFrom(this.layout.surfaces[i]!, w.from, bounds) > w.front) break;
       if (isColored(this.states[i]!)) this.ctx.apply({ kind: 'drain', city: this.layout.id, surface: i });
@@ -204,7 +204,7 @@ export class InkTide {
   }
 
   private placeCurtain(w: Wave, now: number): void {
-    const b = blockBounds(w.chunk, this.layout.size);
+    const b = blockBounds(w.chunk, this.layout);
     const c = this.curtain;
     // curtain geometry runs along +x from 0..per; rotate it to lie across the entry direction
     switch (w.from) {

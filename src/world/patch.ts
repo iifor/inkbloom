@@ -3,7 +3,9 @@
 // here look the amounts up, so a guest in multiplayer cannot claim more than the rules give.
 import { PALETTE } from '@/content/palette';
 import { TUNING } from '@/content/tuning';
+import { BRUSH_TIERS } from '@/content/brush-tiers';
 import { type CitySkeleton, studioOpen } from './city/features';
+import { blockStates } from './city/blocks';
 import { DRAINED, ORIGINAL, graffiti, surfaceCost } from './paint/surfaces';
 import { type WorldState, cityStates, sourceReady } from './state';
 import type { PigmentSource } from './wilderness/sources';
@@ -18,6 +20,10 @@ export type Patch =
   | { readonly kind: 'refine'; readonly city: string; readonly studio: number }
   /** Harvest a wilderness pigment source. */
   | { readonly kind: 'harvest'; readonly source: string }
+  /** Buy the next brush tier. */
+  | { readonly kind: 'upgrade'; readonly tool: 'brush' }
+  /** Mark a city restored once every block has colour, and pay the reward. */
+  | { readonly kind: 'complete'; readonly city: string }
   /** Pay pigment or ink for an action (pushing back an ink tide). Fails if short. */
   | { readonly kind: 'spend'; readonly generic?: number; readonly ink?: number }
   | {
@@ -52,6 +58,16 @@ export function applyPatch(state: WorldState, patch: Patch, ctx: PatchContext): 
       for (const c of patch.unlock ?? []) if (!state.unlocked.includes(c)) state.unlocked.push(c);
       return OK;
     }
+    case 'upgrade': {
+      const next = BRUSH_TIERS[inv.brushTier + 1];
+      if (!next?.cost) return fail('笔刷已经是最好的了');
+      if (inv.generic < next.cost.generic) return fail(`通用颜料不够（需要 ${next.cost.generic}）`);
+      if (inv.ink < next.cost.ink) return fail(`墨不够（需要 ${next.cost.ink}）`);
+      inv.generic -= next.cost.generic;
+      inv.ink -= next.cost.ink;
+      inv.brushTier += 1;
+      return OK;
+    }
     case 'spend': {
       const g = Math.max(0, patch.generic ?? 0);
       const k = Math.max(0, patch.ink ?? 0);
@@ -81,6 +97,16 @@ export function applyPatch(state: WorldState, patch: Patch, ctx: PatchContext): 
   const { states, stains } = cityStates(state, patch.city, skel);
 
   switch (patch.kind) {
+    case 'complete': {
+      const saved = state.cities.get(patch.city)!;
+      if (saved.completed) return fail('这座城已经恢复了');
+      const blocks = blockStates(states, skel.surfaces, skel.chunks);
+      if (!blocks.every((b) => b === 'colored' || b === 'thriving')) return fail('还有街区没有颜色');
+      saved.completed = true;
+      inv.generic += TUNING.city.completeReward.generic;
+      inv.ink += TUNING.city.completeReward.ink;
+      return OK;
+    }
     case 'collect': {
       if (!skel.stains[patch.stain]) return fail('墨渍不存在');
       if (stains[patch.stain]) return fail('已经擦掉了');

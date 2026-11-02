@@ -37,6 +37,10 @@ export const TUNING = {
   city: {
     /** City side length in chunks (design: 5×5). */
     chunks: 5,
+    /** The first city, next to spawn, is small enough to finish in one sitting. */
+    firstCityChunks: 2,
+    /** Paid once when every block of a city has colour again. */
+    completeReward: { generic: 60, ink: 40 },
     /** Raster cell for road growth and lots, metres. */
     cell: 4,
     roads: {
@@ -79,10 +83,8 @@ export const TUNING = {
     radius: 4,
   },
   brush: {
-    /** design: 1 second per surface */
-    secondsPerSurface: 1,
-    range: 6,
-    largeSurfaceArea: 120,
+    /** Range and speed are per brush tier: content/brush-tiers.ts */
+    largeSurfaceArea: 260,
     startingGeneric: 30,
     startingColored: 6,
   },
@@ -122,8 +124,9 @@ export const TUNING = {
     reward: { generic: 12, ink: 10 },
   },
   economy: {
-    /** Ink from one city ink stain. design: a stronghold's ink restores 40–60% of a block */
-    inkPerStain: 6,
+    /** Ink from one city ink stain. Tuned so a city's own stains plus starting pigment cover
+     * about 90% of getting every block to 有色; the rest comes from one wilderness trip. */
+    inkPerStain: 10,
     /** Ink stains scattered on the roads of each city chunk. */
     stainsPerChunk: 14,
     /** Walk within this many metres of a stain to soak it up. */

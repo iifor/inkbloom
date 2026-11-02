@@ -28,8 +28,17 @@ export const DIRS = [
   [0, -1],
 ] as const;
 
+/** A city's block grid: `chunks` blocks per side, `size` metres per side. */
+export interface CityGrid {
+  readonly size: number;
+  readonly chunks: number;
+}
+
+/** Side length of a square block list. */
+const sideOf = (blocks: readonly unknown[]): number => Math.round(Math.sqrt(blocks.length));
+
 /** The neighbouring block in a direction, or -1 at the city edge. */
-export function neighbour(chunk: number, dir: number, side: number = TUNING.city.chunks): number {
+export function neighbour(chunk: number, dir: number, side: number): number {
   const x = (chunk % side) + DIRS[dir]![0];
   const z = Math.floor(chunk / side) + DIRS[dir]![1];
   return x < 0 || z < 0 || x >= side || z >= side ? -1 : z * side + x;
@@ -38,17 +47,14 @@ export function neighbour(chunk: number, dir: number, side: number = TUNING.city
 export function blockStates(
   states: Uint8Array,
   surfaces: readonly SurfaceInfo[],
-  side: number = TUNING.city.chunks,
+  side: number,
 ): BlockState[] {
   return Array.from({ length: side * side }, (_, c) => blockState(coloredRatio(states, surfaces, c)));
 }
 
 /** Drained neighbours of a block, as directions. Empty for blocks that are safe. */
-export function drainedSides(
-  blocks: readonly BlockState[],
-  chunk: number,
-  side: number = TUNING.city.chunks,
-): number[] {
+export function drainedSides(blocks: readonly BlockState[], chunk: number): number[] {
+  const side = sideOf(blocks);
   const out: number[] = [];
   for (let d = 0; d < 4; d++) {
     const nb = neighbour(chunk, d, side);
@@ -58,19 +64,16 @@ export function drainedSides(
 }
 
 /** Blocks that erode: cleared (not yet coloured) and touching a drained block. */
-export function erodingBlocks(blocks: readonly BlockState[], side: number = TUNING.city.chunks): number[] {
-  return blocks.flatMap((b, c) => (b === 'cleared' && drainedSides(blocks, c, side).length ? [c] : []));
+export function erodingBlocks(blocks: readonly BlockState[]): number[] {
+  return blocks.flatMap((b, c) => (b === 'cleared' && drainedSides(blocks, c).length ? [c] : []));
 }
 
 /** Where an ink tide can strike: any cleared or coloured block with a drained neighbour. */
-export function tideTargets(
-  blocks: readonly BlockState[],
-  side: number = TUNING.city.chunks,
-): { chunk: number; from: number }[] {
+export function tideTargets(blocks: readonly BlockState[]): { chunk: number; from: number }[] {
   const out: { chunk: number; from: number }[] = [];
   blocks.forEach((b, c) => {
     if (b !== 'cleared' && b !== 'colored') return;
-    for (const from of drainedSides(blocks, c, side)) out.push({ chunk: c, from });
+    for (const from of drainedSides(blocks, c)) out.push({ chunk: c, from });
   });
   return out;
 }
@@ -78,12 +81,11 @@ export function tideTargets(
 /** World-space bounds of a block. */
 export function blockBounds(
   chunk: number,
-  citySize: number,
-  side: number = TUNING.city.chunks,
+  grid: CityGrid,
 ): { x0: number; z0: number; x1: number; z1: number } {
-  const per = citySize / side;
-  const x0 = (chunk % side) * per;
-  const z0 = Math.floor(chunk / side) * per;
+  const per = grid.size / grid.chunks;
+  const x0 = (chunk % grid.chunks) * per;
+  const z0 = Math.floor(chunk / grid.chunks) * per;
   return { x0, z0, x1: x0 + per, z1: z0 + per };
 }
 
@@ -110,9 +112,9 @@ export function nextToErode(
   surfaces: readonly SurfaceInfo[],
   chunk: number,
   from: number,
-  citySize: number,
+  grid: CityGrid,
 ): number {
-  const bounds = blockBounds(chunk, citySize);
+  const bounds = blockBounds(chunk, grid);
   let best = -1;
   let bestD = Infinity;
   surfaces.forEach((s, i) => {

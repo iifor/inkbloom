@@ -110,7 +110,8 @@ export class WildScene implements GameScene {
           scene: 'wild',
           pos: lm.doorPos,
           radius: 4,
-          label: () => `E 进入 ${cityName()}`,
+          label: () =>
+            `E 进入 ${cityName()}${this.ctx.state.cities.get(e.cityId)?.completed ? '（已恢复）' : ''}`,
           activate: () => this.ctx.scenes.enterCity(e),
         }),
       );

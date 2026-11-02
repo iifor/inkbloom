@@ -40,5 +40,6 @@ export class InteractionSystem implements System, InteractionApi {
     }
     this.focused = best;
     if (best && input.pressed('interact')) best.activate();
+    else if (best?.alt && best.alt.label() !== null && input.pressed('secondary')) best.alt.activate();
   }
 }

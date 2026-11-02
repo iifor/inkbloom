@@ -35,6 +35,12 @@ body {
   left: 20px;
   font-size: 18px;
 }
+.hud-goal {
+  font-size: 15px;
+  margin-top: 6px;
+  font-weight: 600;
+  max-width: 46vw;
+}
 .hud-res {
   font-size: 14px;
   margin-top: 4px;
@@ -84,6 +90,8 @@ body {
 }
 .hud-prompt {
   position: absolute;
+  white-space: pre-line;
+  text-align: center;
   left: 50%;
   top: 60%;
   transform: translateX(-50%);

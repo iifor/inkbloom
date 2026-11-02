@@ -6,6 +6,7 @@ import { EventBus, type GameEvents } from '@/game/events';
 import { Loop } from '@/game/loop';
 import type { GameContext, System } from '@/game/types';
 import { Hud } from '@/shell/hud';
+import { ObjectiveSystem } from '@/shell/objectives';
 import { CityRegistry } from '@/systems/city/city-registry';
 import { ClockSystem } from '@/systems/clock/clock';
 import { DebugPanel } from '@/systems/debug/debug-panel';
@@ -67,12 +68,13 @@ export function startOpenWorld(opts: {
   const belt = new ToolBelt(ctx, [new Brush(ctx)]);
   const save = new SaveSystem(ctx, opts.store);
   const clock = new ClockSystem(ctx);
-  const hud = new Hud(ctx, opts.hudRoot, belt, scenes);
+  const objectives = new ObjectiveSystem(ctx, scenes);
+  const hud = new Hud(ctx, opts.hudRoot, belt, scenes, objectives);
   const debug = new DebugPanel(ctx, opts.hudRoot.parentElement ?? opts.hudRoot);
 
   // Order matters: movement, then the scene streams around the new position, then
   // interaction/tools read the settled camera, then HUD and save observe the result.
-  const systems: System[] = [clock, player, scenes, interactions, belt, hud, save, debug];
+  const systems: System[] = [clock, player, scenes, interactions, belt, objectives, hud, save, debug];
 
   scenes.restore(opts.state.player);
 

@@ -50,7 +50,7 @@ export class CityScene implements GameScene {
     this.states = states;
     this.wasReset = reset;
     if (reset) ctx.events.emit('toast', { text: `${layout.name}的布局已更新，颜色进度已重置`, seconds: 6 });
-    const chunks = TUNING.city.chunks * TUNING.city.chunks;
+    const chunks = layout.chunks * layout.chunks;
     this.colored = new Array<number>(chunks).fill(0);
     this.totals = new Array<number>(chunks).fill(0);
     layout.surfaces.forEach((info, i) => {
@@ -82,6 +82,7 @@ export class CityScene implements GameScene {
         }
         this.texture.set(patch.surface, this.states[patch.surface]!);
         this.updateSceneSat();
+        if (after) this.checkComplete();
       }),
     );
     for (const gate of layout.gates) {
@@ -113,6 +114,23 @@ export class CityScene implements GameScene {
     return total ? this.colored[chunk]! / total : 0;
   }
 
+  get completed(): boolean {
+    return this.ctx.state.cities.get(this.layout.id)?.completed ?? false;
+  }
+
+  /** Once every block has colour, the city is restored for good. */
+  private checkComplete(): void {
+    if (this.completed) return;
+    if (!this.blocks().every((b) => b === 'colored' || b === 'thriving')) return;
+    if (!this.ctx.apply({ kind: 'complete', city: this.layout.id }).ok) return;
+    const r = TUNING.city.completeReward;
+    this.ctx.events.emit('toast', {
+      text: `${this.layout.name}恢复了颜色！通用颜料 +${r.generic}，墨 +${r.ink}。周围的野外也会亮起来`,
+      seconds: 8,
+    });
+    this.ctx.events.emit('city:completed', { city: this.layout.id, name: this.layout.name });
+  }
+
   surfaceCount(chunk: number): number {
     return this.totals[chunk] ?? 0;
   }
@@ -124,7 +142,7 @@ export class CityScene implements GameScene {
 
   /** Which city chunk (0..chunks²-1) a position is in. */
   chunkAt(pos: THREE.Vector3): number {
-    const side = TUNING.city.chunks;
+    const side = this.layout.chunks;
     const per = this.layout.size / side;
     const cx = Math.min(side - 1, Math.max(0, Math.floor(pos.x / per)));
     const cz = Math.min(side - 1, Math.max(0, Math.floor(pos.z / per)));

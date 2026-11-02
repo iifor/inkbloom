@@ -51,12 +51,12 @@ describe('block states', () => {
   ];
 
   it('erode only cleared blocks touching a drained one', () => {
-    expect(erodingBlocks(grid, 3)).toEqual([1]);
-    expect(drainedSides(grid, 1, 3)).toEqual([2]); // drained block 0 is to its west
+    expect(erodingBlocks(grid)).toEqual([1]);
+    expect(drainedSides(grid, 1)).toEqual([2]); // drained block 0 is to its west
   });
 
   it('send tides at cleared or coloured blocks next to drained ones, never thriving ones', () => {
-    const targets = tideTargets(grid, 3);
+    const targets = tideTargets(grid);
     expect(targets).toContainEqual({ chunk: 1, from: 2 });
     expect(targets).toContainEqual({ chunk: 2, from: 1 }); // block 5 below is drained
     expect(targets.some((t) => t.chunk === 4)).toBe(false);
@@ -65,8 +65,8 @@ describe('block states', () => {
 });
 
 describe('erosion order', () => {
-  const size = TUNING.city.chunks * TUNING.world.chunkSize;
-  const b = blockBounds(0, size);
+  const city = { size: TUNING.city.chunks * TUNING.world.chunkSize, chunks: TUNING.city.chunks };
+  const b = blockBounds(0, city);
   const at = (x: number): SurfaceInfo => ({
     kind: 'wall',
     chunk: 0,
@@ -84,16 +84,16 @@ describe('erosion order', () => {
 
   it('takes the coloured surface nearest the drained side first', () => {
     const states = new Uint8Array([ORIGINAL, ORIGINAL, ORIGINAL]);
-    expect(nextToErode(states, surfaces, 0, 2, size)).toBe(1); // from the west: x0 + 5 first
-    expect(nextToErode(states, surfaces, 0, 0, size)).toBe(0); // from the east: x0 + 100 first
+    expect(nextToErode(states, surfaces, 0, 2, city)).toBe(1); // from the west: x0 + 5 first
+    expect(nextToErode(states, surfaces, 0, 0, city)).toBe(0); // from the east: x0 + 100 first
     states[1] = 0;
-    expect(nextToErode(states, surfaces, 0, 2, size)).toBe(2);
-    expect(nextToErode(new Uint8Array(3), surfaces, 0, 2, size)).toBe(-1);
+    expect(nextToErode(states, surfaces, 0, 2, city)).toBe(2);
+    expect(nextToErode(new Uint8Array(3), surfaces, 0, 2, city)).toBe(-1);
   });
 
   it('gives a fresh city nothing to erode and no tide target', () => {
-    const city = generateCity('x', 7);
-    const blocks = blockStates(new Uint8Array(city.surfaces.length), city.surfaces);
+    const fresh = generateCity('x', 7);
+    const blocks = blockStates(new Uint8Array(fresh.surfaces.length), fresh.surfaces, fresh.chunks);
     expect(blocks.every((s) => s === 'drained')).toBe(true);
     expect(erodingBlocks(blocks)).toEqual([]);
     expect(tideTargets(blocks)).toEqual([]);
