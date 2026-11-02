@@ -3,12 +3,14 @@
 // surface list (and never resets painting progress).
 import { TUNING } from '@/content/tuning';
 import { enemyIndex } from '@/content/enemies';
+import { PAINTABLE, PALETTE } from '@/content/palette';
+import { REQUEST_LINES, REQUEST_RULES, RESIDENT_NAMES } from '@/content/requests';
 
 const BLOT = enemyIndex('blot');
 const SPITTER = enemyIndex('spitter');
 import { hashInts } from '../math/hash';
 import { Rng } from '../math/rng';
-import { coloredRatio, type SurfaceInfo } from '../paint/surfaces';
+import { GRAFFITI_BASE, coloredRatio, type SurfaceInfo } from '../paint/surfaces';
 
 export interface Stain {
   /** Metres, city-local, on a road. */
@@ -25,6 +27,22 @@ export interface StrongholdMonster {
   readonly x: number;
   readonly z: number;
   readonly chunk: number;
+}
+
+export interface ResidentRequest {
+  readonly building: number;
+  readonly chunk: number;
+  readonly kind: 'recolor' | 'fetch';
+  /** Palette index wanted. */
+  readonly color: number;
+  /** For fetch: how much pigment. */
+  readonly count: number;
+  readonly resident: string;
+  readonly line: string;
+  /** Where the player stands to talk: in front of the door. */
+  readonly door: { readonly x: number; readonly z: number };
+  /** The house's wall surfaces (a recolor is done when all four show the wanted colour). */
+  readonly walls: Readonly<Record<'px' | 'nx' | 'pz' | 'nz', number>>;
 }
 
 export interface Studio {
@@ -45,6 +63,8 @@ export interface CitySkeleton {
   readonly homeStudio: number;
   /** Monsters guarding each block. A block cannot be painted while any of its own stand. */
   readonly monsters: readonly StrongholdMonster[];
+  /** Residents' wishes; a coloured block with all of them done is 繁荣. */
+  readonly requests: readonly ResidentRequest[];
 }
 
 interface FeatureInput {
@@ -64,6 +84,7 @@ interface FeatureInput {
     readonly doorFace: 'px' | 'nx' | 'pz' | 'nz';
     readonly doorAt: number;
     readonly roof: number;
+    readonly walls: Readonly<Record<'px' | 'nx' | 'pz' | 'nz', number>>;
   }[];
   readonly spawn: { readonly x: number; readonly z: number };
 }
@@ -151,7 +172,41 @@ export function placeFeatures(c: FeatureInput): Omit<CitySkeleton, 'surfaces' | 
   });
   // the block with the main gate starts empty, so the first thing a player does is paint
   const spawnChunk = chunkOfCell(Math.floor(c.spawn.x / cell), Math.floor(c.spawn.z / cell));
-  return { stains, studios, homeStudio, monsters: monsters.filter((m) => m.chunk !== spawnChunk) };
+  // resident requests: own stream again
+  const qrng = new Rng(hashInts(c.seed, 0x5e95));
+  const studioBuildings = new Set(studios.map((s) => s.building));
+  const requests: ResidentRequest[] = [];
+  for (let chunk = 0; chunk < side * side; chunk++) {
+    const homes = c.buildings.filter(
+      (b) => c.surfaces[b.roof]!.chunk === chunk && !studioBuildings.has(b.id),
+    );
+    const want = qrng.int(REQUEST_RULES.perBlock[0], REQUEST_RULES.perBlock[1]);
+    for (let k = 0; k < want && homes.length; k++) {
+      const b = homes.splice(Math.floor(qrng.next() * homes.length), 1)[0]!;
+      const recolor = qrng.chance(REQUEST_RULES.recolorChance);
+      const wall = c.surfaces[b.walls.px]!.color;
+      const choices = PAINTABLE.filter((p) => !recolor || p !== wall);
+      const colorIndex = qrng.pick(choices);
+      const count = qrng.int(REQUEST_RULES.fetchCount[0], REQUEST_RULES.fetchCount[1]);
+      const lines = recolor ? REQUEST_LINES.recolor : REQUEST_LINES.fetch;
+      const line = qrng
+        .pick(lines)
+        .replace('{color}', PALETTE[colorIndex]!.name)
+        .replace('{count}', String(count));
+      requests.push({
+        building: b.id,
+        chunk,
+        kind: recolor ? 'recolor' : 'fetch',
+        color: colorIndex,
+        count,
+        resident: qrng.pick(RESIDENT_NAMES),
+        line,
+        door: doorFront(b, 1.6),
+        walls: b.walls,
+      });
+    }
+  }
+  return { stains, studios, homeStudio, monsters: monsters.filter((m) => m.chunk !== spawnChunk), requests };
 }
 
 /** A point `out` metres in front of a building's door. */
@@ -196,4 +251,27 @@ export function monsterFingerprint(monsters: readonly StrongholdMonster[]): numb
 /** Monsters of a block's stronghold that are still standing. */
 export function standingMonsters(skel: CitySkeleton, defeated: Uint8Array, chunk: number): number[] {
   return skel.monsters.flatMap((m, i) => (m.chunk === chunk && !defeated[i] ? [i] : []));
+}
+
+/** Identifies a request list so saved done-flags are dropped when requests change. */
+export function requestFingerprint(requests: readonly ResidentRequest[]): number {
+  let f = hashInts(0x5e95, requests.length);
+  for (const r of requests) f = hashInts(f, r.building, r.color, r.count, r.kind === 'recolor' ? 1 : 2);
+  return f;
+}
+
+/** Whether a recolor request's house has every wall in the wanted colour. */
+export function recolorDone(r: ResidentRequest, states: Uint8Array): boolean {
+  return (['px', 'nx', 'pz', 'nz'] as const).every((f) => states[r.walls[f]] === GRAFFITI_BASE + r.color);
+}
+
+/** Walls of a recolor request already in the wanted colour. */
+export function recolorWalls(r: ResidentRequest, states: Uint8Array): number {
+  return (['px', 'nx', 'pz', 'nz'] as const).filter((f) => states[r.walls[f]] === GRAFFITI_BASE + r.color)
+    .length;
+}
+
+/** Requests of a block not yet done. */
+export function openRequests(skel: CitySkeleton, done: Uint8Array, chunk: number): number[] {
+  return skel.requests.flatMap((r, i) => (r.chunk === chunk && !done[i] ? [i] : []));
 }

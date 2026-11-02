@@ -24,6 +24,13 @@ export const TUNING = {
     firstCityChunk: [2, 1] as const,
     /** Radius in metres flattened around an entrance landmark. */
     entranceFlatRadius: 40,
+    /** Ruins: one chance per grid cell of this many chunks. design: every 4×4 chunks, 60% */
+    ruinGrid: 4,
+    ruinChance: 0.6,
+    /** Walk this close to a ruin's crayon to discover it. */
+    ruinRadius: 6,
+    /** Pigment given instead when a ruin's colour is already unlocked. */
+    ruinPigment: 8,
   },
   drain: {
     /** Wilderness within this distance of an unrestored city is fully drained. Cities are
@@ -76,6 +83,9 @@ export const TUNING = {
     jumpSpeed: 7.6,
     gravity: 22,
     airJumps: 1,
+    /** Paper plane: hold jump while falling. design: glide ratio about 1:4 */
+    glideFall: 2.6,
+    glideSpeed: 11,
     mouseSensitivity: 0.0022,
     flySpeed: 36,
   },
@@ -98,16 +108,16 @@ export const TUNING = {
     tideMonsters: [2, 4],
     /** A monster gives up and goes home beyond this distance from its post. */
     leash: 45,
+    /** Wilderness monsters per chunk by how drained the land is (derived saturation below
+     * `drainedBelow` counts as drained, below `greyBelow` as grey): [min, max]. */
+    wild: { drainedBelow: 0.35, greyBelow: 0.75, drained: [2, 4], grey: [0, 2] },
+    /** Seconds of play before a defeated wilderness monster comes back. */
+    wildRespawnSeconds: 900,
   },
-  rifle: {
-    damage: 20,
-    /** Seconds between shots. */
-    interval: 0.11,
-    magazine: 24,
-    reloadSeconds: 1.3,
-    range: 120,
-    /** Radians of random spread. */
-    spread: 0.012,
+  marks: {
+    /** design: ink marks cost 10 pigment, at most 3 per world */
+    cost: 10,
+    max: 3,
   },
   interaction: {
     radius: 4,
@@ -122,8 +132,6 @@ export const TUNING = {
     /** Share of coloured surfaces at which a block counts as cleared, coloured, thriving. */
     clearedAt: 0.15,
     coloredAt: 0.7,
-    /** Stand-in for "all resident requests done" until requests exist. */
-    thrivingAt: 0.95,
     /** Cleared blocks next to a drained one lose this share of their surfaces per minute.
      * design: 10% per 10 minutes */
     erosionPerMinute: 0.01,
@@ -163,6 +171,11 @@ export const TUNING = {
     stainPickupRadius: 1.8,
     /** Studio refining: this much ink makes one generic pigment. design: 2 ink = 1 */
     inkPerGeneric: 2,
+    /** A thriving block's studio makes one generic pigment per this many seconds of play.
+     * design: every 5 minutes, nothing while offline */
+    studioStockSeconds: 300,
+    /** Most a studio holds before it is collected. */
+    studioStockCap: 12,
     /** Seconds of play before a harvested wilderness source grows back. design: 10 min */
     regrowSeconds: 600,
   },

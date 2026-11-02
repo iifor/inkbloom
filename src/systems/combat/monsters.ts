@@ -1,21 +1,27 @@
 // A group of ink monsters living in one scene. Spawned from ENEMIES data, moved with the same
 // AABB physics as the player, registered with ctx.combat so weapons can hit them.
 //
-// AI is deliberately simple (no navigation mesh yet): notice the player within `aggro` metres
-// with line of sight; blots run straight at the player and bite, spitters keep their distance
-// and spit; bumping into a wall makes a monster sidestep for a moment; a monster dragged too
-// far from its post gives up and walks home.
+// AI: notice the player within `aggro` metres with line of sight. With the player in sight,
+// blots run straight at them and bite, spitters keep their distance and spit. Out of sight,
+// a monster follows an A* path over the scene's NavGrid (re-planned every ~1 s, a few plans
+// per frame at most). A monster dragged too far from its post gives up and paths home.
+// Without a NavGrid it falls back to sidestepping along walls.
 import * as THREE from 'three';
 import { ENEMIES, type EnemyDef } from '@/content/enemies';
 import { TUNING } from '@/content/tuning';
 import { type Body, type PhysicsWorld, makeBody } from '@/engine/physics/world';
 import { ALWAYS_COLOR, GeometryBuilder } from '@/engine/render/geometry-builder';
-import type { GameContext, TargetSource } from '@/game/types';
+import type { GameContext, TargetHit, TargetSource } from '@/game/types';
+import { findPath, type NavGrid, type Waypoint } from '@/world/nav/path';
 
 const GRAVITY = 22;
 const ACCEL = 18;
 const SPIT_GRAVITY = 6;
 const SPIT_LIFE = 3;
+/** Path plans allowed per frame across the whole group. */
+const PLANS_PER_FRAME = 3;
+/** Line-of-sight checks are refreshed this often (seconds). */
+const SIGHT_INTERVAL = 0.25;
 
 interface Monster {
   readonly def: EnemyDef;
@@ -32,6 +38,10 @@ interface Monster {
   strafe: number;
   hurtT: number;
   dead: boolean;
+  canSee: boolean;
+  seeT: number;
+  path: Waypoint[] | null;
+  repathT: number;
 }
 
 interface Spit {
@@ -128,6 +138,9 @@ export class MonsterGroup implements TargetSource {
   private readonly monsters: Monster[] = [];
   private readonly spits: Spit[] = [];
   private readonly release: () => void;
+  private plans = 0;
+  /** Walkability of the scene; null falls back to sidestepping along walls. */
+  nav: NavGrid | null = null;
 
   constructor(
     private readonly ctx: GameContext,
@@ -158,6 +171,10 @@ export class MonsterGroup implements TargetSource {
       strafe: Math.random() < 0.5 ? 1 : -1,
       hurtT: 0,
       dead: false,
+      canSee: false,
+      seeT: Math.random() * SIGHT_INTERVAL,
+      path: null,
+      repathT: 0,
     });
   }
 
@@ -171,7 +188,7 @@ export class MonsterGroup implements TargetSource {
     for (const m of this.monsters) if (m.tag === tag && !m.dead) this.remove(m);
   }
 
-  raycast(o: THREE.Vector3, d: THREE.Vector3, max: number): ReturnType<TargetSource['raycast']> {
+  raycast(o: THREE.Vector3, d: THREE.Vector3, max: number): TargetHit | null {
     let best: Monster | null = null;
     let bestT = max;
     for (const m of this.monsters) {
@@ -184,10 +201,13 @@ export class MonsterGroup implements TargetSource {
         best = m;
       }
     }
-    if (!best) return null;
-    const m = best;
+    return best ? this.hitOn(best, bestT) : null;
+  }
+
+  /** A hit on one monster that damages it through the same path as a shot. */
+  private hitOn(m: Monster, dist: number): TargetHit {
     return {
-      dist: bestT,
+      dist,
       damage: (amount) => {
         if (m.dead) return false;
         m.hp -= amount;
@@ -199,6 +219,35 @@ export class MonsterGroup implements TargetSource {
         return true;
       },
     };
+  }
+
+  inArc(o: THREE.Vector3, d: THREE.Vector3, range: number, halfAngle: number): TargetHit[] {
+    const out: TargetHit[] = [];
+    const cos = Math.cos(halfAngle);
+    for (const m of this.monsters) {
+      if (m.dead) continue;
+      const c = m.body.pos;
+      _to.set(c.x - o.x, c.y + m.def.height * 0.5 - o.y, c.z - o.z);
+      const dist = Math.max(0, _to.length() - m.def.halfWidth);
+      if (dist > range) continue;
+      if (_to.normalize().dot(d) < cos && dist > 0.6) continue;
+      out.push(this.hitOn(m, dist));
+    }
+    return out;
+  }
+
+  inSphere(p: THREE.Vector3, radius: number): TargetHit[] {
+    const out: TargetHit[] = [];
+    for (const m of this.monsters) {
+      if (m.dead) continue;
+      const c = m.body.pos;
+      const dist = Math.max(
+        0,
+        Math.hypot(c.x - p.x, c.y + m.def.height * 0.5 - p.y, c.z - p.z) - m.def.halfWidth,
+      );
+      if (dist <= radius) out.push(this.hitOn(m, dist));
+    }
+    return out.sort((a, b) => a.dist - b.dist);
   }
 
   private remove(m: Monster): void {
@@ -217,9 +266,29 @@ export class MonsterGroup implements TargetSource {
     return hit === null;
   }
 
+  /** Point _dir along a path to `goal`, planning one if needed and allowed. */
+  private follow(m: Monster, goal: Waypoint): void {
+    const p = m.body.pos;
+    if (!this.nav) {
+      _dir.set(goal.x - p.x, 0, goal.z - p.z).normalize();
+      return;
+    }
+    if ((!m.path || m.repathT <= 0) && this.plans < PLANS_PER_FRAME) {
+      this.plans++;
+      m.path = findPath(this.nav, p, goal);
+      m.repathT = 0.7 + Math.random() * 0.5;
+    }
+    while (m.path && m.path.length && Math.hypot(m.path[0]!.x - p.x, m.path[0]!.z - p.z) < 1.0)
+      m.path.shift();
+    const wp = m.path?.[0] ?? goal;
+    _dir.set(wp.x - p.x, 0, wp.z - p.z);
+    if (_dir.lengthSq() > 1e-6) _dir.normalize();
+  }
+
   update(dt: number): void {
     const { player, combat } = this.ctx;
     const pp = player.position;
+    this.plans = 0;
     for (const m of this.monsters) {
       if (m.dead) continue;
       const b = m.body;
@@ -227,11 +296,17 @@ export class MonsterGroup implements TargetSource {
       m.attackT -= dt;
       m.sidestepT -= dt;
       m.hurtT -= dt;
+      m.repathT -= dt;
+      m.seeT -= dt;
       _to.set(pp.x - b.pos.x, 0, pp.z - b.pos.z);
       const dist = _to.length();
       if (dist > 1e-3) _to.divideScalar(dist);
+      if (m.seeT <= 0) {
+        m.seeT = SIGHT_INTERVAL;
+        m.canSee = combat.alive && dist < def.aggro * 2.5 && this.sees(m);
+      }
 
-      if (!m.aggro && combat.alive && dist < def.aggro && this.sees(m)) m.aggro = true;
+      if (!m.aggro && m.canSee && dist < def.aggro) m.aggro = true;
       if (
         m.aggro &&
         (!combat.alive || b.pos.distanceTo(m.home) > TUNING.combat.leash || dist > def.aggro * 2.5)
@@ -243,13 +318,15 @@ export class MonsterGroup implements TargetSource {
       let speed = def.speed;
       if (m.aggro) {
         const a = def.attack;
+        if (!m.canSee) this.follow(m, pp);
+        else m.path = null;
         if (a.kind === 'melee') {
-          if (dist > a.range * 0.8) _dir.copy(_to);
+          if (m.canSee && dist > a.range * 0.8) _dir.copy(_to);
           if (dist < a.range && Math.abs(pp.y - b.pos.y) < 2 && m.attackT <= 0) {
             combat.damagePlayer(a.damage, b.pos);
             m.attackT = a.cooldown;
           }
-        } else {
+        } else if (m.canSee) {
           if (dist < a.keepAway[0]) _dir.copy(_to).negate();
           else if (dist > a.keepAway[1]) _dir.copy(_to);
           else {
@@ -257,16 +334,16 @@ export class MonsterGroup implements TargetSource {
             speed *= 0.5;
           }
           if (Math.random() < dt * 0.4) m.strafe = -m.strafe;
-          if (m.attackT <= 0 && dist < a.range && this.sees(m)) {
+          if (m.attackT <= 0 && dist < a.range) {
             this.spit(m, a.speed, a.damage);
             m.attackT = a.cooldown;
           }
         }
       } else {
-        _dir.set(m.home.x - b.pos.x, 0, m.home.z - b.pos.z);
-        const h = _dir.length();
-        if (h > 2) _dir.divideScalar(h);
-        else _dir.set(0, 0, 0);
+        const h = Math.hypot(m.home.x - b.pos.x, m.home.z - b.pos.z);
+        if (h > 6) this.follow(m, m.home);
+        else if (h > 2) _dir.set(m.home.x - b.pos.x, 0, m.home.z - b.pos.z).divideScalar(h);
+        else m.path = null;
         speed *= 0.5;
       }
       // keep apart from each other
@@ -281,7 +358,7 @@ export class MonsterGroup implements TargetSource {
         }
       }
       // slide around walls: after bumping, go sideways for a moment
-      if (m.sidestepT > 0)
+      if (m.sidestepT > 0 && !this.nav)
         _dir.set(-_dir.z * m.sidestepDir, 0, _dir.x * m.sidestepDir).add(_to.clone().multiplyScalar(0.3));
       if (_dir.lengthSq() > 1) _dir.normalize();
       const tx = _dir.x * speed;

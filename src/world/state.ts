@@ -4,8 +4,10 @@
 import { PALETTE, PAINTABLE, color } from '@/content/palette';
 import { TUNING } from '@/content/tuning';
 import { BRUSH_TIERS } from '@/content/brush-tiers';
+import { WEAPONS } from '@/content/weapons';
 import { surfaceFingerprint } from './paint/surfaces';
-import { type CitySkeleton, monsterFingerprint, stainFingerprint } from './city/features';
+import { type Growth, createGrowth, validGrowth } from './progression';
+import { type CitySkeleton, monsterFingerprint, requestFingerprint, stainFingerprint } from './city/features';
 
 export const SAVE_VERSION = 2;
 
@@ -20,6 +22,18 @@ export interface Inventory {
   ink: number;
   /** Index into BRUSH_TIERS. */
   brushTier: number;
+  /** The paper plane, earned by restoring a first city. */
+  glider: boolean;
+  /** Weapon keys owned, in the order they were earned. */
+  weapons: string[];
+}
+
+/** A teleport mark planted in the wilderness. */
+export interface InkMark {
+  id: string;
+  x: number;
+  y: number;
+  z: number;
 }
 
 export interface PlayerSave {
@@ -47,6 +61,14 @@ export interface WorldState {
   harvested: Map<string, number>;
   /** At most one drop at a time; dying again loses the old one. */
   drop: InkDrop | null;
+  /** Wilderness monster id -> clock time it was defeated. */
+  hunted: Map<string, number>;
+  growth: Growth;
+  /** Ruins already found, by id. */
+  discovered: string[];
+  marks: InkMark[];
+  /** Counter for mark ids. */
+  nextMark: number;
 }
 
 export interface CitySave {
@@ -63,6 +85,14 @@ export interface CitySave {
   monsterFingerprint: number | null;
   /** 1 per stronghold monster already defeated. */
   defeated: Uint8Array;
+  /** 1 per block that has ever been coloured (pays its experience and milestones once). */
+  coloredOnce: Uint8Array;
+  /** requestFingerprint of the request list `requestsDone` belongs to. */
+  requestFingerprint: number | null;
+  /** 1 per resident request done. */
+  requestsDone: Uint8Array;
+  /** Per block: clock time its studio stock counts from once 繁荣, or -1. */
+  stockFrom: number[];
 }
 
 /** Ink dropped on death, waiting where the player fell. */
@@ -84,13 +114,25 @@ export function createWorldState(id: string, seed: number, name = '新世界'): 
     id,
     seed,
     name,
-    inventory: { generic: TUNING.brush.startingGeneric, colored, ink: 0, brushTier: 0 },
+    inventory: {
+      generic: TUNING.brush.startingGeneric,
+      colored,
+      ink: 0,
+      brushTier: 0,
+      glider: false,
+      weapons: WEAPONS.filter((w) => w.unlock.kind === 'start').map((w) => w.key),
+    },
     unlocked: [...STARTING_COLORS],
     cities: new Map(),
     player: null,
     clock: 0,
     harvested: new Map(),
     drop: null,
+    hunted: new Map(),
+    growth: createGrowth(),
+    discovered: [],
+    marks: [],
+    nextMark: 1,
   };
 }
 
@@ -104,10 +146,18 @@ export function cityStates(
   state: WorldState,
   cityId: string,
   skel: CitySkeleton,
-): { states: Uint8Array; stains: Uint8Array; defeated: Uint8Array; reset: boolean } {
+): {
+  states: Uint8Array;
+  stains: Uint8Array;
+  defeated: Uint8Array;
+  coloredOnce: Uint8Array;
+  requestsDone: Uint8Array;
+  reset: boolean;
+} {
   const fingerprint = surfaceFingerprint(skel.surfaces);
   const stainFp = stainFingerprint(skel.stains);
   const monsterFp = monsterFingerprint(skel.monsters);
+  const requestFp = requestFingerprint(skel.requests);
   let saved = state.cities.get(cityId);
   let reset = false;
   if (saved) {
@@ -118,6 +168,8 @@ export function cityStates(
       saved.fingerprint = fingerprint;
       saved.states = new Uint8Array(skel.surfaces.length);
       saved.completed = false;
+      saved.coloredOnce = new Uint8Array(skel.chunks * skel.chunks);
+      saved.stockFrom = new Array<number>(skel.chunks * skel.chunks).fill(-1);
       reset = true;
     }
   } else {
@@ -129,6 +181,10 @@ export function cityStates(
       completed: false,
       monsterFingerprint: monsterFp,
       defeated: new Uint8Array(skel.monsters.length),
+      coloredOnce: new Uint8Array(skel.chunks * skel.chunks),
+      requestFingerprint: requestFp,
+      requestsDone: new Uint8Array(skel.requests.length),
+      stockFrom: new Array<number>(skel.chunks * skel.chunks).fill(-1),
     };
     state.cities.set(cityId, saved);
   }
@@ -140,7 +196,28 @@ export function cityStates(
     saved.monsterFingerprint = monsterFp;
     saved.defeated = new Uint8Array(skel.monsters.length);
   }
-  return { states: saved.states, stains: saved.stains, defeated: saved.defeated, reset };
+  if (saved.requestFingerprint !== requestFp) {
+    saved.requestFingerprint = requestFp;
+    saved.requestsDone = new Uint8Array(skel.requests.length);
+  }
+  if (saved.stockFrom.length !== skel.chunks * skel.chunks)
+    saved.stockFrom = new Array<number>(skel.chunks * skel.chunks).fill(-1);
+  if (saved.coloredOnce.length !== skel.chunks * skel.chunks)
+    saved.coloredOnce = new Uint8Array(skel.chunks * skel.chunks);
+  return {
+    states: saved.states,
+    stains: saved.stains,
+    defeated: saved.defeated,
+    coloredOnce: saved.coloredOnce,
+    requestsDone: saved.requestsDone,
+    reset,
+  };
+}
+
+/** Whether a defeated wilderness monster has come back. */
+export function wildMonsterBack(state: WorldState, id: string): boolean {
+  const t = state.hunted.get(id);
+  return t === undefined || state.clock - t >= TUNING.combat.wildRespawnSeconds;
 }
 
 /** Whether a wilderness source can be harvested now. */
@@ -171,12 +248,30 @@ interface WorldJson {
   /** v2: { f, s, sf?, st? } (fingerprints and base64 bytes); v1: base64 states. */
   cities: Record<
     string,
-    { f: number; s: string; sf?: number; st?: string; c?: 1; mf?: number; d?: string } | string
+    | {
+        f: number;
+        s: string;
+        sf?: number;
+        st?: string;
+        c?: 1;
+        mf?: number;
+        d?: string;
+        co?: string;
+        rf?: number;
+        rd?: string;
+        sk?: number[];
+      }
+    | string
   >;
   player: PlayerSave | null;
   clock?: number;
   harvested?: Record<string, number>;
   drop?: InkDrop | null;
+  hunted?: Record<string, number>;
+  growth?: Growth;
+  discovered?: string[];
+  marks?: InkMark[];
+  nextMark?: number;
 }
 
 const toBase64 = (bytes: Uint8Array): string => {
@@ -213,6 +308,11 @@ export function serializeWorld(state: WorldState): string {
                 ...(v.monsterFingerprint === null
                   ? {}
                   : { mf: v.monsterFingerprint, d: toBase64(v.defeated) }),
+                co: toBase64(v.coloredOnce),
+                ...(v.requestFingerprint === null
+                  ? {}
+                  : { rf: v.requestFingerprint, rd: toBase64(v.requestsDone) }),
+                sk: v.stockFrom,
               },
             ],
       ),
@@ -220,6 +320,11 @@ export function serializeWorld(state: WorldState): string {
     player: state.player,
     clock: state.clock,
     drop: state.drop,
+    hunted: Object.fromEntries([...state.hunted].filter(([id]) => !wildMonsterBack(state, id))),
+    growth: state.growth,
+    discovered: state.discovered,
+    marks: state.marks,
+    nextMark: state.nextMark,
     // grown-back sources are the same as never harvested; drop them to keep saves small
     harvested: Object.fromEntries([...state.harvested].filter(([id]) => !sourceReady(state, id))),
   };
@@ -250,6 +355,8 @@ export function deserializeWorld(text: string): WorldState {
       colored,
       ink: Math.max(0, Math.floor(json.inventory?.ink ?? 0)),
       brushTier: Math.min(BRUSH_TIERS.length - 1, Math.max(0, Math.floor(json.inventory?.brushTier ?? 0))),
+      glider: json.inventory?.glider === true,
+      weapons: (json.inventory?.weapons ?? ['rifle']).filter((k) => WEAPONS.some((w) => w.key === k)),
     },
     unlocked: (json.unlocked ?? []).filter((c) => PAINTABLE.includes(c)),
     cities: new Map(
@@ -265,6 +372,10 @@ export function deserializeWorld(text: string): WorldState {
                 completed: false,
                 monsterFingerprint: null,
                 defeated: new Uint8Array(),
+                coloredOnce: new Uint8Array(),
+                requestFingerprint: null,
+                requestsDone: new Uint8Array(),
+                stockFrom: [],
               },
             ]
           : [
@@ -277,6 +388,10 @@ export function deserializeWorld(text: string): WorldState {
                 completed: v.c === 1,
                 monsterFingerprint: Number.isInteger(v.mf) ? v.mf! : null,
                 defeated: v.d ? fromBase64(v.d) : new Uint8Array(),
+                coloredOnce: v.co ? fromBase64(v.co) : new Uint8Array(),
+                requestFingerprint: Number.isInteger(v.rf) ? v.rf! : null,
+                requestsDone: v.rd ? fromBase64(v.rd) : new Uint8Array(),
+                stockFrom: Array.isArray(v.sk) ? v.sk.map((t) => (Number.isFinite(t) ? t : -1)) : [],
               },
             ],
       ),
@@ -285,6 +400,15 @@ export function deserializeWorld(text: string): WorldState {
     clock: Number.isFinite(json.clock) ? Math.max(0, json.clock!) : 0,
     harvested: new Map(
       Object.entries(json.harvested ?? {}).filter((e): e is [string, number] => Number.isFinite(e[1])),
+    ),
+    growth: validGrowth(json.growth),
+    discovered: (json.discovered ?? []).filter((d) => typeof d === 'string'),
+    marks: (json.marks ?? []).filter(
+      (m) => typeof m?.id === 'string' && [m.x, m.y, m.z].every(Number.isFinite),
+    ),
+    nextMark: Number.isInteger(json.nextMark) ? json.nextMark! : 1,
+    hunted: new Map(
+      Object.entries(json.hunted ?? {}).filter((e): e is [string, number] => Number.isFinite(e[1])),
     ),
     drop:
       json.drop && [json.drop.x, json.drop.y, json.drop.z, json.drop.ink].every(Number.isFinite)

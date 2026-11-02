@@ -7,6 +7,7 @@ import { Loop } from '@/game/loop';
 import type { GameContext, System } from '@/game/types';
 import { Hud } from '@/shell/hud';
 import { ObjectiveSystem } from '@/shell/objectives';
+import { CharacterPanel } from '@/shell/character-panel';
 import { CityRegistry } from '@/systems/city/city-registry';
 import { ClockSystem } from '@/systems/clock/clock';
 import { DebugPanel } from '@/systems/debug/debug-panel';
@@ -15,16 +16,20 @@ import { PlayerSystem } from '@/systems/player/player';
 import { SaveSystem } from '@/systems/save/save-system';
 import { SceneManager } from '@/systems/scenes/scene-manager';
 import { Brush } from '@/systems/tools/brush';
-import { Rifle } from '@/systems/tools/rifle';
+import { WeaponSlot } from '@/systems/tools/weapons';
+import { Marker } from '@/systems/tools/marker';
 import { CombatSystem } from '@/systems/combat/combat';
 import { InkDropSystem } from '@/systems/combat/ink-drop';
 import { ToolBelt } from '@/systems/tools/tool';
 import { WildScene } from '@/systems/wilderness/wild-scene';
 import { applyPatch } from '@/world/patch';
+import { levelOf } from '@/world/progression';
 import type { WorldState } from '@/world/state';
 import type { WorldStore } from '@/world/store';
 import { createWilderness } from '@/world/wilderness/generator';
 import { sourceById } from '@/world/wilderness/sources';
+import { chunkSaturation, wildMonsterById } from '@/world/wilderness/wild-monsters';
+import { ruinById } from '@/world/wilderness/ruins';
 
 type Mutable<T> = { -readonly [K in keyof T]: T[K] };
 
@@ -53,12 +58,32 @@ export function startOpenWorld(opts: {
   ctx.wilderness = createWilderness(opts.state.seed);
   ctx.cities = new CityRegistry(ctx);
   ctx.apply = (patch) => {
+    const levelBefore = levelOf(ctx.state.growth.xp);
+    const pointsBefore = ctx.state.growth.points;
+    const weaponsBefore = ctx.state.inventory.weapons.length;
     const result = applyPatch(ctx.state, patch, {
       cityOf: (id) => ctx.cities.byId(id) ?? null,
       sourceOf: (id) => sourceById(ctx.wilderness, id),
+      ruinOf: (id) => ruinById(ctx.wilderness, id),
+      wildMonsterOf: (id) => {
+        const m = /^(-?\d+),(-?\d+):/.exec(id);
+        if (!m) return null;
+        const sat = chunkSaturation(ctx.wilderness, Number(m[1]), Number(m[2]), (c) =>
+          ctx.cities.progress(c),
+        );
+        return wildMonsterById(ctx.wilderness, id, sat);
+      },
     });
-    if (result.ok) ctx.events.emit('patch:applied', { patch });
-    else ctx.events.emit('patch:rejected', { patch, reason: result.reason });
+    if (result.ok) {
+      ctx.events.emit('patch:applied', { patch });
+      const g = ctx.state.growth;
+      const level = levelOf(g.xp);
+      if (level > levelBefore) ctx.events.emit('growth:level', { level });
+      for (const key of ctx.state.inventory.weapons.slice(weaponsBefore))
+        ctx.events.emit('weapon:unlocked', { key });
+      if (g.points > pointsBefore)
+        ctx.events.emit('growth:points', { gained: g.points - pointsBefore, total: g.points });
+    } else ctx.events.emit('patch:rejected', { patch, reason: result.reason });
     return result;
   };
 
@@ -72,11 +97,12 @@ export function startOpenWorld(opts: {
   ctx.player = player;
   const scenes = new SceneManager(ctx, new WildScene(ctx));
   ctx.scenes = scenes;
-  const belt = new ToolBelt(ctx, [new Brush(ctx), new Rifle(ctx)]);
+  const belt = new ToolBelt(ctx, [new Brush(ctx), new WeaponSlot(ctx), new Marker(ctx)]);
   const inkDrop = new InkDropSystem(ctx);
   const save = new SaveSystem(ctx, opts.store);
   const clock = new ClockSystem(ctx);
   const objectives = new ObjectiveSystem(ctx, scenes, belt);
+  const panel = new CharacterPanel(ctx, opts.hudRoot.parentElement ?? opts.hudRoot);
   const hud = new Hud(ctx, opts.hudRoot, belt, scenes, objectives);
   const debug = new DebugPanel(ctx, opts.hudRoot.parentElement ?? opts.hudRoot);
 
@@ -88,6 +114,7 @@ export function startOpenWorld(opts: {
     combat,
     scenes,
     interactions,
+    panel,
     belt,
     inkDrop,
     objectives,

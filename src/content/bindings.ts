@@ -10,6 +10,7 @@ export const ACTIONS = [
   'interact',
   'secondary',
   'use',
+  'skill',
   'alt',
   'slot1',
   'slot2',
@@ -18,6 +19,7 @@ export const ACTIONS = [
   'nextColor',
   'prevColor',
   'pause',
+  'character',
   'debugFly',
   'debugPanel',
 ] as const;
@@ -39,6 +41,7 @@ export const KEYS: Readonly<Record<string, Action>> = {
   ControlLeft: 'crouch',
   KeyE: 'interact',
   KeyF: 'secondary',
+  KeyG: 'skill',
   KeyQ: 'prevColor',
   KeyR: 'nextColor',
   Digit1: 'slot1',
@@ -46,6 +49,7 @@ export const KEYS: Readonly<Record<string, Action>> = {
   Digit3: 'slot3',
   Digit4: 'slot4',
   Escape: 'pause',
+  Tab: 'character',
   F2: 'debugFly',
   F3: 'debugPanel',
 };

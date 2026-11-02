@@ -83,3 +83,19 @@ describe('city ink stains and studios', () => {
     expect(generic / city.surfaces.length).toBeGreaterThan(0.25);
   });
 });
+
+describe('resident requests', () => {
+  it.each([1, 2, 99])('give every block wishes from real houses (seed %i)', (seed) => {
+    const city = generateCity('x', seed, 2);
+    const studios = new Set(city.studios.map((s) => s.building));
+    for (let b = 0; b < city.chunks * city.chunks; b++) {
+      const mine = city.requests.filter((r) => r.chunk === b);
+      expect(mine.length).toBeGreaterThanOrEqual(1);
+      for (const r of mine) {
+        expect(studios.has(r.building)).toBe(false);
+        expect(city.buildings[r.building]!.walls).toEqual(r.walls);
+        if (r.kind === 'recolor') expect(city.surfaces[r.walls.px]!.color).not.toBe(r.color);
+      }
+    }
+  });
+});

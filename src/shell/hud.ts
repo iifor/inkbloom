@@ -8,6 +8,8 @@ import type { ToolBelt } from '@/systems/tools/tool';
 import type { ObjectiveSystem } from './objectives';
 import { SIDE_NAMES, type TideStatus } from '@/systems/city/ink-tide';
 import { BLOCK_NAMES, blockState } from '@/world/city/blocks';
+import { levelProgress } from '@/world/progression';
+import { WEAPONS } from '@/content/weapons';
 
 function tideLine(t: TideStatus | null, here: number): string {
   if (!t) return '';
@@ -79,6 +81,16 @@ export class Hud implements System {
     };
     this.release.push(ctx.events.on('toast', ({ text, seconds }) => this.toast(text, seconds)));
     this.release.push(ctx.events.on('player:hurt', () => this.flash(this.el.hurt, 'on', 250)));
+    this.release.push(ctx.events.on('growth:level', ({ level }) => this.toast(`升到 ${level} 级！`, 4)));
+    this.release.push(
+      ctx.events.on('weapon:unlocked', ({ key }) => {
+        const w = WEAPONS.find((x) => x.key === key);
+        if (w) this.toast(`得到新武器：${w.name}（按 2 拿武器，Q/R 切换，G：${w.skill.name}）`, 6);
+      }),
+    );
+    this.release.push(
+      ctx.events.on('growth:points', ({ gained }) => this.toast(`获得 ${gained} 个属性点，按 Tab 分配`, 5)),
+    );
     this.release.push(
       ctx.events.on('shot:hit', ({ killed }) =>
         this.flash(root.querySelector<HTMLElement>('.hud-cross')!, killed ? 'kill' : 'hit', 120),
@@ -122,7 +134,10 @@ export class Hud implements System {
       this.set('tide', this.el.tide, '');
     }
     const inv = this.ctx.state.inventory;
-    this.set('res', this.el.res, `墨 ${inv.ink} · 通用颜料 ${inv.generic}`);
+    const g = this.ctx.state.growth;
+    const lp = levelProgress(g.xp);
+    const lv = `Lv ${lp.level}${lp.need ? ` (${lp.into}/${lp.need})` : ''}${g.points ? ` · ${g.points} 属性点（Tab）` : ''}`;
+    this.set('res', this.el.res, `${lv} · 墨 ${inv.ink} · 通用颜料 ${inv.generic}`);
     this.set('goal', this.el.goal, this.objectives.text);
     const { hp, maxHp, alive } = this.ctx.combat;
     const pct = `${Math.round((hp / maxHp) * 100)}%`;
@@ -139,7 +154,8 @@ export class Hud implements System {
       this.belt.tools.map((t, i) => `${i === this.belt.index ? '▸' : ' '}${i + 1} ${t.name}`).join('   '),
     );
     const hud = this.belt.active?.hud();
-    this.set('lines', this.el.lines, hud?.lines.join('\n') ?? '');
+    const glide = this.ctx.player.gliding ? '\n纸飞机滑翔中' : '';
+    this.set('lines', this.el.lines, (hud?.lines.join('\n') ?? '') + glide);
     const sw = hud?.swatch ?? null;
     const swKey = String(sw);
     if (this.cache.get('swatch') !== swKey) {

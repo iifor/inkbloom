@@ -25,7 +25,9 @@ const city = {
   stain: { x: 20, z: 20 },
   guards: 0,
   nearestGuard: null,
-  holdsRifle: false,
+  holdsWeapon: false,
+  wishes: 0,
+  nearestWish: null,
 };
 
 describe('objectives', () => {
@@ -67,12 +69,24 @@ describe('objectives', () => {
   });
 });
 
+describe('wish objectives', () => {
+  it('points at an open wish once the block has colour and nothing more urgent waits', () => {
+    const o = objective({
+      ...base,
+      scene: 'city',
+      city: { ...city, wishes: 2, nearestWish: { x: 3, z: 4 } },
+    });
+    expect(o.text).toContain('2 位居民');
+    expect(o.target).toEqual({ x: 3, z: 4 });
+  });
+});
+
 describe('combat objectives', () => {
   it('sends the player at a guarded block with the rifle', () => {
     const guarded = { ...city, guards: 3, nearestGuard: { x: 5, z: 5 } };
-    expect(objective({ ...base, scene: 'city', city: guarded }).text).toContain('按 2 换步枪');
-    const armed = objective({ ...base, scene: 'city', city: { ...guarded, holdsRifle: true } });
-    expect(armed.text).toContain('开枪');
+    expect(objective({ ...base, scene: 'city', city: guarded }).text).toContain('按 2 换武器');
+    const armed = objective({ ...base, scene: 'city', city: { ...guarded, holdsWeapon: true } });
+    expect(armed.text).toContain('左键攻击');
     expect(armed.target).toEqual({ x: 5, z: 5 });
   });
 

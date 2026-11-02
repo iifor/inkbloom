@@ -3,6 +3,8 @@ import { TUNING } from '@/content/tuning';
 import { generateWildChunk } from '@/world/wilderness/chunk';
 import { createWilderness } from '@/world/wilderness/generator';
 import { saturationAt } from '@/world/wilderness/drain';
+import { ruinById, ruinInCell } from '@/world/wilderness/ruins';
+import { WATER_LEVEL } from '@/world/wilderness/generator';
 
 const SEED = 20261102;
 
@@ -77,5 +79,25 @@ describe('wilderness', () => {
     expect(saturationAt(10, 0, [city])).toBe(0);
     expect(saturationAt(5000, 0, [city])).toBe(1);
     expect(saturationAt(10, 0, [{ ...city, progress: 1 }])).toBe(1);
+  });
+});
+
+describe('ruins', () => {
+  it('are placed deterministically, found by id, away from spawn, water and towers', () => {
+    const w = createWilderness(SEED);
+    const found = [];
+    for (let gx = -4; gx <= 4; gx++)
+      for (let gz = -4; gz <= 4; gz++) {
+        const r = ruinInCell(w, gx, gz);
+        if (!r) continue;
+        found.push(r);
+        expect(ruinById(createWilderness(SEED), r.id)).toEqual(r);
+        expect(Math.hypot(r.x, r.z)).toBeGreaterThanOrEqual(80);
+        expect(r.y).toBeGreaterThan(WATER_LEVEL);
+        for (const e of w.entrancesNear(r.x, r.z, 1))
+          expect(Math.hypot(r.x - e.x, r.z - e.z)).toBeGreaterThan(40);
+      }
+    expect(found.length).toBeGreaterThan(81 * TUNING.structures.ruinChance * 0.5);
+    expect(new Set(found.map((r) => r.template)).size).toBeGreaterThan(1);
   });
 });

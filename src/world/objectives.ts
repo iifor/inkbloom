@@ -32,7 +32,10 @@ export interface Situation {
     /** Stronghold monsters still standing in the player's block, and the nearest one. */
     readonly guards: number;
     readonly nearestGuard: Point | null;
-    readonly holdsRifle: boolean;
+    readonly holdsWeapon: boolean;
+    /** The player's block is 有色 but residents still have wishes. */
+    readonly wishes: number;
+    readonly nearestWish: Point | null;
   };
 }
 
@@ -48,10 +51,15 @@ export function objective(s: Situation): Objective {
     if (c.completed) return { text: `${c.name}恢复了！走出城门，去找下一座城`, target: c.gate };
     if (c.guards > 0)
       return {
-        text: c.holdsRifle
-          ? `这个街区有 ${c.guards} 只墨怪守着：按住左键开枪赶走它们`
-          : `这个街区有 ${c.guards} 只墨怪守着：按 2 换步枪`,
+        text: c.holdsWeapon
+          ? `这个街区有 ${c.guards} 只墨怪守着：按住左键攻击赶走它们`
+          : `这个街区有 ${c.guards} 只墨怪守着：按 2 换武器`,
         target: c.nearestGuard,
+      };
+    if (c.wishes > 0)
+      return {
+        text: `这个街区有了颜色，还有 ${c.wishes} 位居民有心愿（门口的彩色牌子）：完成后街区繁荣，画室会产出颜料`,
+        target: c.nearestWish,
       };
     if (s.generic < 1) {
       if (s.ink >= s.inkPerGeneric && c.studio)

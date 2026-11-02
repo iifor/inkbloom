@@ -86,4 +86,30 @@ export const LANDMARKS = [
     body: [color('brown'), color('cream')],
     trim: [color('yellow'), color('teal')],
   },
+  {
+    key: 'station',
+    name: '车站',
+    tiers: { min: 2, max: 3 },
+    tierHeight: { min: 6, max: 8 },
+    baseWidth: { min: 15, max: 16 },
+    shrink: 0.62,
+    spire: false,
+    body: [color('green'), color('cream')],
+    trim: [color('red'), color('charcoal')],
+  },
 ] as const satisfies readonly LandmarkTemplate[];
+
+/** Wilderness ruins. Each guards a crayon: reaching it unlocks a colour. */
+export interface RuinTemplate {
+  readonly key: string;
+  readonly name: string;
+  /** How the stones are laid out; the builder knows each shape. */
+  readonly shape: 'circle' | 'bridge' | 'steles';
+  readonly stone: number;
+}
+
+export const RUINS = [
+  { key: 'stone-circle', name: '石圈', shape: 'circle', stone: color('rock') },
+  { key: 'broken-bridge', name: '断桥', shape: 'bridge', stone: color('stone') },
+  { key: 'stele-grove', name: '碑林', shape: 'steles', stone: color('charcoal') },
+] as const satisfies readonly RuinTemplate[];

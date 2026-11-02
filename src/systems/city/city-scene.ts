@@ -16,6 +16,7 @@ import { Erosion } from './erosion';
 import { InkStains } from './ink-stains';
 import { InkTide } from './ink-tide';
 import { CityMonsters } from './city-monsters';
+import { Residents } from './residents';
 import { Studios } from './studios';
 
 export class CityScene implements GameScene {
@@ -39,6 +40,7 @@ export class CityScene implements GameScene {
   private readonly studios: Studios;
   private readonly erosion: Erosion;
   readonly monsters: CityMonsters;
+  readonly residents: Residents;
 
   constructor(
     private readonly ctx: GameContext,
@@ -48,7 +50,7 @@ export class CityScene implements GameScene {
     this.ref = { kind: 'city', id: layout.id };
     this.name = layout.name;
     this.root.name = `city:${layout.id}`;
-    const { states, stains, defeated, reset } = cityStates(ctx.state, layout.id, layout);
+    const { states, stains, defeated, requestsDone, reset } = cityStates(ctx.state, layout.id, layout);
     this.states = states;
     this.wasReset = reset;
     if (reset) ctx.events.emit('toast', { text: `${layout.name}的布局已更新，颜色进度已重置`, seconds: 6 });
@@ -70,6 +72,7 @@ export class CityScene implements GameScene {
     this.studios = new Studios(ctx, layout, states, (c) => this.progress(c), this.material, this.root);
     this.erosion = new Erosion(ctx, layout, states, this);
     this.monsters = new CityMonsters(ctx, layout, defeated, this.physics, this.root, this.material);
+    this.residents = new Residents(ctx, layout, states, requestsDone, this.material, this.root);
     this.tide = new InkTide(ctx, layout, states, this, this.material, this.root);
 
     this.release.push(
@@ -126,7 +129,9 @@ export class CityScene implements GameScene {
   private checkComplete(): void {
     if (this.completed) return;
     if (!this.blocks().every((b) => b === 'colored' || b === 'thriving')) return;
+    const hadGlider = this.ctx.state.inventory.glider;
     if (!this.ctx.apply({ kind: 'complete', city: this.layout.id }).ok) return;
+    if (!hadGlider) this.ctx.events.emit('toast', { text: '得到纸飞机：在空中按住空格就能滑翔', seconds: 8 });
     const r = TUNING.city.completeReward;
     this.ctx.events.emit('toast', {
       text: `${this.layout.name}恢复了颜色！通用颜料 +${r.generic}，墨 +${r.ink}。周围的野外也会亮起来`,
@@ -149,7 +154,7 @@ export class CityScene implements GameScene {
 
   /** Every block's state, read from its share of colour. */
   blocks(): BlockState[] {
-    return this.totals.map((_, c) => blockState(this.progress(c)));
+    return this.totals.map((_, c) => blockState(this.progress(c), this.residents.open(c) === 0));
   }
 
   /** Which city chunk (0..chunks²-1) a position is in. */
@@ -190,6 +195,7 @@ export class CityScene implements GameScene {
     this.studios.dispose();
     this.tide.dispose();
     this.monsters.dispose();
+    this.residents.dispose();
     for (const r of this.release) r();
     this.texture.dispose();
     this.material.dispose();

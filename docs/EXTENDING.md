@@ -52,6 +52,23 @@
 - 步枪：`tuning.ts` 的 `rifle`。新武器写成一个 `Tool`（参考 [src/systems/tools/rifle.ts](../src/systems/tools/rifle.ts)），用 `ctx.combat.shoot()` 打，自己不需要知道有哪些墨怪
 - 让新的东西能被打：实现 `TargetSource`，用 `ctx.combat.addTargets()` 注册（`MonsterGroup` 就是这样做的）
 - 改据点数量或位置只会重置"已打败"标记，不会重置涂色进度
+- 野外墨怪多少：`tuning.ts` 的 `combat.wild`（按地面饱和度分档）和 `combat.wildRespawnSeconds`
+- 寻路：通用 A* 在 [src/world/nav/path.ts](../src/world/nav/path.ts)，城市 / 野外的可走格子在 [src/world/nav/grids.ts](../src/world/nav/grids.ts)。新场景要让墨怪寻路，给它的 `MonsterGroup` 设一个 `nav`
+
+## 加一种武器
+
+[src/content/weapons.ts](../src/content/weapons.ts) 的 `WEAPONS` **末尾**追加：种类（`gun` 枪 / `melee` 近战 / `launcher` 炮）、伤害、射速、弹匣、范围、技能、解锁条件（开局 / 某个里程碑 / 等级 / 恢复几座城）、外观颜色。持枪模型和技能效果在 [src/systems/tools/weapons.ts](../src/systems/tools/weapons.ts) 按 `key` 加分支（`viewModel` 和 `skill`）。
+
+## 调成长
+
+[src/content/progression.ts](../src/content/progression.ts)：每种行为给多少经验、每级要多少经验、每级自带的成长、每个属性点加多少、哪些里程碑给属性点。
+
+## 调心愿、遗迹、标记、纸飞机
+
+- 心愿：[src/content/requests.ts](../src/content/requests.ts)（数量、换色和要颜料的比例、文案、奖励）
+- 遗迹：`tuning.ts` 的 `structures.ruin*`，模板在 `content/templates.ts` 的 `RUINS`
+- 墨迹标记：`tuning.ts` 的 `marks`；纸飞机：`player.glideFall` / `glideSpeed`
+- 繁荣画室产出：`economy.studioStockSeconds` / `studioStockCap`
 
 ## 加一种建筑 / 地标模板
 
@@ -117,5 +134,6 @@ const release = ctx.interactions.add({
 
 - v1（2026-11-02）：初版
 - v2（2026-11-02）：每座城的状态附带布局指纹（`surfaceFingerprint`）。v1 存档读入时，表面数量一致就沿用，否则该城重置
+- v2 补充（2026-11-02，首版）：新增 `growth`、`discovered`、`marks`、`nextMark`、`hunted`，`inventory.glider` / `weapons`；城市存档新增 `co`（街区首次有色）、`rf`/`rd`（心愿指纹与完成标记）、`sk`（繁荣画室计时）。都是可选字段
 - v2 补充（2026-11-02，战斗）：新增 `drop`（死亡掉落）、`inventory.brushTier`，城市存档新增 `c`（已恢复）、`mf`/`d`（据点指纹与已打败标记）。均为可选字段，旧存档取默认值
 - v2 补充（2026-11-02）：新增可选字段 `inventory.ink`、`clock`、`harvested`，城市存档新增 `sf`/`st`（墨渍指纹与已吸走标记）。旧 v2 存档读入时取默认值，不需要升版本

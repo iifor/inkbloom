@@ -12,10 +12,10 @@ export const BLOCK_NAMES: Record<BlockState, string> = {
   thriving: '繁荣',
 };
 
-export function blockState(ratio: number): BlockState {
+/** A block's state from its share of colour, and whether its residents' requests are done. */
+export function blockState(ratio: number, requestsDone = false): BlockState {
   const b = TUNING.blocks;
-  if (ratio >= b.thrivingAt) return 'thriving';
-  if (ratio >= b.coloredAt) return 'colored';
+  if (ratio >= b.coloredAt) return requestsDone ? 'thriving' : 'colored';
   if (ratio >= b.clearedAt) return 'cleared';
   return 'drained';
 }
@@ -48,8 +48,11 @@ export function blockStates(
   states: Uint8Array,
   surfaces: readonly SurfaceInfo[],
   side: number,
+  requestsDone: (chunk: number) => boolean = () => false,
 ): BlockState[] {
-  return Array.from({ length: side * side }, (_, c) => blockState(coloredRatio(states, surfaces, c)));
+  return Array.from({ length: side * side }, (_, c) =>
+    blockState(coloredRatio(states, surfaces, c), requestsDone(c)),
+  );
 }
 
 /** Drained neighbours of a block, as directions. Empty for blocks that are safe. */

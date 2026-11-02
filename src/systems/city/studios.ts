@@ -89,6 +89,9 @@ export class Studios {
     const ink = this.ctx.state.inventory.ink;
     const per = TUNING.economy.inkPerGeneric;
     const made = Math.floor(ink / per);
+    const stock = this.stock(i);
+    if (stock > 0)
+      return `E 画室：领取产出的 ${stock} 份通用颜料${made > 0 ? `，并提炼墨 ${made * per}` : ''}`;
     return made > 0
       ? `E 画室：墨 ${made * per} → 通用颜料 ${made}`
       : `画室：墨不够（每 ${per} 墨提炼 1 通用颜料）`;
@@ -112,11 +115,27 @@ export class Studios {
     });
   }
 
+  /** E at a studio: take what a thriving studio has made, then refine held ink. */
   private refine(i: number): void {
-    const before = this.ctx.state.inventory.generic;
+    const inv = this.ctx.state.inventory;
+    const start = inv.generic;
+    const stocked = this.ctx.apply({ kind: 'collectStock', city: this.layout.id, studio: i }).ok;
+    const fromStock = inv.generic - start;
+    const before = inv.generic;
     const r = this.ctx.apply({ kind: 'refine', city: this.layout.id, studio: i });
-    const made = this.ctx.state.inventory.generic - before;
-    this.ctx.events.emit('toast', { text: r.ok ? `提炼出 ${made} 份通用颜料` : r.reason });
+    const made = inv.generic - before;
+    const parts = [stocked ? `画室产出 ${fromStock}` : '', r.ok ? `提炼出 ${made}` : ''].filter(Boolean);
+    const why = r.ok ? '' : r.reason;
+    this.ctx.events.emit('toast', { text: parts.length ? `${parts.join('，')} 份通用颜料` : why });
+  }
+
+  /** Generic pigment a thriving studio is holding (for its prompt). */
+  private stock(i: number): number {
+    const s = this.layout.studios[i]!;
+    const from = this.ctx.state.cities.get(this.layout.id)?.stockFrom[s.chunk] ?? -1;
+    if (from < 0) return 0;
+    const made = Math.floor((this.ctx.state.clock - from) / TUNING.economy.studioStockSeconds);
+    return Math.min(TUNING.economy.studioStockCap, made);
   }
 
   dispose(): void {

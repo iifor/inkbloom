@@ -5,8 +5,9 @@ import { type Action, KEYS, MOUSE } from '@/content/bindings';
 
 export class Input {
   private readonly down = new Set<Action>();
-  private readonly prev = new Set<Action>();
   private readonly cur = new Set<Action>();
+  /** Presses (keydown, click, tap) since the last frame; this frame's pressed() set. */
+  private readonly fresh = new Set<Action>();
   private readonly queued = new Set<Action>();
   private lookX = 0;
   private lookY = 0;
@@ -34,7 +35,8 @@ export class Input {
       const a = KEYS[e.code];
       if (!a) return;
       if (!e.repeat) this.press(a);
-      if (e.code === 'Space' || e.code.startsWith('Arrow') || e.code.startsWith('F')) e.preventDefault();
+      if (e.code === 'Space' || e.code === 'Tab' || e.code.startsWith('Arrow') || e.code.startsWith('F'))
+        e.preventDefault();
     });
     on(window, 'keyup', (e) => {
       const a = KEYS[e.code];
@@ -84,13 +86,23 @@ export class Input {
 
   /** Call once per frame before systems read input. */
   update(): void {
-    this.prev.clear();
-    for (const a of this.cur) this.prev.add(a);
     this.cur.clear();
     for (const a of this.down) this.cur.add(a);
-    // taps shorter than a frame still count as one press
-    for (const a of this.queued) this.cur.add(a);
+    // every press event counts once, even a tap shorter than a frame or two taps in a row
+    this.fresh.clear();
+    for (const a of this.queued) {
+      this.fresh.add(a);
+      this.cur.add(a);
+    }
     this.queued.clear();
+  }
+
+  /** Take a press away from later readers this frame (a panel that owns some keys while open). */
+  consume(a: Action): boolean {
+    const was = this.pressed(a);
+    this.fresh.delete(a);
+    this.cur.delete(a);
+    return was;
   }
 
   held(a: Action): boolean {
@@ -98,7 +110,7 @@ export class Input {
   }
 
   pressed(a: Action): boolean {
-    return this.cur.has(a) && !this.prev.has(a);
+    return this.fresh.has(a);
   }
 
   /** Accumulated look delta in radians since the last call. */

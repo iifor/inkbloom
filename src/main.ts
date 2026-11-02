@@ -1,15 +1,16 @@
-// Page entry: load or create the world save, start the open world, handle the start overlay
-// and pointer lock. URL options: ?world=<id> picks a save slot, ?seed=<n> seeds a new world.
+// Page entry: load or create the world save, start the open world, and drive the menus and
+// pointer lock. URL options: ?world=<id> picks a save slot, ?seed=<n> seeds a new world.
 import { startOpenWorld, type OpenWorld } from './modes/open-world';
+import { Menu } from './shell/menu';
+import { installDevTools } from './shell/dev-tools';
 import { hashString } from './world/math/hash';
+import { loadSettings, saveSettings, type Settings } from './world/settings';
 import { SaveError, createWorldState, type WorldState } from './world/state';
 import { KeyValueStore, browserKeyValue } from './world/store';
-import { installDevTools } from './shell/dev-tools';
 
 const canvas = document.querySelector<HTMLCanvasElement>('#view')!;
 const hudRoot = document.querySelector<HTMLElement>('#hud')!;
 const overlay = document.querySelector<HTMLElement>('#overlay')!;
-const playButton = document.querySelector<HTMLButtonElement>('#play')!;
 const errorText = document.querySelector<HTMLElement>('#overlay-error')!;
 
 /** Once the game has failed, the only way forward is a fresh page. */
@@ -17,18 +18,27 @@ function showFatal(e: unknown): void {
   console.error(e);
   if (document.pointerLockElement) document.exitPointerLock();
   overlay.hidden = false;
-  errorText.textContent = `出错了：${e instanceof Error ? e.message : String(e)}`;
-  playButton.textContent = '重新加载';
-  playButton.onclick = () => location.reload();
+  overlay.querySelector('.menu-body')!.innerHTML = '<h2>出错了</h2><button id="reload">重新加载</button>';
+  overlay.querySelector<HTMLButtonElement>('#reload')!.onclick = () => location.reload();
+  errorText.textContent = e instanceof Error ? e.message : String(e);
+}
+
+function openWorld(id: string): void {
+  const url = new URL(location.href);
+  url.searchParams.set('world', id);
+  url.searchParams.delete('seed');
+  location.href = url.toString();
 }
 
 async function boot(): Promise<void> {
   const params = new URLSearchParams(location.search);
-  const worldId = params.get('world') ?? 'default';
-  const notices: string[] = [];
   const { kv, persistent } = browserKeyValue();
-  if (!persistent) notices.push('浏览器不允许本地存储：这次的进度不会保存');
   const store = new KeyValueStore(kv);
+  const notices: string[] = [];
+  if (!persistent) notices.push('浏览器不允许本地存储：这次的进度不会保存');
+  // with no ?world=, continue the most recently used world
+  const worldId = params.get('world') ?? kv.getItem('inkbloom:last') ?? 'default';
+  kv.setItem('inkbloom:last', worldId);
 
   let state: WorldState | null = null;
   try {
@@ -44,7 +54,8 @@ async function boot(): Promise<void> {
       seedParam !== null && /^-?\d+$/.test(seedParam)
         ? Number(seedParam) | 0
         : hashString(`${worldId}:${Date.now()}`);
-    state = createWorldState(worldId, seed);
+    const count = (await store.list()).length;
+    state = createWorldState(worldId, seed, `世界 ${count + 1}`);
     try {
       await store.save(state);
     } catch (e) {
@@ -56,18 +67,39 @@ async function boot(): Promise<void> {
   installDevTools(game);
   for (const text of notices) game.ctx.events.emit('toast', { text, seconds: 8 });
 
-  const input = game.ctx.input;
-  playButton.onclick = async () => {
-    errorText.textContent = '';
-    overlay.hidden = true;
-    canvas.focus();
-    const locked = await input.requestLock();
-    if (!locked)
-      game.ctx.events.emit('toast', { text: '浏览器拒绝了鼠标捕获：按住鼠标拖动来转视角', seconds: 5 });
+  let settings = loadSettings(kv);
+  const apply = (s: Settings): void => {
+    settings = s;
+    saveSettings(kv, s);
+    game.ctx.input.sensitivity = 0.0022 * s.sensitivity;
+    game.ctx.renderer.setFov(s.fov);
+    game.ctx.renderer.setQuality(s.quality);
   };
+  apply(settings);
+
+  const input = game.ctx.input;
+  const menu = new Menu(overlay, state, {
+    async play() {
+      errorText.textContent = '';
+      menu.hide();
+      canvas.focus();
+      if (!(await input.requestLock()))
+        game.ctx.events.emit('toast', { text: '浏览器拒绝了鼠标捕获：按住鼠标拖动来转视角', seconds: 5 });
+    },
+    newWorld() {
+      void game.save.flush().then(() => openWorld(`w${Date.now().toString(36)}`));
+    },
+    openWorld(id) {
+      void game.save.flush().then(() => openWorld(id));
+    },
+    listWorlds: () => store.list(),
+    settings: () => settings,
+    applySettings: apply,
+  });
+  menu.show('main');
   input.onLockChange = (locked) => {
     if (!locked) {
-      overlay.hidden = false;
+      menu.show('pause');
       void game.save.flush();
     }
   };

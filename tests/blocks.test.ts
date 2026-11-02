@@ -24,7 +24,9 @@ describe('block states', () => {
     expect(blockState(B.clearedAt)).toBe('cleared');
     expect(blockState(B.coloredAt - 0.01)).toBe('cleared');
     expect(blockState(B.coloredAt)).toBe('colored');
-    expect(blockState(B.thrivingAt)).toBe('thriving');
+    expect(blockState(B.coloredAt, false)).toBe('colored');
+    expect(blockState(B.coloredAt, true)).toBe('thriving');
+    expect(blockState(B.coloredAt - 0.01, true)).toBe('cleared');
   });
 
   it('find neighbours and stop at the city edge', () => {

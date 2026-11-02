@@ -6,6 +6,7 @@ import { BRUSH_TIERS } from '@/content/brush-tiers';
 import { surfaceAt } from '@/engine/physics/world';
 import type { GameContext } from '@/game/types';
 import { standingMonsters } from '@/world/city/features';
+import { stats } from '@/world/progression';
 import { ORIGINAL, graffiti, surfaceCost } from '@/world/paint/surfaces';
 import type { Tool, ToolHud } from './tool';
 
@@ -72,7 +73,7 @@ export class Brush implements Tool {
     const saved = this.ctx.state.cities.get(cityId);
     const guards = saved ? standingMonsters(layout, saved.defeated, info.chunk).length : 0;
     if (guards) {
-      this.hint = `这个街区还有 ${guards} 只墨怪，先赶走它们（按 2 换步枪）`;
+      this.hint = `这个街区还有 ${guards} 只墨怪，先赶走它们（按 2 换武器）`;
       this.target = null;
       this.progress = 0;
       return;
@@ -100,7 +101,7 @@ export class Brush implements Tool {
       this.progress = Math.max(0, this.progress - dt * 2);
       return;
     }
-    this.progress += dt / tier.secondsPerSurface;
+    this.progress += (dt * stats(this.ctx.state.growth).skill) / 100 / tier.secondsPerSurface;
     if (this.progress < 1) return;
     this.progress = 0;
     const r =

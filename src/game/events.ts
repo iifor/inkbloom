@@ -9,6 +9,9 @@ export interface GameEvents {
   'scene:entered': { readonly ref: SceneRef; readonly name: string };
   'city:completed': { readonly city: string; readonly name: string };
   'player:hurt': { readonly amount: number };
+  'growth:level': { readonly level: number };
+  'growth:points': { readonly gained: number; readonly total: number };
+  'weapon:unlocked': { readonly key: string };
   'player:died': { readonly lostInk: number };
   'shot:hit': { readonly killed: boolean };
   toast: { readonly text: string; readonly seconds?: number };

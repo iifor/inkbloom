@@ -173,6 +173,32 @@ body {
   font-size: 17px;
   line-height: 1.8;
 }
+.character-panel {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  min-width: 420px;
+  padding: 18px 24px;
+  background: rgba(246, 244, 231, 0.95);
+  border: 2px solid #2b2d36;
+  border-radius: 8px;
+  pointer-events: none;
+}
+.character-panel h2 {
+  margin: 0 0 8px;
+}
+.character-panel table {
+  border-collapse: collapse;
+  margin: 8px 0;
+}
+.character-panel td {
+  padding: 3px 10px 3px 0;
+}
+.character-panel .muted {
+  opacity: 0.65;
+  font-size: 13px;
+}
 .debug-panel {
   position: absolute;
   top: 12px;
@@ -198,6 +224,29 @@ body {
   background: rgba(246, 244, 231, 0.78);
   text-align: center;
 }
+.menu-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  min-width: 360px;
+}
+.menu-body button {
+  min-width: 320px;
+}
+.menu-body label {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  font-size: 16px;
+}
+.menu-body table.controls td {
+  padding: 3px 12px;
+  text-align: left;
+}
+.menu-body h2 {
+  margin: 0 0 6px;
+}
 #overlay[hidden] {
   display: none;
 }
@@ -207,7 +256,7 @@ body {
   letter-spacing: 0.2em;
 }
 #overlay button {
-  margin: 14px 0;
+  margin: 2px 0;
   font: inherit;
   font-size: 20px;
   padding: 10px 34px;

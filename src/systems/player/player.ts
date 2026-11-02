@@ -15,6 +15,10 @@ export class PlayerSystem implements System, PlayerApi {
   yaw = 0;
   pitch = 0;
   flying = false;
+  /** Gliding on the paper plane this frame (for the HUD). */
+  gliding = false;
+  private dashT = 0;
+  private readonly dashVel = new THREE.Vector3();
   private airJumps = 0;
   private readonly wish = new THREE.Vector3();
 
@@ -24,6 +28,18 @@ export class PlayerSystem implements System, PlayerApi {
 
   get position(): THREE.Vector3 {
     return this.body.pos;
+  }
+
+  get dashing(): boolean {
+    return this.dashT > 0;
+  }
+
+  dash(dir: THREE.Vector3, distance: number, seconds: number): void {
+    this.dashVel
+      .set(dir.x, 0, dir.z)
+      .normalize()
+      .multiplyScalar(distance / seconds);
+    this.dashT = seconds;
   }
 
   teleport(pos: THREE.Vector3, yaw = this.yaw): void {
@@ -76,7 +92,21 @@ export class PlayerSystem implements System, PlayerApi {
         b.vel.y = P.jumpSpeed * 0.9;
       }
     }
+    if (this.dashT > 0) {
+      this.dashT -= dt;
+      b.vel.x = this.dashVel.x;
+      b.vel.z = this.dashVel.z;
+    }
     b.vel.y -= P.gravity * dt;
+    // paper plane: hold jump while falling to glide forward
+    this.gliding = !b.onGround && b.vel.y < 0 && input.held('jump') && this.ctx.state.inventory.glider;
+    if (this.gliding) {
+      b.vel.y = Math.max(b.vel.y, -P.glideFall);
+      const fx = -Math.sin(this.yaw) * P.glideSpeed;
+      const fz = -Math.cos(this.yaw) * P.glideSpeed;
+      b.vel.x += THREE.MathUtils.clamp(fx - b.vel.x, -P.accelAir * 2 * dt, P.accelAir * 2 * dt);
+      b.vel.z += THREE.MathUtils.clamp(fz - b.vel.z, -P.accelAir * 2 * dt, P.accelAir * 2 * dt);
+    }
     this.ctx.scenes.active.physics.moveBody(b, dt);
     if (b.pos.y < -80) {
       const s = this.ctx.scenes.active.spawn();

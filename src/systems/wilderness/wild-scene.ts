@@ -1,6 +1,6 @@
 // The infinite wilderness. Streams chunks around the player (one build per frame so walking
-// never hitches), owns their colliders, and registers each city entrance and pigment source
-// as an interactable.
+// never hitches), owns their colliders, registers each city entrance and pigment source as an
+// interactable, and hosts the monsters that roam drained land.
 import * as THREE from 'three';
 import { TUNING } from '@/content/tuning';
 import { PhysicsWorld } from '@/engine/physics/world';
@@ -12,6 +12,9 @@ import { chunkKey, generateWildChunk } from '@/world/wilderness/chunk';
 import { buildChunkGeometry, addChunkColliders } from './build-chunk';
 import { buildLandmark } from './build-landmark';
 import { WildSources } from './pigment-sources';
+import { WildMonsterCamps } from './wild-monster-camps';
+import { WildRuins, buildRuin } from './ruins';
+import { WildMarks } from './marks';
 
 interface Loaded {
   readonly mesh: THREE.Mesh;
@@ -29,10 +32,16 @@ export class WildScene implements GameScene {
   private readonly loaded = new Map<string, Loaded>();
   private drainT = 0;
   private readonly sources: WildSources;
+  readonly monsters: WildMonsterCamps;
+  private readonly ruins: WildRuins;
+  private readonly marks: WildMarks;
 
   constructor(private readonly ctx: GameContext) {
     this.root.name = 'wild';
     this.sources = new WildSources(ctx, this.material, this.root);
+    this.monsters = new WildMonsterCamps(ctx, this.physics, this.root, this.material);
+    this.ruins = new WildRuins(ctx, this.material, this.root);
+    this.marks = new WildMarks(ctx, this.material, this.root);
   }
 
   spawn(): { pos: THREE.Vector3; yaw: number } {
@@ -74,6 +83,8 @@ export class WildScene implements GameScene {
       if (Math.max(Math.abs(cx - pcx), Math.abs(cz - pcz)) > W.unloadRadius) this.unload(key, item);
     }
     this.sources.update(dt);
+    this.monsters.update(dt);
+    this.ruins.update(dt);
     this.drainT -= dt;
     if (this.drainT <= 0) {
       this.drainT = 0.5;
@@ -117,7 +128,10 @@ export class WildScene implements GameScene {
         }),
       );
     }
+    for (const r of chunk.ruins) buildRuin(r, g, this.physics, group);
+    release.push(this.ruins.add(chunk.ruins));
     release.push(this.sources.add(chunk.sources));
+    release.push(this.monsters.add(chunk));
     const mesh = new THREE.Mesh(g.build(), this.material);
     mesh.name = group;
     this.root.add(mesh);
@@ -142,6 +156,8 @@ export class WildScene implements GameScene {
 
   dispose(): void {
     for (const [key, item] of [...this.loaded]) this.unload(key, item);
+    this.monsters.dispose();
+    this.marks.dispose();
     this.material.dispose();
     disposeTree(this.root);
   }

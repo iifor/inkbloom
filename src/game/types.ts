@@ -49,16 +49,23 @@ export interface PlayerApi {
   yaw: number;
   pitch: number;
   flying: boolean;
+  readonly gliding: boolean;
+  /** Push the player along a direction for a moment (dodges, dash attacks). */
+  dash(dir: THREE.Vector3, distance: number, seconds: number): void;
+  readonly dashing: boolean;
   teleport(pos: THREE.Vector3, yaw?: number): void;
 }
 
 export interface SceneApi {
   readonly active: GameScene;
   enterWild(at?: { pos: THREE.Vector3; yaw: number }): void;
-  /** Go to the tower door of a restored city, from anywhere. */
-  travelTo(cityId: string): void;
-  /** The F action offered at a restored city's door or gate: travel to the next one. */
-  travelAction(fromCity: string): { label(): string | null; activate(): void };
+  /** Where to come back after being knocked out at `near`: the city gate inside a city; in
+   * the wilderness, the nearest restored city's tower door or the world spawn. */
+  respawnPoint(near: THREE.Vector3): { pos: THREE.Vector3; yaw: number };
+  /** Go to a travel stop (a restored city's tower door, or an ink mark), from anywhere. */
+  travelTo(id: string): void;
+  /** The F action at a travel stop: go to the next stop on the ring. */
+  travelAction(from: string): { label(): string | null; activate(): void };
   enterCity(entrance: Entrance): void;
 }
 
@@ -76,14 +83,20 @@ export interface InteractionApi {
   readonly focused: Interactable | null;
 }
 
-/** Something the player can shoot (a group of monsters registers one). */
+/** One thing that was hit, and a way to hurt it (returns whether it died). */
+export interface TargetHit {
+  readonly dist: number;
+  damage(amount: number, from: THREE.Vector3): boolean;
+}
+
+/** Something the player can hit (a group of monsters registers one). */
 export interface TargetSource {
-  /** Nearest hit along a ray, with a way to damage what was hit. */
-  raycast(
-    origin: THREE.Vector3,
-    dir: THREE.Vector3,
-    max: number,
-  ): { dist: number; damage(amount: number, from: THREE.Vector3): boolean } | null;
+  /** Nearest hit along a ray. */
+  raycast(origin: THREE.Vector3, dir: THREE.Vector3, max: number): TargetHit | null;
+  /** Everything within `range` and `halfAngle` of a direction (a melee swing). */
+  inArc(origin: THREE.Vector3, dir: THREE.Vector3, range: number, halfAngle: number): TargetHit[];
+  /** Everything within `radius` of a point (an explosion), nearest first. */
+  inSphere(point: THREE.Vector3, radius: number): TargetHit[];
 }
 
 export interface ShotResult {
@@ -101,6 +114,15 @@ export interface CombatApi {
   addTargets(source: TargetSource): () => void;
   /** A hitscan shot: hits the nearest target unless a wall is closer. */
   shoot(origin: THREE.Vector3, dir: THREE.Vector3, range: number, damage: number): ShotResult;
+  /** A melee swing; returns how many targets were hit. */
+  strike(origin: THREE.Vector3, dir: THREE.Vector3, range: number, halfAngle: number, damage: number): number;
+  /** An explosion with linear falloff to the edge; returns how many targets were hit. */
+  blast(point: THREE.Vector3, radius: number, damage: number): number;
+  /** Whether any target is within `radius` of a point (shells burst on contact). */
+  probe(point: THREE.Vector3, radius: number): boolean;
+  /** Absorbs damage before health for a while. */
+  shield(amount: number, seconds: number): void;
+  readonly shieldLeft: number;
 }
 
 export interface GameContext {

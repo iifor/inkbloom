@@ -153,6 +153,8 @@ export class InkRenderer {
   private readonly postCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
   private readonly clearColor = new THREE.Color(1, 0, 0);
   private pixelRatio: number;
+  /** The player's field of view; tools zoom relative to it and return to it. */
+  baseFov = 78;
 
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({
@@ -216,6 +218,17 @@ export class InkRenderer {
       depthWrite: false,
     });
     this.postScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this.post));
+    this.resize();
+  }
+
+  setFov(fov: number): void {
+    this.baseFov = fov;
+    this.camera.fov = fov;
+    this.camera.updateProjectionMatrix();
+  }
+
+  setQuality(quality: 'high' | 'low'): void {
+    this.pixelRatio = Math.min(window.devicePixelRatio || 1, quality === 'high' ? 1.5 : 1);
     this.resize();
   }
 

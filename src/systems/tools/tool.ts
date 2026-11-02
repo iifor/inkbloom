@@ -16,6 +16,8 @@ export interface Tool {
   readonly name: string;
   /** Runs every frame while the tool is held. */
   update(dt: number): void;
+  /** Runs every frame for every tool, held or not (projectiles, cooldowns). */
+  tick?(dt: number): void;
   hud(): ToolHud;
   onEquip?(): void;
   onUnequip?(): void;
@@ -49,6 +51,7 @@ export class ToolBelt implements System {
     SLOT_ACTIONS.forEach((a, i) => {
       if (this.ctx.input.pressed(a)) this.select(i);
     });
+    for (const t of this.tools) t.tick?.(dt);
     this.active?.update(dt);
   }
 }

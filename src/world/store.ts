@@ -8,6 +8,8 @@ export interface WorldStore {
   remove(id: string): Promise<void>;
   /** Move an unreadable save aside so a new one can be created. Returns where it went. */
   quarantine(id: string): Promise<string | null>;
+  /** Every readable save, for the world list. */
+  list(): Promise<WorldState[]>;
 }
 
 /** Minimal subset of the Web Storage API so tests can pass a Map-backed fake. */
@@ -15,6 +17,8 @@ export interface KeyValue {
   getItem(key: string): string | null;
   setItem(key: string, value: string): void;
   removeItem(key: string): void;
+  readonly length: number;
+  key(index: number): string | null;
 }
 
 export class KeyValueStore implements WorldStore {
@@ -35,6 +39,20 @@ export class KeyValueStore implements WorldStore {
 
   async remove(id: string): Promise<void> {
     this.kv.removeItem(this.prefix + id);
+  }
+
+  async list(): Promise<WorldState[]> {
+    const out: WorldState[] = [];
+    for (let i = 0; i < this.kv.length; i++) {
+      const k = this.kv.key(i);
+      if (!k?.startsWith(this.prefix) || k.includes(':corrupt-')) continue;
+      try {
+        out.push(deserializeWorld(this.kv.getItem(k) ?? ''));
+      } catch {
+        // unreadable saves are handled when opened
+      }
+    }
+    return out;
   }
 
   async quarantine(id: string): Promise<string | null> {
@@ -64,6 +82,12 @@ export function browserKeyValue(): { kv: KeyValue; persistent: boolean } {
 
 export class MemoryKeyValue implements KeyValue {
   private readonly map = new Map<string, string>();
+  get length(): number {
+    return this.map.size;
+  }
+  key(index: number): string | null {
+    return [...this.map.keys()][index] ?? null;
+  }
   getItem(key: string): string | null {
     return this.map.get(key) ?? null;
   }

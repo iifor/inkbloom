@@ -60,27 +60,56 @@ export class SceneManager implements SceneApi, System {
     this.wildReturn = null;
   }
 
-  travelTo(cityId: string): void {
-    const e = this.ctx.cities.entranceOf(cityId);
+  respawnPoint(near: THREE.Vector3): { pos: THREE.Vector3; yaw: number } {
+    if (this.active !== this.wild) return this.active.spawn();
+    const options = [...this.ctx.state.cities]
+      .filter(([, c]) => c.completed)
+      .map(([id]) => this.outsideOf(this.ctx.cities.entranceOf(id)))
+      .filter((o): o is { pos: THREE.Vector3; yaw: number } => o !== null);
+    options.push(this.wild.spawn());
+    options.sort((a, b) => a.pos.distanceTo(near) - b.pos.distanceTo(near));
+    const best = options[0]!;
+    this.wild.ensureAt(best.pos.x, best.pos.z);
+    return best;
+  }
+
+  /** Where a travel id (restored city or ink mark) puts the player, and what it is called. */
+  private destination(id: string): { pos: THREE.Vector3; yaw: number; name: string } | null {
+    const mark = this.ctx.state.marks.find((m) => m.id === id);
+    if (mark)
+      return {
+        pos: new THREE.Vector3(mark.x, mark.y + 0.05, mark.z),
+        yaw: this.ctx.player.yaw,
+        name: `墨迹标记 ${id.slice(1)}`,
+      };
+    const e = this.ctx.cities.entranceOf(id);
     const target = this.outsideOf(e);
-    if (!e || !target) return;
+    return e && target ? { ...target, name: this.ctx.cities.layout(e).name } : null;
+  }
+
+  /** Restored cities and ink marks, the stops on the travel ring. */
+  private ring(): string[] {
+    const cities = [...this.ctx.state.cities].filter(([, c]) => c.completed).map(([id]) => id);
+    return [...cities, ...this.ctx.state.marks.map((m) => m.id)];
+  }
+
+  travelTo(id: string): void {
+    const target = this.destination(id);
+    if (!target) return;
     if (this.active === this.wild) {
       this.wild.ensureAt(target.pos.x, target.pos.z);
       this.ctx.player.teleport(target.pos, target.yaw);
-    } else this.enterWild(target);
-    this.ctx.events.emit('toast', { text: `传送到${this.ctx.cities.layout(e).name}`, seconds: 3 });
+    } else this.enterWild({ pos: target.pos, yaw: target.yaw });
+    this.ctx.events.emit('toast', { text: `传送到${target.name}`, seconds: 3 });
   }
 
   travelAction(fromCity: string): { label(): string | null; activate(): void } {
-    const dest = (): string | null => {
-      const restored = [...this.ctx.state.cities].filter(([, c]) => c.completed).map(([id]) => id);
-      return nextDestination(restored, fromCity);
-    };
+    const dest = (): string | null => nextDestination(this.ring(), fromCity);
     return {
       label: () => {
         const id = dest();
-        const e = id ? this.ctx.cities.entranceOf(id) : undefined;
-        return e ? `F 传送到${this.ctx.cities.layout(e).name}` : null;
+        const d = id ? this.destination(id) : null;
+        return d ? `F 传送到${d.name}` : null;
       },
       activate: () => {
         const id = dest();

@@ -11,6 +11,7 @@ import type { GameContext } from '@/game/types';
 import { blockBounds, depthFrom, tideTargets, type BlockState } from '@/world/city/blocks';
 import type { CityLayout } from '@/world/city/layout';
 import { isColored } from '@/world/paint/surfaces';
+import { stats } from '@/world/progression';
 
 const T = TUNING.tide;
 const HEIGHT = 16;
@@ -172,7 +173,7 @@ export class InkTide {
       w.spendOwed -= 1;
     }
     w.pushing = true;
-    w.front = Math.max(0, w.front - T.pushSpeed * dt);
+    w.front = Math.max(0, w.front - ((T.pushSpeed * stats(this.ctx.state.growth).skill) / 100) * dt);
   }
 
   private aimingAtCurtain(w: Wave): boolean {
@@ -238,7 +239,7 @@ export class InkTide {
     this.nextAt = this.ctx.state.clock + T.intervalMin + Math.random() * (T.intervalMax - T.intervalMin);
     const held = repelled || this.host.progress(w.chunk) >= T.holdRatio;
     if (held) {
-      this.ctx.apply({ kind: 'grant', generic: T.reward.generic, ink: T.reward.ink });
+      this.ctx.apply({ kind: 'tideHeld', city: this.layout.id });
       this.ctx.events.emit('toast', {
         text: `${repelled ? '墨潮被推回去了' : '守住了街区'}！通用颜料 +${T.reward.generic}，墨 +${T.reward.ink}`,
         seconds: 5,

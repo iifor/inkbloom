@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { color } from '@/content/palette';
 import { TUNING } from '@/content/tuning';
-import { applyPatch, type PatchContext } from '@/world/patch';
+import { applyPatch, unlockWeapons, type PatchContext } from '@/world/patch';
 import { DRAINED, ORIGINAL, coloredRatio, graffiti, type SurfaceInfo } from '@/world/paint/surfaces';
 import {
   SaveError,
@@ -13,9 +13,13 @@ import {
 } from '@/world/state';
 import { BRUSH_TIERS } from '@/content/brush-tiers';
 import { ENEMIES } from '@/content/enemies';
+import { LEVEL_XP, MILESTONES, XP } from '@/content/progression';
+import { afterArmor, levelOf, stats } from '@/world/progression';
 import { KeyValueStore, MemoryKeyValue } from '@/world/store';
 import type { CitySkeleton } from '@/world/city/features';
 import type { PigmentSource } from '@/world/wilderness/sources';
+import type { WildMonster } from '@/world/wilderness/wild-monsters';
+import type { Ruin } from '@/world/wilderness/ruins';
 
 const SURFACES: SurfaceInfo[] = [
   { kind: 'wall', chunk: 0, color: color('cream'), area: 40, x: 10, z: 10 },
@@ -35,6 +39,7 @@ const SKEL: CitySkeleton = {
   ],
   homeStudio: 0,
   monsters: [],
+  requests: [],
 };
 const SOURCE: PigmentSource = {
   id: '1,2:0',
@@ -46,9 +51,14 @@ const SOURCE: PigmentSource = {
   amount: 3,
   ink: 2,
 };
+const WILD: WildMonster = { id: '3,4:1', type: 0, x: 400, y: 2, z: 520 };
+const RUIN: Ruin = { id: 'r1_1', template: 0, x: 600, y: 3, z: 600, color: color('purple'), seed: 1 };
+const OLD_RUIN: Ruin = { ...RUIN, id: 'r2_2', color: color('red') };
 const ctx: PatchContext = {
   cityOf: (id) => (id === 'c' ? SKEL : null),
   sourceOf: (id) => (id === SOURCE.id ? SOURCE : null),
+  wildMonsterOf: (id) => (id === WILD.id ? WILD : null),
+  ruinOf: (id) => (id === RUIN.id ? RUIN : id === OLD_RUIN.id ? OLD_RUIN : null),
 };
 const withSurfaces = (surfaces: SurfaceInfo[]): CitySkeleton => ({ ...SKEL, surfaces });
 
@@ -403,5 +413,226 @@ describe('combat rules', () => {
     expect(r.reset).toBe(false);
     expect(r.states[0]).toBe(ORIGINAL);
     expect([...r.defeated]).toEqual([0]);
+  });
+});
+
+describe('wilderness hunting', () => {
+  it('pays ink once, then the monster comes back after the respawn time', () => {
+    const s = createWorldState('w', 1);
+    expect(applyPatch(s, { kind: 'hunt', monster: WILD.id }, ctx).ok).toBe(true);
+    expect(s.inventory.ink).toBe(ENEMIES[0]!.ink);
+    expect(applyPatch(s, { kind: 'hunt', monster: WILD.id }, ctx).ok).toBe(false);
+    s.clock += TUNING.combat.wildRespawnSeconds;
+    expect(applyPatch(s, { kind: 'hunt', monster: WILD.id }, ctx).ok).toBe(true);
+    expect(applyPatch(s, { kind: 'hunt', monster: 'nowhere' }, ctx).ok).toBe(false);
+  });
+
+  it('keeps fresh kills in the save and drops ones that came back', () => {
+    const s = createWorldState('w', 1);
+    applyPatch(s, { kind: 'hunt', monster: WILD.id }, ctx);
+    expect(deserializeWorld(serializeWorld(s)).hunted.get(WILD.id)).toBe(0);
+    s.clock = TUNING.combat.wildRespawnSeconds + 1;
+    expect(deserializeWorld(serializeWorld(s)).hunted.size).toBe(0);
+  });
+});
+
+describe('growth', () => {
+  const ONE: CitySkeleton = { ...SKEL, chunks: 1, surfaces: SURFACES.map((x) => ({ ...x, chunk: 0 })) };
+  const one: PatchContext = { ...ctx, cityOf: (id) => (id === 'c' ? ONE : null) };
+
+  it('levels follow the experience table', () => {
+    expect(levelOf(0)).toBe(1);
+    expect(levelOf(LEVEL_XP[1]! - 1)).toBe(1);
+    expect(levelOf(LEVEL_XP[1]!)).toBe(2);
+    expect(levelOf(1e9)).toBe(LEVEL_XP.length);
+  });
+
+  it('pays experience for newly coloured surfaces only, and the block milestones once', () => {
+    const s = createWorldState('w', 1);
+    s.inventory.generic = 100;
+    applyPatch(s, { kind: 'restore', city: 'c', surface: 0 }, one);
+    expect(s.growth.xp).toBe(XP.surface);
+    applyPatch(s, { kind: 'paint', city: 'c', surface: 0, color: color('red') }, one); // already coloured
+    expect(s.growth.xp).toBe(XP.surface);
+    applyPatch(s, { kind: 'restore', city: 'c', surface: 1 }, one);
+    applyPatch(s, { kind: 'restore', city: 'c', surface: 2 }, one); // block 0 reaches 有色
+    expect(s.growth.xp).toBe(3 * XP.surface + XP.blockColored);
+    expect(s.growth.points).toBe(MILESTONES.firstBlockColored);
+    applyPatch(s, { kind: 'drain', city: 'c', surface: 2 }, one);
+    applyPatch(s, { kind: 'restore', city: 'c', surface: 2 }, one); // back to 有色: no second payout
+    expect(s.growth.points).toBe(MILESTONES.firstBlockColored);
+    expect(s.growth.xp).toBe(4 * XP.surface + XP.blockColored);
+  });
+
+  it('pays the city, tide and monster rewards', () => {
+    const s = createWorldState('w', 1);
+    s.inventory.generic = 100;
+    for (let i = 0; i < 3; i++) applyPatch(s, { kind: 'restore', city: 'c', surface: i }, one);
+    const before = s.growth.points;
+    applyPatch(s, { kind: 'complete', city: 'c' }, one);
+    expect(s.growth.points).toBe(before + MILESTONES.cityRestored);
+    applyPatch(s, { kind: 'tideHeld', city: 'c' }, one);
+    applyPatch(s, { kind: 'tideHeld', city: 'c' }, one);
+    expect(s.growth.points).toBe(before + MILESTONES.cityRestored + MILESTONES.firstTideHeld);
+    const xp = s.growth.xp;
+    applyPatch(s, { kind: 'hunt', monster: WILD.id }, ctx);
+    expect(s.growth.xp).toBe(xp + XP.monster);
+  });
+
+  it('spends points on attributes that change stats, with armour reducing damage', () => {
+    const s = createWorldState('w', 1);
+    expect(applyPatch(s, { kind: 'assign', attr: 'health' }, ctx).ok).toBe(false);
+    s.growth.points = 2;
+    const base = stats(s.growth);
+    applyPatch(s, { kind: 'assign', attr: 'health' }, ctx);
+    applyPatch(s, { kind: 'assign', attr: 'armor' }, ctx);
+    const after = stats(s.growth);
+    expect(after.maxHp).toBeGreaterThan(base.maxHp);
+    expect(afterArmor(100, after)).toBeLessThan(100);
+    expect(afterArmor(100, base)).toBe(100);
+    expect(s.growth.points).toBe(0);
+    expect(deserializeWorld(serializeWorld(s)).growth).toEqual(s.growth);
+  });
+});
+
+describe('ruins', () => {
+  it('unlock their colour once, or give pigment when the colour is known', () => {
+    const s = createWorldState('w', 1);
+    expect(s.unlocked).not.toContain(RUIN.color);
+    expect(applyPatch(s, { kind: 'discover', ruin: RUIN.id }, ctx).ok).toBe(true);
+    expect(s.unlocked).toContain(RUIN.color);
+    expect(s.growth.xp).toBe(XP.ruinFound);
+    expect(applyPatch(s, { kind: 'discover', ruin: RUIN.id }, ctx).ok).toBe(false);
+    const red = s.inventory.colored[OLD_RUIN.color]!;
+    applyPatch(s, { kind: 'discover', ruin: OLD_RUIN.id }, ctx);
+    expect(s.inventory.colored[OLD_RUIN.color]).toBe(red + TUNING.structures.ruinPigment);
+    expect(deserializeWorld(serializeWorld(s)).discovered).toEqual([RUIN.id, OLD_RUIN.id]);
+  });
+});
+
+describe('resident requests and thriving', () => {
+  const walls = { px: 0, nx: 1, pz: 3, nz: 4 };
+  const WALLED: SurfaceInfo[] = [0, 1, 2, 3, 4].map((i) => ({
+    kind: 'wall',
+    chunk: 0,
+    color: color('cream'),
+    area: 10,
+    x: i,
+    z: 0,
+  }));
+  const R: CitySkeleton = {
+    ...SKEL,
+    chunks: 1,
+    surfaces: WALLED,
+    requests: [
+      {
+        building: 0,
+        chunk: 0,
+        kind: 'recolor',
+        color: color('red'),
+        count: 0,
+        resident: '老陈',
+        line: '',
+        door: { x: 0, z: 0 },
+        walls,
+      },
+      {
+        building: 1,
+        chunk: 0,
+        kind: 'fetch',
+        color: color('blue'),
+        count: 4,
+        resident: '阿梅',
+        line: '',
+        door: { x: 0, z: 0 },
+        walls,
+      },
+    ],
+  };
+  const rc: PatchContext = { ...ctx, cityOf: (id) => (id === 'c' ? R : null) };
+
+  it('checks the wish before accepting it', () => {
+    const s = createWorldState('w', 1);
+    expect(applyPatch(s, { kind: 'request', city: 'c', request: 0 }, rc).ok).toBe(false);
+    for (const i of [0, 1, 3, 4])
+      applyPatch(s, { kind: 'paint', city: 'c', surface: i, color: color('red') }, rc);
+    expect(applyPatch(s, { kind: 'request', city: 'c', request: 0 }, rc).ok).toBe(true);
+    expect(applyPatch(s, { kind: 'request', city: 'c', request: 0 }, rc).ok).toBe(false);
+    s.inventory.colored[color('blue')] = 3;
+    expect(applyPatch(s, { kind: 'request', city: 'c', request: 1 }, rc).ok).toBe(false);
+    s.inventory.colored[color('blue')] = 5;
+    expect(applyPatch(s, { kind: 'request', city: 'c', request: 1 }, rc).ok).toBe(true);
+    expect(s.inventory.colored[color('blue')]).toBe(1);
+  });
+
+  it('turns a coloured block with all wishes done into a producing studio', () => {
+    const s = createWorldState('w', 1);
+    s.inventory.colored[color('blue')] = 10;
+    for (const i of [0, 1, 3, 4])
+      applyPatch(s, { kind: 'paint', city: 'c', surface: i, color: color('red') }, rc);
+    expect(applyPatch(s, { kind: 'collectStock', city: 'c', studio: 0 }, rc).ok).toBe(false); // not thriving
+    applyPatch(s, { kind: 'request', city: 'c', request: 0 }, rc);
+    applyPatch(s, { kind: 'request', city: 'c', request: 1 }, rc);
+    const saved = s.cities.get('c')!;
+    expect(saved.stockFrom[0]).toBe(s.clock);
+    s.clock += TUNING.economy.studioStockSeconds * 2.5;
+    const g = s.inventory.generic;
+    expect(applyPatch(s, { kind: 'collectStock', city: 'c', studio: 0 }, rc).ok).toBe(true);
+    expect(s.inventory.generic).toBe(g + 2);
+    expect(applyPatch(s, { kind: 'collectStock', city: 'c', studio: 0 }, rc).ok).toBe(false); // half a period left
+    s.clock += TUNING.economy.studioStockSeconds * 100;
+    applyPatch(s, { kind: 'collectStock', city: 'c', studio: 0 }, rc);
+    expect(s.inventory.generic).toBe(g + 2 + TUNING.economy.studioStockCap);
+    const back = deserializeWorld(serializeWorld(s)).cities.get('c')!;
+    expect([...back.requestsDone]).toEqual([1, 1]);
+    expect(back.stockFrom).toEqual(saved.stockFrom);
+  });
+});
+
+describe('ink marks and the paper plane', () => {
+  it('costs pigment, caps at the limit, and can be pulled back', () => {
+    const s = createWorldState('w', 1);
+    s.inventory.generic = 100;
+    for (let i = 0; i < TUNING.marks.max; i++)
+      expect(applyPatch(s, { kind: 'mark', x: i, y: 0, z: 0 }, ctx).ok).toBe(true);
+    expect(applyPatch(s, { kind: 'mark', x: 9, y: 0, z: 0 }, ctx).ok).toBe(false);
+    expect(s.inventory.generic).toBe(100 - TUNING.marks.max * TUNING.marks.cost);
+    const id = s.marks[0]!.id;
+    expect(applyPatch(s, { kind: 'unmark', id }, ctx).ok).toBe(true);
+    expect(applyPatch(s, { kind: 'mark', x: 9, y: 0, z: 0 }, ctx).ok).toBe(true);
+    expect(new Set(s.marks.map((m) => m.id)).size).toBe(TUNING.marks.max);
+    const back = deserializeWorld(serializeWorld(s));
+    expect(back.marks).toEqual(s.marks);
+    expect(back.nextMark).toBe(s.nextMark);
+  });
+
+  it('grants the paper plane with the first restored city', () => {
+    const ONE: CitySkeleton = { ...SKEL, chunks: 1, surfaces: SURFACES.map((x) => ({ ...x, chunk: 0 })) };
+    const one: PatchContext = { ...ctx, cityOf: (id) => (id === 'c' ? ONE : null) };
+    const s = createWorldState('w', 1);
+    s.inventory.generic = 100;
+    for (let i = 0; i < 3; i++) applyPatch(s, { kind: 'restore', city: 'c', surface: i }, one);
+    expect(s.inventory.glider).toBe(false);
+    applyPatch(s, { kind: 'complete', city: 'c' }, one);
+    expect(s.inventory.glider).toBe(true);
+    expect(deserializeWorld(serializeWorld(s)).inventory.glider).toBe(true);
+  });
+});
+
+describe('weapon unlocks', () => {
+  it('start with the rifle and unlock the rest by growth', () => {
+    const s = createWorldState('w', 1);
+    expect(s.inventory.weapons).toEqual(['rifle']);
+    s.growth.milestones.push('first-block');
+    expect(unlockWeapons(s)).toEqual(['katana']);
+    s.growth.xp = LEVEL_XP[2]!; // level 3
+    s.growth.milestones.push('first-tide');
+    expect(unlockWeapons(s).sort()).toEqual(['launcher', 'sniper']);
+    cityStates(s, 'x', SKEL); // a city entered but not restored
+    expect(unlockWeapons(s)).toEqual([]);
+    s.cities.get('x')!.completed = true;
+    expect(unlockWeapons(s)).toEqual(['staff']);
+    expect(unlockWeapons(s)).toEqual([]);
+    expect(deserializeWorld(serializeWorld(s)).inventory.weapons).toEqual(s.inventory.weapons);
   });
 });

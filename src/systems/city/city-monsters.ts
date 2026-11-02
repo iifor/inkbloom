@@ -9,6 +9,7 @@ import { MonsterGroup } from '@/systems/combat/monsters';
 import { blockBounds, depthFrom } from '@/world/city/blocks';
 import { standingMonsters } from '@/world/city/features';
 import { ROAD_NONE, type CityLayout } from '@/world/city/layout';
+import { cityNav } from '@/world/nav/grids';
 
 export class CityMonsters {
   readonly group: MonsterGroup;
@@ -22,6 +23,7 @@ export class CityMonsters {
     material: THREE.Material,
   ) {
     this.group = new MonsterGroup(ctx, physics, root, material);
+    this.group.nav = cityNav(layout);
     layout.monsters.forEach((m, i) => {
       if (defeated[i]) return;
       this.group.spawn(m.type, new THREE.Vector3(m.x, 0.05, m.z), {
