@@ -199,6 +199,94 @@ body {
   opacity: 0.65;
   font-size: 13px;
 }
+.combat-overlay {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+.combat-overlay .dmg {
+  /* hidden until the first frame places it */
+  opacity: 0;
+  position: absolute;
+  left: 0;
+  top: 0;
+  font-size: 20px;
+  font-weight: 700;
+  color: #2b2d36;
+  white-space: nowrap;
+  text-shadow:
+    0 0 3px #f6f4e7,
+    0 0 6px #f6f4e7;
+}
+.combat-overlay .dmg.big {
+  font-size: 28px;
+  color: #b8860b;
+}
+.combat-overlay .dmg.kill {
+  font-size: 30px;
+  color: #c9302c;
+}
+.combat-overlay .mbar {
+  /* hidden until the first frame places it */
+  opacity: 0;
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 54px;
+  height: 7px;
+  border: 1.5px solid #2b2d36;
+  border-radius: 3px;
+  background: rgba(246, 244, 231, 0.85);
+}
+.combat-overlay .mbar i {
+  display: block;
+  height: 100%;
+  background: #2b2d36;
+}
+.combat-overlay .mbar.low i {
+  background: #c9302c;
+}
+.combat-overlay .selfdmg {
+  position: absolute;
+  bottom: 44px;
+  transform: translateX(-50%);
+  font-size: 22px;
+  font-weight: 700;
+  animation: selfdmg 0.9s ease-out forwards;
+  text-shadow:
+    0 0 3px #f6f4e7,
+    0 0 6px #f6f4e7;
+}
+.combat-overlay .selfdmg.hurt {
+  color: #c9302c;
+}
+.combat-overlay .selfdmg.shield {
+  color: #1f8a8a;
+  font-size: 18px;
+}
+@keyframes selfdmg {
+  from {
+    opacity: 1;
+    margin-bottom: 0;
+  }
+  to {
+    opacity: 0;
+    margin-bottom: 40px;
+  }
+}
+.combat-overlay .hurt-arrow {
+  /* hidden until the first frame places it */
+  opacity: 0;
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 0;
+  height: 0;
+  border-left: 16px solid transparent;
+  border-right: 16px solid transparent;
+  border-bottom: 30px solid rgba(201, 48, 44, 0.85);
+}
 .debug-panel {
   position: absolute;
   top: 12px;

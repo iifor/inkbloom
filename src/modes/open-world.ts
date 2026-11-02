@@ -10,6 +10,7 @@ import { ObjectiveSystem } from '@/shell/objectives';
 import { CharacterPanel } from '@/shell/character-panel';
 import { AudioSystem } from '@/systems/audio/audio-system';
 import { EffectsSystem } from '@/systems/effects/effects';
+import { CombatOverlay } from '@/shell/combat-overlay';
 import { CityRegistry } from '@/systems/city/city-registry';
 import { ClockSystem } from '@/systems/clock/clock';
 import { DebugPanel } from '@/systems/debug/debug-panel';
@@ -109,6 +110,8 @@ export function startOpenWorld(opts: {
   const audio = new AudioSystem(ctx);
   const effects = new EffectsSystem(ctx);
   const hud = new Hud(ctx, opts.hudRoot, belt, scenes, objectives);
+  // after the HUD, which rewrites its root when built
+  const overlay = new CombatOverlay(ctx, opts.hudRoot);
   const debug = new DebugPanel(ctx, opts.hudRoot.parentElement ?? opts.hudRoot);
 
   // Order matters: movement, then the scene streams around the new position, then
@@ -126,6 +129,7 @@ export function startOpenWorld(opts: {
     hud,
     audio,
     effects,
+    overlay,
     save,
     debug,
   ];

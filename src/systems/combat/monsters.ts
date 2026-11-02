@@ -23,7 +23,11 @@ const PLANS_PER_FRAME = 3;
 /** Line-of-sight checks are refreshed this often (seconds). */
 const SIGHT_INTERVAL = 0.25;
 
+/** Ids are unique across every group, so overlays can track one monster. */
+let nextId = 1;
+
 interface Monster {
+  readonly id: number;
   readonly def: EnemyDef;
   readonly body: Body;
   readonly mesh: THREE.Mesh;
@@ -157,6 +161,7 @@ export class MonsterGroup implements TargetSource {
     mesh.position.copy(pos);
     this.root.add(mesh);
     this.monsters.push({
+      id: nextId++,
       def,
       body: makeBody(pos, def.halfWidth, def.height, 0.55),
       mesh,
@@ -210,16 +215,24 @@ export class MonsterGroup implements TargetSource {
       dist,
       damage: (amount) => {
         if (m.dead) return false;
+        const dealt = Math.min(amount, m.hp);
         m.hp -= amount;
         m.aggro = true;
         m.hurtT = 0.12;
         const at = { x: m.body.pos.x, y: m.body.pos.y + m.def.height * 0.5, z: m.body.pos.z };
         if (m.hp > 0) {
-          this.ctx.events.emit('monster:hit', { at });
+          this.ctx.events.emit('monster:hit', {
+            at,
+            id: m.id,
+            amount: dealt,
+            hp: m.hp / m.def.hp,
+            anchor: m.body.pos,
+            height: m.def.height,
+          });
           return false;
         }
         this.remove(m);
-        this.ctx.events.emit('monster:died', { at });
+        this.ctx.events.emit('monster:died', { at, id: m.id, amount: dealt });
         m.onDefeat?.();
         return true;
       },

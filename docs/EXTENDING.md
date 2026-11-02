@@ -78,6 +78,7 @@
 2. 声音：在 [src/systems/audio/audio-system.ts](../src/systems/audio/audio-system.ts) 的构造函数里 `on('事件名', …)`，用 `synth.tone` / `synth.noise` 拼一个音色（`pos` 传位置就有远近和左右）
 3. 特效：在 [src/systems/effects/effects.ts](../src/systems/effects/effects.ts) 里 `on('事件名', …)`，用 `this.burst(位置, { 数量, 颜色, 速度, … })`
 4. 音乐的调性、速度、密度在 [src/systems/audio/music.ts](../src/systems/audio/music.ts) 顶部
+5. 屏幕上的数字、血条、来向箭头：[src/shell/combat-overlay.ts](../src/shell/combat-overlay.ts)。它听 `monster:hit` / `monster:died` / `player:hurt`；新的伤害来源只要照样发这几个事件（带上 `amount`，玩家受伤带上 `from`）就会自动显示。样式在 `style.css` 的 `.combat-overlay`
 
 ## 加一种建筑 / 地标模板
 

@@ -90,7 +90,7 @@ export class CombatSystem implements System, CombatApi {
     this.shieldT = seconds;
   }
 
-  damagePlayer(amount: number): void {
+  damagePlayer(amount: number, from?: THREE.Vector3): void {
     if (!this.alive || this.grace > 0 || this.ctx.player.flying) return;
     let dmg = afterArmor(amount, stats(this.ctx.state.growth));
     const absorbed = Math.min(this.shieldLeft, dmg);
@@ -98,7 +98,11 @@ export class CombatSystem implements System, CombatApi {
     dmg -= absorbed;
     this.hp = Math.max(0, this.hp - dmg);
     this.sinceHurt = 0;
-    this.ctx.events.emit('player:hurt', { amount });
+    this.ctx.events.emit('player:hurt', {
+      amount: dmg,
+      absorbed,
+      from: from ? { x: from.x, y: from.y, z: from.z } : null,
+    });
     if (this.hp <= 0) this.die();
   }
 

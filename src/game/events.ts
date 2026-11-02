@@ -8,7 +8,8 @@ export interface GameEvents {
   'patch:rejected': { readonly patch: Patch; readonly reason: string };
   'scene:entered': { readonly ref: SceneRef; readonly name: string };
   'city:completed': { readonly city: string; readonly name: string };
-  'player:hurt': { readonly amount: number };
+  /** Damage the player actually took (after armour), what a shield absorbed, and where from. */
+  'player:hurt': { readonly amount: number; readonly absorbed: number; readonly from: Point3 | null };
   'growth:level': { readonly level: number };
   'growth:points': { readonly gained: number; readonly total: number };
   'weapon:unlocked': { readonly key: string };
@@ -17,8 +18,17 @@ export interface GameEvents {
   'weapon:skill': { readonly key: string };
   'weapon:reload': { readonly key: string };
   blast: { readonly at: Point3; readonly radius: number };
-  'monster:hit': { readonly at: Point3 };
-  'monster:died': { readonly at: Point3 };
+  'monster:hit': {
+    readonly at: Point3;
+    readonly id: number;
+    readonly amount: number;
+    /** Health left, 0..1. */
+    readonly hp: number;
+    /** The monster's live position (read it each frame to follow it) and its height. */
+    readonly anchor: Point3;
+    readonly height: number;
+  };
+  'monster:died': { readonly at: Point3; readonly id: number; readonly amount: number };
   'monster:spit': { readonly at: Point3 };
   'monster:bite': { readonly at: Point3 };
   /** A surface the brush just coloured (bloom of its colour). */
