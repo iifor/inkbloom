@@ -55,7 +55,7 @@ export class PlayerSystem implements System, PlayerApi {
     if (this.wish.lengthSq() > 1) this.wish.normalize();
 
     if (this.flying) this.fly(dt);
-    else this.walk(dt);
+    else if (this.ctx.combat.alive) this.walk(dt);
     this.syncCamera();
   }
 

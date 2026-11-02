@@ -79,6 +79,36 @@ export const TUNING = {
     mouseSensitivity: 0.0022,
     flySpeed: 36,
   },
+  combat: {
+    playerHp: 100,
+    /** Seconds without damage before health comes back. */
+    regenDelay: 4.5,
+    /** design: 11 per second while exploring */
+    regenPerSecond: 11,
+    /** Seconds of invulnerability after respawning. */
+    respawnGrace: 2,
+    /** Share of held ink dropped on death, recoverable where you fell. design: half */
+    deathInkShare: 0.5,
+    dropPickupRadius: 2.5,
+    /** Monsters per drained block's stronghold: [min, max] for the first city and the rest. */
+    stronghold: { first: [2, 3], other: [3, 6] },
+    /** Chance that a stronghold monster is a spitter rather than a blot. */
+    spitterChance: 0.35,
+    /** Monsters that come with each ink tide: [min, max]. */
+    tideMonsters: [2, 4],
+    /** A monster gives up and goes home beyond this distance from its post. */
+    leash: 45,
+  },
+  rifle: {
+    damage: 20,
+    /** Seconds between shots. */
+    interval: 0.11,
+    magazine: 24,
+    reloadSeconds: 1.3,
+    range: 120,
+    /** Radians of random spread. */
+    spread: 0.012,
+  },
   interaction: {
     radius: 4,
   },

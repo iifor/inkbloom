@@ -2,7 +2,8 @@
 // current text for the HUD. Lives in shell/ because it only reads the game; the rules
 // themselves are in world/objectives.ts.
 import { TUNING } from '@/content/tuning';
-import type { GameContext, System } from '@/game/types';
+import { type GameContext, type System, sceneKey } from '@/game/types';
+import type { ToolBelt } from '@/systems/tools/tool';
 import { CityScene } from '@/systems/city/city-scene';
 import type { SceneManager } from '@/systems/scenes/scene-manager';
 import { studioOpen } from '@/world/city/features';
@@ -17,6 +18,7 @@ export class ObjectiveSystem implements System {
   constructor(
     private readonly ctx: GameContext,
     private readonly scenes: SceneManager,
+    private readonly belt: ToolBelt,
   ) {}
 
   update(dt: number): void {
@@ -43,7 +45,12 @@ export class ObjectiveSystem implements System {
         null,
       );
     const restored = [...state.cities.values()].filter((c) => c.completed).length;
+    const drop =
+      state.drop && sceneKey(state.drop.scene) === sceneKey(this.scenes.active.ref)
+        ? { x: state.drop.x, z: state.drop.z, ink: state.drop.ink }
+        : null;
     const base = {
+      drop,
       generic: state.inventory.generic,
       ink: state.inventory.ink,
       inkPerGeneric: TUNING.economy.inkPerGeneric,
@@ -68,6 +75,9 @@ export class ObjectiveSystem implements System {
           gate: { x: (gate.ix + 0.5) * l.cell, z: (gate.iz + 0.5) * l.cell },
           studio: near(l.studios.filter((_, i) => studioOpen(l, states, i)).map((s) => s.door)),
           stain: near(l.stains.filter((_, i) => !scene.stains.isCollected(i))),
+          guards: scene.monsters.standing(scene.chunkAt(p)),
+          nearestGuard: near(scene.monsters.group.living('stronghold').map((v) => ({ x: v.x, z: v.z }))),
+          holdsRifle: this.belt.active?.id === 'rifle',
         },
       };
     }

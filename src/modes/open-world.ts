@@ -15,6 +15,9 @@ import { PlayerSystem } from '@/systems/player/player';
 import { SaveSystem } from '@/systems/save/save-system';
 import { SceneManager } from '@/systems/scenes/scene-manager';
 import { Brush } from '@/systems/tools/brush';
+import { Rifle } from '@/systems/tools/rifle';
+import { CombatSystem } from '@/systems/combat/combat';
+import { InkDropSystem } from '@/systems/combat/ink-drop';
 import { ToolBelt } from '@/systems/tools/tool';
 import { WildScene } from '@/systems/wilderness/wild-scene';
 import { applyPatch } from '@/world/patch';
@@ -59,22 +62,39 @@ export function startOpenWorld(opts: {
     return result;
   };
 
+  // the held rifle hangs off the camera, so the camera has to be in the scene graph
+  ctx.renderer.scene.add(ctx.renderer.camera);
+  const combat = new CombatSystem(ctx);
+  ctx.combat = combat;
   const interactions = new InteractionSystem(ctx);
   ctx.interactions = interactions;
   const player = new PlayerSystem(ctx);
   ctx.player = player;
   const scenes = new SceneManager(ctx, new WildScene(ctx));
   ctx.scenes = scenes;
-  const belt = new ToolBelt(ctx, [new Brush(ctx)]);
+  const belt = new ToolBelt(ctx, [new Brush(ctx), new Rifle(ctx)]);
+  const inkDrop = new InkDropSystem(ctx);
   const save = new SaveSystem(ctx, opts.store);
   const clock = new ClockSystem(ctx);
-  const objectives = new ObjectiveSystem(ctx, scenes);
+  const objectives = new ObjectiveSystem(ctx, scenes, belt);
   const hud = new Hud(ctx, opts.hudRoot, belt, scenes, objectives);
   const debug = new DebugPanel(ctx, opts.hudRoot.parentElement ?? opts.hudRoot);
 
   // Order matters: movement, then the scene streams around the new position, then
   // interaction/tools read the settled camera, then HUD and save observe the result.
-  const systems: System[] = [clock, player, scenes, interactions, belt, objectives, hud, save, debug];
+  const systems: System[] = [
+    clock,
+    player,
+    combat,
+    scenes,
+    interactions,
+    belt,
+    inkDrop,
+    objectives,
+    hud,
+    save,
+    debug,
+  ];
 
   scenes.restore(opts.state.player);
 

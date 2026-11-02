@@ -5,6 +5,7 @@ import { PALETTE } from '@/content/palette';
 import { BRUSH_TIERS } from '@/content/brush-tiers';
 import { surfaceAt } from '@/engine/physics/world';
 import type { GameContext } from '@/game/types';
+import { standingMonsters } from '@/world/city/features';
 import { ORIGINAL, graffiti, surfaceCost } from '@/world/paint/surfaces';
 import type { Tool, ToolHud } from './tool';
 
@@ -68,6 +69,14 @@ export class Brush implements Tool {
       return;
     }
     // Check what applyPatch would check before the player spends a second on the stroke.
+    const saved = this.ctx.state.cities.get(cityId);
+    const guards = saved ? standingMonsters(layout, saved.defeated, info.chunk).length : 0;
+    if (guards) {
+      this.hint = `这个街区还有 ${guards} 只墨怪，先赶走它们（按 2 换步枪）`;
+      this.target = null;
+      this.progress = 0;
+      return;
+    }
     const inv = this.ctx.state.inventory;
     const have = this.mode === 'restore' ? inv.generic : (inv.colored[this.color] ?? 0);
     const key = `${cityId}:${surface}:${want}`;

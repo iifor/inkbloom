@@ -8,6 +8,9 @@ export interface GameEvents {
   'patch:rejected': { readonly patch: Patch; readonly reason: string };
   'scene:entered': { readonly ref: SceneRef; readonly name: string };
   'city:completed': { readonly city: string; readonly name: string };
+  'player:hurt': { readonly amount: number };
+  'player:died': { readonly lostInk: number };
+  'shot:hit': { readonly killed: boolean };
   toast: { readonly text: string; readonly seconds?: number };
 }
 

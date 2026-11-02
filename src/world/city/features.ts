@@ -2,6 +2,10 @@
 // per chunk. Uses its own random stream, so tuning these never changes the buildings or the
 // surface list (and never resets painting progress).
 import { TUNING } from '@/content/tuning';
+import { enemyIndex } from '@/content/enemies';
+
+const BLOT = enemyIndex('blot');
+const SPITTER = enemyIndex('spitter');
 import { hashInts } from '../math/hash';
 import { Rng } from '../math/rng';
 import { coloredRatio, type SurfaceInfo } from '../paint/surfaces';
@@ -13,6 +17,14 @@ export interface Stain {
   readonly chunk: number;
   /** Visual radius in metres. */
   readonly size: number;
+}
+
+export interface StrongholdMonster {
+  /** Index into ENEMIES. */
+  readonly type: number;
+  readonly x: number;
+  readonly z: number;
+  readonly chunk: number;
 }
 
 export interface Studio {
@@ -31,6 +43,8 @@ export interface CitySkeleton {
   readonly studios: readonly Studio[];
   /** Index of the studio that is open from the start (nearest the main gate), or -1. */
   readonly homeStudio: number;
+  /** Monsters guarding each block. A block cannot be painted while any of its own stand. */
+  readonly monsters: readonly StrongholdMonster[];
 }
 
 interface FeatureInput {
@@ -111,7 +125,33 @@ export function placeFeatures(c: FeatureInput): Omit<CitySkeleton, 'surfaces' | 
       homeStudio = i;
     }
   });
-  return { stains, studios, homeStudio };
+  // strongholds: their own stream again, so changing monster tuning moves nothing else
+  const mrng = new Rng(hashInts(c.seed, 0xe11e));
+  const [lo, hi] =
+    side <= TUNING.city.firstCityChunks ? TUNING.combat.stronghold.first : TUNING.combat.stronghold.other;
+  const monsters: StrongholdMonster[] = [];
+  roadCells.forEach((cells, chunk) => {
+    if (!cells.length) return;
+    const count = mrng.int(lo, hi);
+    // gather around one post so a stronghold reads as a group
+    const post = cells[Math.floor(mrng.next() * cells.length)]!;
+    const near = cells
+      .map((i) => ({ i, d: Math.hypot((i % n) - (post % n), Math.floor(i / n) - Math.floor(post / n)) }))
+      .sort((a, b) => a.d - b.d)
+      .slice(0, Math.max(count * 3, 6));
+    for (let k = 0; k < count; k++) {
+      const i = near[Math.floor(mrng.next() * near.length)]!.i;
+      monsters.push({
+        type: mrng.chance(TUNING.combat.spitterChance) ? SPITTER : BLOT,
+        x: ((i % n) + 0.5) * cell,
+        z: (Math.floor(i / n) + 0.5) * cell,
+        chunk,
+      });
+    }
+  });
+  // the block with the main gate starts empty, so the first thing a player does is paint
+  const spawnChunk = chunkOfCell(Math.floor(c.spawn.x / cell), Math.floor(c.spawn.z / cell));
+  return { stains, studios, homeStudio, monsters: monsters.filter((m) => m.chunk !== spawnChunk) };
 }
 
 /** A point `out` metres in front of a building's door. */
@@ -144,4 +184,16 @@ export function stainFingerprint(stains: readonly Stain[]): number {
   let f = hashInts(0x57a1, stains.length);
   for (const s of stains) f = hashInts(f, Math.round(s.x * 10), Math.round(s.z * 10));
   return f;
+}
+
+/** Identifies a monster list so saved defeat flags are dropped when strongholds move. */
+export function monsterFingerprint(monsters: readonly StrongholdMonster[]): number {
+  let f = hashInts(0xe11e, monsters.length);
+  for (const m of monsters) f = hashInts(f, m.type, Math.round(m.x * 10), Math.round(m.z * 10));
+  return f;
+}
+
+/** Monsters of a block's stronghold that are still standing. */
+export function standingMonsters(skel: CitySkeleton, defeated: Uint8Array, chunk: number): number[] {
+  return skel.monsters.flatMap((m, i) => (m.chunk === chunk && !defeated[i] ? [i] : []));
 }

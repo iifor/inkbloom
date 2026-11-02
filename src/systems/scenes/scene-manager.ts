@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import type { GameContext, GameScene, SceneApi, System } from '@/game/types';
 import type { PlayerSave } from '@/world/state';
 import type { Entrance } from '@/world/wilderness/generator';
+import { nextDestination } from '@/world/travel';
 import { CityScene } from '../city/city-scene';
 import type { WildScene } from '../wilderness/wild-scene';
 
@@ -59,6 +60,35 @@ export class SceneManager implements SceneApi, System {
     this.wildReturn = null;
   }
 
+  travelTo(cityId: string): void {
+    const e = this.ctx.cities.entranceOf(cityId);
+    const target = this.outsideOf(e);
+    if (!e || !target) return;
+    if (this.active === this.wild) {
+      this.wild.ensureAt(target.pos.x, target.pos.z);
+      this.ctx.player.teleport(target.pos, target.yaw);
+    } else this.enterWild(target);
+    this.ctx.events.emit('toast', { text: `传送到${this.ctx.cities.layout(e).name}`, seconds: 3 });
+  }
+
+  travelAction(fromCity: string): { label(): string | null; activate(): void } {
+    const dest = (): string | null => {
+      const restored = [...this.ctx.state.cities].filter(([, c]) => c.completed).map(([id]) => id);
+      return nextDestination(restored, fromCity);
+    };
+    return {
+      label: () => {
+        const id = dest();
+        const e = id ? this.ctx.cities.entranceOf(id) : undefined;
+        return e ? `F 传送到${this.ctx.cities.layout(e).name}` : null;
+      },
+      activate: () => {
+        const id = dest();
+        if (id) this.travelTo(id);
+      },
+    };
+  }
+
   /** Put the player back where a save says they were. */
   restore(save: PlayerSave | null): void {
     const pos = save ? new THREE.Vector3(save.x, save.y, save.z) : null;
@@ -85,8 +115,10 @@ export class SceneManager implements SceneApi, System {
 
   private outsideOf(e: Entrance | undefined): { pos: THREE.Vector3; yaw: number } | null {
     if (!e) return null;
-    const x = e.x + e.door[0] * 14;
-    const z = e.z + e.door[1] * 14;
+    // in front of the tower door: clear of the widest tower base (8 m) and within 3.5 m of the
+    // door prompt for every tower size (7.5–10.5 m out), so F at a tower keeps cycling
+    const x = e.x + e.door[0] * 11;
+    const z = e.z + e.door[1] * 11;
     this.wild.ensureAt(x, z);
     return {
       pos: new THREE.Vector3(x, this.ctx.wilderness.heightAt(x, z) + 0.05, z),

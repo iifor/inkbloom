@@ -3,6 +3,7 @@ import { TUNING } from '@/content/tuning';
 import { generateCity } from '@/world/city/layout';
 import { bearing, objective, type Situation } from '@/world/objectives';
 import { createWilderness } from '@/world/wilderness/generator';
+import { nextDestination } from '@/world/travel';
 
 const base: Situation = {
   scene: 'wild',
@@ -11,6 +12,7 @@ const base: Situation = {
   inkPerGeneric: 2,
   visitedCity: false,
   restoredCities: 0,
+  drop: null,
   nextCity: { x: 300, z: 200, name: '青湾' },
 };
 const city = {
@@ -21,6 +23,9 @@ const city = {
   gate: { x: 0, z: 0 },
   studio: { x: 10, z: 10 },
   stain: { x: 20, z: 20 },
+  guards: 0,
+  nearestGuard: null,
+  holdsRifle: false,
 };
 
 describe('objectives', () => {
@@ -62,6 +67,36 @@ describe('objectives', () => {
   });
 });
 
+describe('combat objectives', () => {
+  it('sends the player at a guarded block with the rifle', () => {
+    const guarded = { ...city, guards: 3, nearestGuard: { x: 5, z: 5 } };
+    expect(objective({ ...base, scene: 'city', city: guarded }).text).toContain('按 2 换步枪');
+    const armed = objective({ ...base, scene: 'city', city: { ...guarded, holdsRifle: true } });
+    expect(armed.text).toContain('开枪');
+    expect(armed.target).toEqual({ x: 5, z: 5 });
+  });
+
+  it('points back at dropped ink before anything else', () => {
+    const o = objective({
+      ...base,
+      scene: 'city',
+      city: { ...city, guards: 2 },
+      drop: { x: 9, z: 9, ink: 12 },
+    });
+    expect(o.text).toContain('12 墨');
+    expect(o.target).toEqual({ x: 9, z: 9, ink: 12 });
+  });
+});
+
+describe('travel', () => {
+  it('rings through restored cities and needs at least two', () => {
+    expect(nextDestination(['a'], 'a')).toBeNull();
+    expect(nextDestination(['a', 'b'], 'x')).toBeNull();
+    expect(nextDestination(['c', 'a', 'b'], 'a')).toBe('b');
+    expect(nextDestination(['c', 'a', 'b'], 'c')).toBe('a');
+  });
+});
+
 describe('the first city', () => {
   it('is small, so it can be finished in one sitting', () => {
     const w = createWilderness(20261102);
@@ -74,5 +109,34 @@ describe('the first city', () => {
     expect(first.surfaces.every((s) => s.chunk < first.chunks * first.chunks)).toBe(true);
     const other = w.entrancesNear(3000, -2000, 1)[0]!;
     expect(other.chunks).toBe(TUNING.city.chunks);
+  });
+});
+
+describe('strongholds', () => {
+  it.each([1, 2, 3, 99])('stand on roads, in sized groups, never in the gate block (seed %i)', (seed) => {
+    const c = generateCity('x', seed);
+    const side = c.chunks;
+    const spawnChunk =
+      Math.floor(c.spawn.z / (c.size / side)) * side + Math.floor(c.spawn.x / (c.size / side));
+    const [lo, hi] = TUNING.combat.stronghold.other;
+    const perBlock = new Map<number, number>();
+    for (const m of c.monsters) {
+      expect(c.roads[Math.floor(m.z / c.cell) * c.n + Math.floor(m.x / c.cell)]).not.toBe(0);
+      expect(m.chunk).not.toBe(spawnChunk);
+      perBlock.set(m.chunk, (perBlock.get(m.chunk) ?? 0) + 1);
+    }
+    for (const n of perBlock.values()) {
+      expect(n).toBeGreaterThanOrEqual(lo);
+      expect(n).toBeLessThanOrEqual(hi);
+    }
+  });
+
+  it('are lighter in the first city', () => {
+    const w = createWilderness(20261102);
+    const e = w.entranceInCell(0, 0)!;
+    const c = generateCity(e.cityId, e.seed, e.chunks);
+    const [, hi] = TUNING.combat.stronghold.first;
+    expect(c.monsters.length).toBeGreaterThan(0);
+    expect(c.monsters.length).toBeLessThanOrEqual(hi * (c.chunks * c.chunks - 1));
   });
 });

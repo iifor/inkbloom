@@ -45,6 +45,14 @@
 
 `Interactable` 可以带 `alt: { label, activate }`，玩家按 F 触发，提示显示在主提示下面；`label()` 返回 `null` 时隐藏。画室的"升级笔刷"就是这样做的。
 
+## 加一种墨怪 / 调战斗
+
+- 墨怪种类：[src/content/enemies.ts](../src/content/enemies.ts) 的 `ENEMIES` **末尾**追加（生命、速度、体型、发现距离、掉墨、攻击方式）。攻击方式 `melee`（近身咬）或 `spit`（远程吐墨）决定 AI 走哪一支；要新的行为，在 [src/systems/combat/monsters.ts](../src/systems/combat/monsters.ts) 的 `update` 里按 `attack.kind` 加一支
+- 据点规模、墨潮带几只、玩家生命和回血、死亡掉墨比例：`tuning.ts` 的 `combat`
+- 步枪：`tuning.ts` 的 `rifle`。新武器写成一个 `Tool`（参考 [src/systems/tools/rifle.ts](../src/systems/tools/rifle.ts)），用 `ctx.combat.shoot()` 打，自己不需要知道有哪些墨怪
+- 让新的东西能被打：实现 `TargetSource`，用 `ctx.combat.addTargets()` 注册（`MonsterGroup` 就是这样做的）
+- 改据点数量或位置只会重置"已打败"标记，不会重置涂色进度
+
 ## 加一种建筑 / 地标模板
 
 [src/content/templates.ts](../src/content/templates.ts) 的 `BUILDINGS` 或 `LANDMARKS` 加一项。参数都是范围或可选列表；生成器从里面挑。`weight` 越大越常见。
@@ -109,4 +117,5 @@ const release = ctx.interactions.add({
 
 - v1（2026-11-02）：初版
 - v2（2026-11-02）：每座城的状态附带布局指纹（`surfaceFingerprint`）。v1 存档读入时，表面数量一致就沿用，否则该城重置
+- v2 补充（2026-11-02，战斗）：新增 `drop`（死亡掉落）、`inventory.brushTier`，城市存档新增 `c`（已恢复）、`mf`/`d`（据点指纹与已打败标记）。均为可选字段，旧存档取默认值
 - v2 补充（2026-11-02）：新增可选字段 `inventory.ink`、`clock`、`harvested`，城市存档新增 `sf`/`st`（墨渍指纹与已吸走标记）。旧 v2 存档读入时取默认值，不需要升版本

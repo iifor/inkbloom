@@ -4,10 +4,11 @@
 import { PALETTE } from '@/content/palette';
 import { TUNING } from '@/content/tuning';
 import { BRUSH_TIERS } from '@/content/brush-tiers';
-import { type CitySkeleton, studioOpen } from './city/features';
+import { type CitySkeleton, standingMonsters, studioOpen } from './city/features';
 import { blockStates } from './city/blocks';
 import { DRAINED, ORIGINAL, graffiti, surfaceCost } from './paint/surfaces';
-import { type WorldState, cityStates, sourceReady } from './state';
+import { type SceneRef, type WorldState, cityStates, sourceReady } from './state';
+import { ENEMIES } from '@/content/enemies';
 import type { PigmentSource } from './wilderness/sources';
 
 export type Patch =
@@ -20,6 +21,18 @@ export type Patch =
   | { readonly kind: 'refine'; readonly city: string; readonly studio: number }
   /** Harvest a wilderness pigment source. */
   | { readonly kind: 'harvest'; readonly source: string }
+  /** A stronghold monster was defeated: mark it and pay its ink. */
+  | { readonly kind: 'defeat'; readonly city: string; readonly monster: number }
+  /** The player died here: drop a share of held ink at this spot. */
+  | {
+      readonly kind: 'death';
+      readonly scene: SceneRef;
+      readonly x: number;
+      readonly y: number;
+      readonly z: number;
+    }
+  /** Pick the dropped ink back up. */
+  | { readonly kind: 'recover' }
   /** Buy the next brush tier. */
   | { readonly kind: 'upgrade'; readonly tool: 'brush' }
   /** Mark a city restored once every block has colour, and pay the reward. */
@@ -68,6 +81,18 @@ export function applyPatch(state: WorldState, patch: Patch, ctx: PatchContext): 
       inv.brushTier += 1;
       return OK;
     }
+    case 'death': {
+      const lost = Math.floor(inv.ink * TUNING.combat.deathInkShare);
+      inv.ink -= lost;
+      state.drop = { scene: patch.scene, x: patch.x, y: patch.y, z: patch.z, ink: lost };
+      return OK;
+    }
+    case 'recover': {
+      if (!state.drop) return fail('没有掉落的墨');
+      inv.ink += state.drop.ink;
+      state.drop = null;
+      return OK;
+    }
     case 'spend': {
       const g = Math.max(0, patch.generic ?? 0);
       const k = Math.max(0, patch.ink ?? 0);
@@ -94,7 +119,7 @@ export function applyPatch(state: WorldState, patch: Patch, ctx: PatchContext): 
 
   const skel = ctx.cityOf(patch.city);
   if (!skel) return fail('城市不存在');
-  const { states, stains } = cityStates(state, patch.city, skel);
+  const { states, stains, defeated } = cityStates(state, patch.city, skel);
 
   switch (patch.kind) {
     case 'complete': {
@@ -105,6 +130,14 @@ export function applyPatch(state: WorldState, patch: Patch, ctx: PatchContext): 
       saved.completed = true;
       inv.generic += TUNING.city.completeReward.generic;
       inv.ink += TUNING.city.completeReward.ink;
+      return OK;
+    }
+    case 'defeat': {
+      const m = skel.monsters[patch.monster];
+      if (!m) return fail('没有这只墨怪');
+      if (defeated[patch.monster]) return fail('已经打败了');
+      defeated[patch.monster] = 1;
+      inv.ink += ENEMIES[m.type]?.ink ?? 0;
       return OK;
     }
     case 'collect': {
@@ -129,6 +162,8 @@ export function applyPatch(state: WorldState, patch: Patch, ctx: PatchContext): 
 
   const info = skel.surfaces[patch.surface];
   if (!info) return fail('表面不存在');
+  if (patch.kind !== 'drain' && standingMonsters(skel, defeated, info.chunk).length)
+    return fail('这个街区还有墨怪，先赶走它们');
   const current = states[patch.surface]!;
   switch (patch.kind) {
     case 'drain':

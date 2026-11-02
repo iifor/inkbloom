@@ -15,6 +15,7 @@ import { buildCity } from './build-city';
 import { Erosion } from './erosion';
 import { InkStains } from './ink-stains';
 import { InkTide } from './ink-tide';
+import { CityMonsters } from './city-monsters';
 import { Studios } from './studios';
 
 export class CityScene implements GameScene {
@@ -37,6 +38,7 @@ export class CityScene implements GameScene {
   readonly tide: InkTide;
   private readonly studios: Studios;
   private readonly erosion: Erosion;
+  readonly monsters: CityMonsters;
 
   constructor(
     private readonly ctx: GameContext,
@@ -46,7 +48,7 @@ export class CityScene implements GameScene {
     this.ref = { kind: 'city', id: layout.id };
     this.name = layout.name;
     this.root.name = `city:${layout.id}`;
-    const { states, stains, reset } = cityStates(ctx.state, layout.id, layout);
+    const { states, stains, defeated, reset } = cityStates(ctx.state, layout.id, layout);
     this.states = states;
     this.wasReset = reset;
     if (reset) ctx.events.emit('toast', { text: `${layout.name}的布局已更新，颜色进度已重置`, seconds: 6 });
@@ -67,6 +69,7 @@ export class CityScene implements GameScene {
     this.stains = new InkStains(ctx, layout, stains, this.material, this.root);
     this.studios = new Studios(ctx, layout, states, (c) => this.progress(c), this.material, this.root);
     this.erosion = new Erosion(ctx, layout, states, this);
+    this.monsters = new CityMonsters(ctx, layout, defeated, this.physics, this.root, this.material);
     this.tide = new InkTide(ctx, layout, states, this, this.material, this.root);
 
     this.release.push(
@@ -94,6 +97,7 @@ export class CityScene implements GameScene {
           radius: 8,
           label: () => 'E 回到野外',
           activate: () => ctx.scenes.enterWild(),
+          alt: ctx.scenes.travelAction(layout.id),
         }),
       );
     }
@@ -131,6 +135,14 @@ export class CityScene implements GameScene {
     this.ctx.events.emit('city:completed', { city: this.layout.id, name: this.layout.name });
   }
 
+  spawnTideMonsters(chunk: number, from: number): void {
+    this.monsters.spawnTide(chunk, from);
+  }
+
+  clearTideMonsters(): void {
+    this.monsters.clearTide();
+  }
+
   surfaceCount(chunk: number): number {
     return this.totals[chunk] ?? 0;
   }
@@ -163,6 +175,7 @@ export class CityScene implements GameScene {
     if (this.exiting) return;
     this.stains.update();
     this.erosion.update(dt);
+    this.monsters.update(dt);
     this.tide.update(dt);
     const p = this.ctx.player.position;
     const s = this.layout.size;
@@ -176,6 +189,7 @@ export class CityScene implements GameScene {
     this.stains.dispose();
     this.studios.dispose();
     this.tide.dispose();
+    this.monsters.dispose();
     for (const r of this.release) r();
     this.texture.dispose();
     this.material.dispose();

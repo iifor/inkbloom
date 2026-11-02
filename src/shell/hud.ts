@@ -26,6 +26,9 @@ export class Hud implements System {
     | 'progress'
     | 'res'
     | 'goal'
+    | 'hp'
+    | 'hpFill'
+    | 'hurt'
     | 'tide'
     | 'slots'
     | 'lines'
@@ -49,7 +52,9 @@ export class Hud implements System {
     root.innerHTML = `
       <div class="hud-place"><b data-k="place"></b><span data-k="progress"></span><div class="hud-res" data-k="res"></div><div class="hud-goal" data-k="goal"></div></div>
       <div class="hud-tide" data-k="tide"></div>
+      <div class="hud-hurt" data-k="hurt"></div>
       <div class="hud-cross"></div>
+      <div class="hud-hp" data-k="hp"><i data-k="hpFill"></i></div>
       <div class="hud-bar" data-k="bar"><i data-k="barFill"></i></div>
       <div class="hud-prompt" data-k="prompt"></div>
       <div class="hud-tool"><div class="hud-slots" data-k="slots"></div><span class="hud-swatch" data-k="swatch"></span><div data-k="lines"></div></div>
@@ -60,6 +65,9 @@ export class Hud implements System {
       progress: q('progress'),
       res: q('res'),
       goal: q('goal'),
+      hp: q('hp'),
+      hpFill: q('hpFill'),
+      hurt: q('hurt'),
       tide: q('tide'),
       slots: q('slots'),
       lines: q('lines'),
@@ -70,12 +78,23 @@ export class Hud implements System {
       swatch: q('swatch'),
     };
     this.release.push(ctx.events.on('toast', ({ text, seconds }) => this.toast(text, seconds)));
+    this.release.push(ctx.events.on('player:hurt', () => this.flash(this.el.hurt, 'on', 250)));
+    this.release.push(
+      ctx.events.on('shot:hit', ({ killed }) =>
+        this.flash(root.querySelector<HTMLElement>('.hud-cross')!, killed ? 'kill' : 'hit', 120),
+      ),
+    );
   }
 
   private set(key: string, el: HTMLElement, text: string): void {
     if (this.cache.get(key) === text) return;
     this.cache.set(key, text);
     el.textContent = text;
+  }
+
+  private flash(el: HTMLElement, cls: string, ms: number): void {
+    el.classList.add(cls);
+    setTimeout(() => el.classList.remove(cls), ms);
   }
 
   toast(text: string, seconds = 2.5): void {
@@ -105,6 +124,14 @@ export class Hud implements System {
     const inv = this.ctx.state.inventory;
     this.set('res', this.el.res, `墨 ${inv.ink} · 通用颜料 ${inv.generic}`);
     this.set('goal', this.el.goal, this.objectives.text);
+    const { hp, maxHp, alive } = this.ctx.combat;
+    const pct = `${Math.round((hp / maxHp) * 100)}%`;
+    if (this.cache.get('hp') !== pct) {
+      this.cache.set('hp', pct);
+      this.el.hpFill.style.width = pct;
+      this.el.hp.classList.toggle('low', hp < maxHp * 0.3);
+    }
+    this.el.hurt.classList.toggle('dead', !alive);
 
     this.set(
       'slots',

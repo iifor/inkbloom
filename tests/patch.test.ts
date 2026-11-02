@@ -12,6 +12,7 @@ import {
   serializeWorld,
 } from '@/world/state';
 import { BRUSH_TIERS } from '@/content/brush-tiers';
+import { ENEMIES } from '@/content/enemies';
 import { KeyValueStore, MemoryKeyValue } from '@/world/store';
 import type { CitySkeleton } from '@/world/city/features';
 import type { PigmentSource } from '@/world/wilderness/sources';
@@ -33,6 +34,7 @@ const SKEL: CitySkeleton = {
     { building: 1, chunk: 1, door: { x: 30, z: 5 } },
   ],
   homeStudio: 0,
+  monsters: [],
 };
 const SOURCE: PigmentSource = {
   id: '1,2:0',
@@ -332,5 +334,74 @@ describe('brush upgrades', () => {
       reason: '笔刷已经是最好的了',
     });
     expect(deserializeWorld(serializeWorld(s)).inventory.brushTier).toBe(BRUSH_TIERS.length - 1);
+  });
+});
+
+describe('combat rules', () => {
+  const GUARDED: CitySkeleton = {
+    ...SKEL,
+    monsters: [
+      { type: 0, x: 140, z: 12, chunk: 1 },
+      { type: 1, x: 142, z: 14, chunk: 1 },
+    ],
+  };
+  const g: PatchContext = { ...ctx, cityOf: (id) => (id === 'c' ? GUARDED : null) };
+
+  it('refuses painting a block while its stronghold stands, and allows it after', () => {
+    const s = createWorldState('w', 1);
+    expect(applyPatch(s, { kind: 'restore', city: 'c', surface: 0 }, g).ok).toBe(true); // block 0 is unguarded
+    expect(applyPatch(s, { kind: 'restore', city: 'c', surface: 2 }, g)).toEqual({
+      ok: false,
+      reason: '这个街区还有墨怪，先赶走它们',
+    });
+    applyPatch(s, { kind: 'defeat', city: 'c', monster: 0 }, g);
+    expect(applyPatch(s, { kind: 'restore', city: 'c', surface: 2 }, g).ok).toBe(false);
+    applyPatch(s, { kind: 'defeat', city: 'c', monster: 1 }, g);
+    expect(applyPatch(s, { kind: 'restore', city: 'c', surface: 2 }, g).ok).toBe(true);
+    // a tide can still drain a guarded block
+    expect(applyPatch(s, { kind: 'drain', city: 'c', surface: 2 }, g).ok).toBe(true);
+  });
+
+  it('pays ink once per defeated monster', () => {
+    const s = createWorldState('w', 1);
+    expect(applyPatch(s, { kind: 'defeat', city: 'c', monster: 1 }, g).ok).toBe(true);
+    expect(s.inventory.ink).toBe(ENEMIES[1]!.ink);
+    expect(applyPatch(s, { kind: 'defeat', city: 'c', monster: 1 }, g).ok).toBe(false);
+    expect(applyPatch(s, { kind: 'defeat', city: 'c', monster: 7 }, g).ok).toBe(false);
+    expect(s.inventory.ink).toBe(ENEMIES[1]!.ink);
+  });
+
+  it('drops a share of ink on death and gives it back once', () => {
+    const s = createWorldState('w', 1);
+    s.inventory.ink = 41;
+    applyPatch(s, { kind: 'death', scene: { kind: 'city', id: 'c' }, x: 1, y: 0, z: 2 }, ctx);
+    const lost = Math.floor(41 * TUNING.combat.deathInkShare);
+    expect(s.inventory.ink).toBe(41 - lost);
+    expect(s.drop).toMatchObject({ x: 1, z: 2, ink: lost });
+    const back = deserializeWorld(serializeWorld(s));
+    expect(back.drop).toEqual(s.drop);
+    expect(applyPatch(s, { kind: 'recover' }, ctx).ok).toBe(true);
+    expect(s.inventory.ink).toBe(41);
+    expect(applyPatch(s, { kind: 'recover' }, ctx).ok).toBe(false);
+  });
+
+  it('dying again replaces the old drop', () => {
+    const s = createWorldState('w', 1);
+    s.inventory.ink = 20;
+    applyPatch(s, { kind: 'death', scene: { kind: 'wild' }, x: 0, y: 0, z: 0 }, ctx);
+    applyPatch(s, { kind: 'death', scene: { kind: 'wild' }, x: 5, y: 0, z: 5 }, ctx);
+    expect(s.drop).toMatchObject({ x: 5, z: 5, ink: 5 });
+    expect(s.inventory.ink).toBe(5);
+  });
+
+  it('resets defeat flags without touching painting when strongholds move', () => {
+    const s = createWorldState('w', 1);
+    applyPatch(s, { kind: 'restore', city: 'c', surface: 0 }, g);
+    applyPatch(s, { kind: 'defeat', city: 'c', monster: 0 }, g);
+    const moved = { ...GUARDED, monsters: [{ type: 0, x: 1, z: 1, chunk: 0 }] };
+    const r = cityStates(s, 'c', moved);
+    expect(r.reset).toBe(false);
+    expect(r.states[0]).toBe(ORIGINAL);
+    expect([...r.defeated]).toEqual([0]);
   });
 });

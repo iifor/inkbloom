@@ -55,6 +55,10 @@ export interface PlayerApi {
 export interface SceneApi {
   readonly active: GameScene;
   enterWild(at?: { pos: THREE.Vector3; yaw: number }): void;
+  /** Go to the tower door of a restored city, from anywhere. */
+  travelTo(cityId: string): void;
+  /** The F action offered at a restored city's door or gate: travel to the next one. */
+  travelAction(fromCity: string): { label(): string | null; activate(): void };
   enterCity(entrance: Entrance): void;
 }
 
@@ -72,6 +76,33 @@ export interface InteractionApi {
   readonly focused: Interactable | null;
 }
 
+/** Something the player can shoot (a group of monsters registers one). */
+export interface TargetSource {
+  /** Nearest hit along a ray, with a way to damage what was hit. */
+  raycast(
+    origin: THREE.Vector3,
+    dir: THREE.Vector3,
+    max: number,
+  ): { dist: number; damage(amount: number, from: THREE.Vector3): boolean } | null;
+}
+
+export interface ShotResult {
+  readonly point: THREE.Vector3;
+  /** A target (not the world) was hit. */
+  readonly hitTarget: boolean;
+  readonly killed: boolean;
+}
+
+export interface CombatApi {
+  readonly hp: number;
+  readonly maxHp: number;
+  readonly alive: boolean;
+  damagePlayer(amount: number, from: THREE.Vector3): void;
+  addTargets(source: TargetSource): () => void;
+  /** A hitscan shot: hits the nearest target unless a wall is closer. */
+  shoot(origin: THREE.Vector3, dir: THREE.Vector3, range: number, damage: number): ShotResult;
+}
+
 export interface GameContext {
   readonly renderer: InkRenderer;
   readonly input: Input;
@@ -82,6 +113,7 @@ export interface GameContext {
   readonly scenes: SceneApi;
   readonly cities: CityApi;
   readonly interactions: InteractionApi;
+  readonly combat: CombatApi;
   /** The single entry point for changing saved world state. */
   apply(patch: Patch): PatchResult;
 }

@@ -98,10 +98,17 @@ void main() {
     vec3 nView = vec3(nxy, sqrt(max(0.0, 1.0 - dot(nxy, nxy))));
     vec3 wn = normalize(mat3(uInvView) * nView);
     vec3 an = abs(wn);
-    vec2 hp = an.y > max(an.x, an.z) ? wpos.xz : (an.x > an.z ? wpos.zy : wpos.xy);
-    float lod = exp2(floor(log2(max(1e-4, (0.0165 * d) / 0.16))));
-    float sp = 0.16 * lod; float w = sp * 0.17;
-    hp += (vnoise(hp * (2.5 / sp)) - 0.5) * sp * 0.4;
+    vec2 hp; float sp; float w;
+    if (d < 2.0) {
+      // held tools ride with the camera, so for them the screen is the stable frame
+      hp = gl_FragCoord.xy + wob * 5.0 * sc;
+      sp = 8.5 * sc; w = 1.5 * sc;
+    } else {
+      hp = an.y > max(an.x, an.z) ? wpos.xz : (an.x > an.z ? wpos.zy : wpos.xy);
+      float lod = exp2(floor(log2(max(1e-4, (0.0165 * d) / 0.16))));
+      sp = 0.16 * lod; w = sp * 0.17;
+      hp += (vnoise(hp * (2.5 / sp)) - 0.5) * sp * 0.4;
+    }
     float h1 = stripes(hp, vec2(0.7071, 0.7071), sp, w);
     float h2 = stripes(hp, vec2(-0.7071, 0.7071), sp * 1.15, w);
     float h3 = stripes(hp, vec2(0.2588, 0.9659), sp * 0.7, w);

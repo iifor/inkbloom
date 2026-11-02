@@ -16,6 +16,8 @@ export interface Situation {
   /** Any city entered before. */
   readonly visitedCity: boolean;
   readonly restoredCities: number;
+  /** Ink dropped on death in this scene, if any. */
+  readonly drop: (Point & { readonly ink: number }) | null;
   /** Nearest entrance of a city that is not restored yet, in the wilderness. */
   readonly nextCity: (Point & { readonly name: string }) | null;
   /** Inside a city: */
@@ -27,6 +29,10 @@ export interface Situation {
     readonly gate: Point;
     readonly studio: Point | null;
     readonly stain: Point | null;
+    /** Stronghold monsters still standing in the player's block, and the nearest one. */
+    readonly guards: number;
+    readonly nearestGuard: Point | null;
+    readonly holdsRifle: boolean;
   };
 }
 
@@ -36,9 +42,17 @@ export interface Objective {
 }
 
 export function objective(s: Situation): Objective {
+  if (s.drop && s.drop.ink > 0) return { text: `去捡回掉落的 ${s.drop.ink} 墨（红旗处）`, target: s.drop };
   if (s.scene === 'city' && s.city) {
     const c = s.city;
     if (c.completed) return { text: `${c.name}恢复了！走出城门，去找下一座城`, target: c.gate };
+    if (c.guards > 0)
+      return {
+        text: c.holdsRifle
+          ? `这个街区有 ${c.guards} 只墨怪守着：按住左键开枪赶走它们`
+          : `这个街区有 ${c.guards} 只墨怪守着：按 2 换步枪`,
+        target: c.nearestGuard,
+      };
     if (s.generic < 1) {
       if (s.ink >= s.inkPerGeneric && c.studio)
         return { text: '去画室把墨提炼成通用颜料（找橙色招牌，按 E）', target: c.studio };

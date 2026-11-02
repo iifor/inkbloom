@@ -19,6 +19,9 @@ export const SIDE_NAMES = ['东', '南', '西', '北'] as const;
 
 export interface TideHost {
   blocks(): BlockState[];
+  /** Monsters come in with the wave and dissolve when it ends. */
+  spawnTideMonsters(chunk: number, from: number): void;
+  clearTideMonsters(): void;
   progress(chunk: number): number;
   chunkAt(pos: THREE.Vector3): number;
 }
@@ -104,6 +107,7 @@ export class InkTide {
     }
     const w = this.wave;
     if (now < w.startsAt) return;
+    if (!this.curtain.visible) this.host.spawnTideMonsters(w.chunk, w.from);
     this.curtain.visible = true;
     const speed = (this.per * T.reach) / T.duration;
     w.front = Math.min(this.per, w.front + speed * dt);
@@ -230,6 +234,7 @@ export class InkTide {
   private finish(w: Wave, repelled: boolean): void {
     this.wave = null;
     this.curtain.visible = false;
+    this.host.clearTideMonsters();
     this.nextAt = this.ctx.state.clock + T.intervalMin + Math.random() * (T.intervalMax - T.intervalMin);
     const held = repelled || this.host.progress(w.chunk) >= T.holdRatio;
     if (held) {

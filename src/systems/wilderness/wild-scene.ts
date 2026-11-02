@@ -113,6 +113,7 @@ export class WildScene implements GameScene {
           label: () =>
             `E 进入 ${cityName()}${this.ctx.state.cities.get(e.cityId)?.completed ? '（已恢复）' : ''}`,
           activate: () => this.ctx.scenes.enterCity(e),
+          alt: this.ctx.scenes.travelAction(e.cityId),
         }),
       );
     }
