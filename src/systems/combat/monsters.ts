@@ -213,8 +213,13 @@ export class MonsterGroup implements TargetSource {
         m.hp -= amount;
         m.aggro = true;
         m.hurtT = 0.12;
-        if (m.hp > 0) return false;
+        const at = { x: m.body.pos.x, y: m.body.pos.y + m.def.height * 0.5, z: m.body.pos.z };
+        if (m.hp > 0) {
+          this.ctx.events.emit('monster:hit', { at });
+          return false;
+        }
         this.remove(m);
+        this.ctx.events.emit('monster:died', { at });
         m.onDefeat?.();
         return true;
       },
@@ -324,6 +329,7 @@ export class MonsterGroup implements TargetSource {
           if (m.canSee && dist > a.range * 0.8) _dir.copy(_to);
           if (dist < a.range && Math.abs(pp.y - b.pos.y) < 2 && m.attackT <= 0) {
             combat.damagePlayer(a.damage, b.pos);
+            this.ctx.events.emit('monster:bite', { at: b.pos });
             m.attackT = a.cooldown;
           }
         } else if (m.canSee) {
@@ -396,6 +402,7 @@ export class MonsterGroup implements TargetSource {
     mesh.position.copy(from);
     this.root.add(mesh);
     this.spits.push({ pos: from, vel, damage, mesh, life: SPIT_LIFE });
+    this.ctx.events.emit('monster:spit', { at: from });
   }
 
   private updateSpits(dt: number): void {

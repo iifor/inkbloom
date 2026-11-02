@@ -12,9 +12,36 @@ export interface GameEvents {
   'growth:level': { readonly level: number };
   'growth:points': { readonly gained: number; readonly total: number };
   'weapon:unlocked': { readonly key: string };
+  // ---- feedback: sound and effects listen to these; gameplay never depends on them
+  'weapon:fired': { readonly key: string };
+  'weapon:skill': { readonly key: string };
+  'weapon:reload': { readonly key: string };
+  blast: { readonly at: Point3; readonly radius: number };
+  'monster:hit': { readonly at: Point3 };
+  'monster:died': { readonly at: Point3 };
+  'monster:spit': { readonly at: Point3 };
+  'monster:bite': { readonly at: Point3 };
+  /** A surface the brush just coloured (bloom of its colour). */
+  'paint:bloom': { readonly at: Point3; readonly color: number };
+  /** A surface the ink took (tide or erosion). */
+  'paint:drained': { readonly at: Point3 };
+  'brush:stroke': { readonly stroking: boolean };
+  'tide:warning': { readonly at: Point3 };
+  'tide:start': { readonly at: Point3 };
+  'tide:end': { readonly held: boolean };
+  /** A drop of ink falling off the tide curtain (effects only). */
+  'tide:drip': { readonly at: Point3 };
+  'player:jump': { readonly air: boolean };
+  'player:land': { readonly impact: number };
   'player:died': { readonly lostInk: number };
   'shot:hit': { readonly killed: boolean };
   toast: { readonly text: string; readonly seconds?: number };
+}
+
+export interface Point3 {
+  readonly x: number;
+  readonly y: number;
+  readonly z: number;
 }
 
 type Listener<T> = (payload: T) => void;

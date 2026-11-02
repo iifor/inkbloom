@@ -86,6 +86,10 @@ export class CityScene implements GameScene {
           this.colored[layout.surfaces[patch.surface]!.chunk]! += d;
           this.coloredAll += d;
         }
+        if (before && !after) {
+          const s = layout.surfaces[patch.surface]!;
+          this.ctx.events.emit('paint:drained', { at: { x: s.x, y: 2, z: s.z } });
+        }
         this.texture.set(patch.surface, this.states[patch.surface]!);
         this.updateSceneSat();
         if (after) this.checkComplete();

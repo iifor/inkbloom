@@ -53,6 +53,12 @@ export interface PlayerApi {
   /** Push the player along a direction for a moment (dodges, dash attacks). */
   dash(dir: THREE.Vector3, distance: number, seconds: number): void;
   readonly dashing: boolean;
+  /** Standing on something (for footsteps). */
+  readonly grounded: boolean;
+  /** Horizontal speed, metres per second. */
+  readonly speed: number;
+  /** Shake the camera briefly (0..1). */
+  shake(amount: number): void;
   teleport(pos: THREE.Vector3, yaw?: number): void;
 }
 

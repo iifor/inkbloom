@@ -8,10 +8,21 @@ export interface Settings {
   fov: number;
   /** 'high' renders at up to 1.5× device pixels, 'low' at 1×. */
   quality: 'high' | 'low';
+  /** 0..1 */
+  volume: number;
+  music: number;
+  sfx: number;
 }
 
-export const DEFAULT_SETTINGS: Settings = { sensitivity: 1, fov: 78, quality: 'high' };
-export const SETTING_LIMITS = { sensitivity: [0.3, 3], fov: [60, 100] } as const;
+export const DEFAULT_SETTINGS: Settings = {
+  sensitivity: 1,
+  fov: 78,
+  quality: 'high',
+  volume: 0.8,
+  music: 0.6,
+  sfx: 1,
+};
+export const SETTING_LIMITS = { sensitivity: [0.3, 3], fov: [60, 100], volume: [0, 1] } as const;
 
 const KEY = 'inkbloom:settings';
 const clamp = (v: unknown, [lo, hi]: readonly [number, number], d: number): number =>
@@ -28,6 +39,9 @@ export function loadSettings(kv: KeyValue): Settings {
     sensitivity: clamp(raw.sensitivity, SETTING_LIMITS.sensitivity, DEFAULT_SETTINGS.sensitivity),
     fov: clamp(raw.fov, SETTING_LIMITS.fov, DEFAULT_SETTINGS.fov),
     quality: raw.quality === 'low' ? 'low' : 'high',
+    volume: clamp(raw.volume, SETTING_LIMITS.volume, DEFAULT_SETTINGS.volume),
+    music: clamp(raw.music, SETTING_LIMITS.volume, DEFAULT_SETTINGS.music),
+    sfx: clamp(raw.sfx, SETTING_LIMITS.volume, DEFAULT_SETTINGS.sfx),
   };
 }
 

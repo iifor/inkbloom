@@ -108,13 +108,17 @@ export class InkTide {
     }
     const w = this.wave;
     if (now < w.startsAt) return;
-    if (!this.curtain.visible) this.host.spawnTideMonsters(w.chunk, w.from);
+    if (!this.curtain.visible) {
+      this.host.spawnTideMonsters(w.chunk, w.from);
+      this.ctx.events.emit('tide:start', { at: this.blockCentre(w.chunk) });
+    }
     this.curtain.visible = true;
     const speed = (this.per * T.reach) / T.duration;
     w.front = Math.min(this.per, w.front + speed * dt);
     this.push(w, dt);
     this.drainPassed(w);
     this.placeCurtain(w, now);
+    this.drip(w, dt);
     const repelled = w.front <= 0 && now - w.startsAt > T.repelAfter;
     if (now >= w.endsAt || repelled) this.finish(w, repelled);
   }
@@ -149,6 +153,7 @@ export class InkTide {
       blocked: null,
       spendOwed: 0,
     };
+    this.ctx.events.emit('tide:warning', { at: this.blockCentre(chunk) });
     const where = chunk === here ? '这个街区' : '附近的街区';
     this.ctx.events.emit('toast', {
       text: `墨潮将在 ${T.warning} 秒后从${SIDE_NAMES[from]}边涌向${where}！`,
@@ -208,6 +213,23 @@ export class InkTide {
     }
   }
 
+  private dripT = 0;
+
+  /** Ink dripping off the curtain, a few drops a second at random points along it. */
+  private drip(w: Wave, dt: number): void {
+    this.dripT -= dt;
+    if (this.dripT > 0) return;
+    this.dripT = 0.05;
+    const b = blockBounds(w.chunk, this.layout);
+    const along = Math.random();
+    const y = 4 + Math.random() * 10;
+    const at =
+      w.from === 0 || w.from === 2
+        ? { x: w.from === 0 ? b.x1 - w.front : b.x0 + w.front, y, z: b.z0 + along * (b.z1 - b.z0) }
+        : { x: b.x0 + along * (b.x1 - b.x0), y, z: w.from === 1 ? b.z1 - w.front : b.z0 + w.front };
+    this.ctx.events.emit('tide:drip', { at });
+  }
+
   private placeCurtain(w: Wave, now: number): void {
     const b = blockBounds(w.chunk, this.layout);
     const c = this.curtain;
@@ -232,12 +254,18 @@ export class InkTide {
     c.scale.y = 0.9 + 0.1 * Math.sin(now * 3);
   }
 
+  private blockCentre(chunk: number): { x: number; y: number; z: number } {
+    const b = blockBounds(chunk, this.layout);
+    return { x: (b.x0 + b.x1) / 2, y: 2, z: (b.z0 + b.z1) / 2 };
+  }
+
   private finish(w: Wave, repelled: boolean): void {
     this.wave = null;
     this.curtain.visible = false;
     this.host.clearTideMonsters();
     this.nextAt = this.ctx.state.clock + T.intervalMin + Math.random() * (T.intervalMax - T.intervalMin);
     const held = repelled || this.host.progress(w.chunk) >= T.holdRatio;
+    this.ctx.events.emit('tide:end', { held });
     if (held) {
       this.ctx.apply({ kind: 'tideHeld', city: this.layout.id });
       this.ctx.events.emit('toast', {

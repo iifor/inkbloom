@@ -22,6 +22,8 @@ export class Brush implements Tool {
   private target: number | null = null;
   private progress = 0;
   private hint = '';
+  private stroking = false;
+  private readonly hitPoint = { x: 0, y: 0, z: 0 };
   /** A stroke the save rejected; not retried until the target, mode or colour changes. */
   private blocked: { key: string; reason: string } | null = null;
 
@@ -45,6 +47,7 @@ export class Brush implements Tool {
       this.target = null;
       this.progress = 0;
       this.hint = '野外的颜色会随附近城市一起恢复';
+      this.setStroking(false);
       return;
     }
     const cityId = scene.ref.id;
@@ -56,6 +59,7 @@ export class Brush implements Tool {
       this.target = null;
       this.progress = 0;
       this.hint = '';
+      this.setStroking(false);
       return;
     }
     const info = layout.surfaces[surface]!;
@@ -99,8 +103,11 @@ export class Brush implements Tool {
     }
     if (!input.held('use')) {
       this.progress = Math.max(0, this.progress - dt * 2);
+      this.setStroking(false);
       return;
     }
+    this.setStroking(true);
+    if (hit) Object.assign(this.hitPoint, { x: hit.point.x, y: hit.point.y, z: hit.point.z });
     this.progress += (dt * stats(this.ctx.state.growth).skill) / 100 / tier.secondsPerSurface;
     if (this.progress < 1) return;
     this.progress = 0;
@@ -111,7 +118,16 @@ export class Brush implements Tool {
     if (!r.ok) {
       this.blocked = { key, reason: r.reason };
       this.ctx.events.emit('toast', { text: r.reason });
+      return;
     }
+    const shown = this.mode === 'restore' ? info.color : this.color;
+    this.ctx.events.emit('paint:bloom', { at: { ...this.hitPoint }, color: shown });
+  }
+
+  private setStroking(on: boolean): void {
+    if (on === this.stroking) return;
+    this.stroking = on;
+    this.ctx.events.emit('brush:stroke', { stroking: on });
   }
 
   hud(): ToolHud {
@@ -128,6 +144,7 @@ export class Brush implements Tool {
   }
 
   onUnequip(): void {
+    this.setStroking(false);
     this.target = null;
     this.progress = 0;
   }

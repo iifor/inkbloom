@@ -8,6 +8,8 @@ import type { GameContext, System } from '@/game/types';
 import { Hud } from '@/shell/hud';
 import { ObjectiveSystem } from '@/shell/objectives';
 import { CharacterPanel } from '@/shell/character-panel';
+import { AudioSystem } from '@/systems/audio/audio-system';
+import { EffectsSystem } from '@/systems/effects/effects';
 import { CityRegistry } from '@/systems/city/city-registry';
 import { ClockSystem } from '@/systems/clock/clock';
 import { DebugPanel } from '@/systems/debug/debug-panel';
@@ -39,6 +41,7 @@ export interface OpenWorld {
   readonly belt: ToolBelt;
   readonly save: SaveSystem;
   readonly loop: Loop;
+  readonly audio: AudioSystem;
   dispose(): void;
 }
 
@@ -103,6 +106,8 @@ export function startOpenWorld(opts: {
   const clock = new ClockSystem(ctx);
   const objectives = new ObjectiveSystem(ctx, scenes, belt);
   const panel = new CharacterPanel(ctx, opts.hudRoot.parentElement ?? opts.hudRoot);
+  const audio = new AudioSystem(ctx);
+  const effects = new EffectsSystem(ctx);
   const hud = new Hud(ctx, opts.hudRoot, belt, scenes, objectives);
   const debug = new DebugPanel(ctx, opts.hudRoot.parentElement ?? opts.hudRoot);
 
@@ -119,6 +124,8 @@ export function startOpenWorld(opts: {
     inkDrop,
     objectives,
     hud,
+    audio,
+    effects,
     save,
     debug,
   ];
@@ -144,6 +151,7 @@ export function startOpenWorld(opts: {
     belt,
     save,
     loop,
+    audio,
     dispose() {
       loop.stop();
       void save.flush();

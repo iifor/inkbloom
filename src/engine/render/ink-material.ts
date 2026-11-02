@@ -5,7 +5,8 @@
 //   aSurface >= 0  per-surface state texture (0 drained, 1 original, 2+n graffiti colour n)
 //   aSurface = -1  the derived wilderness drain (nearby cities' progress) times uSceneSat
 //   aSurface = -2  always full colour (pickups, markers: things that must stand out)
-// Geometry provides aColor (original palette index) and aSurface per vertex.
+// Geometry provides aColor (original palette index) and aSurface per vertex. An InstancedMesh
+// with instance colours overrides the palette index per instance (red channel = index).
 import * as THREE from 'three';
 import { TUNING } from '@/content/tuning';
 
@@ -53,6 +54,10 @@ void main() {
   #endif
   vec4 world = modelMatrix * vec4(transformed, 1.0);
   float idx = aColor;
+  #ifdef USE_INSTANCING_COLOR
+    // instanced particles carry their palette index in the red channel
+    idx = instanceColor.r;
+  #endif
   float sat;
   if (aSurface >= 0.0) {
     int s = int(aSurface + 0.5);

@@ -74,6 +74,7 @@ async function boot(): Promise<void> {
     game.ctx.input.sensitivity = 0.0022 * s.sensitivity;
     game.ctx.renderer.setFov(s.fov);
     game.ctx.renderer.setQuality(s.quality);
+    game.audio.synth.setVolumes({ master: s.volume, sfx: s.sfx, music: s.music });
   };
   apply(settings);
 
@@ -81,6 +82,9 @@ async function boot(): Promise<void> {
   const menu = new Menu(overlay, state, {
     async play() {
       errorText.textContent = '';
+      // audio may only start from a click; the play button is one
+      game.audio.start();
+      apply(settings);
       menu.hide();
       canvas.focus();
       if (!(await input.requestLock()))

@@ -30,6 +30,20 @@ export class PlayerSystem implements System, PlayerApi {
     return this.body.pos;
   }
 
+  get grounded(): boolean {
+    return this.body.onGround;
+  }
+
+  get speed(): number {
+    return Math.hypot(this.body.vel.x, this.body.vel.z);
+  }
+
+  private shakeAmt = 0;
+
+  shake(amount: number): void {
+    this.shakeAmt = Math.max(this.shakeAmt, amount);
+  }
+
   get dashing(): boolean {
     return this.dashT > 0;
   }
@@ -86,10 +100,13 @@ export class PlayerSystem implements System, PlayerApi {
     b.vel.z += THREE.MathUtils.clamp(tz - b.vel.z, -accel * dt, accel * dt);
     if (b.onGround) this.airJumps = P.airJumps;
     if (input.pressed('jump')) {
-      if (b.onGround) b.vel.y = P.jumpSpeed;
-      else if (this.airJumps > 0) {
+      if (b.onGround) {
+        b.vel.y = P.jumpSpeed;
+        this.ctx.events.emit('player:jump', { air: false });
+      } else if (this.airJumps > 0) {
         this.airJumps--;
         b.vel.y = P.jumpSpeed * 0.9;
+        this.ctx.events.emit('player:jump', { air: true });
       }
     }
     if (this.dashT > 0) {
@@ -108,6 +125,7 @@ export class PlayerSystem implements System, PlayerApi {
       b.vel.z += THREE.MathUtils.clamp(fz - b.vel.z, -P.accelAir * 2 * dt, P.accelAir * 2 * dt);
     }
     this.ctx.scenes.active.physics.moveBody(b, dt);
+    if (b.landVel < -4) this.ctx.events.emit('player:land', { impact: Math.min(1, -b.landVel / 20) });
     if (b.pos.y < -80) {
       const s = this.ctx.scenes.active.spawn();
       this.teleport(s.pos, s.yaw);
@@ -132,7 +150,10 @@ export class PlayerSystem implements System, PlayerApi {
     const cam = this.ctx.renderer.camera;
     this.eye.set(this.body.pos.x, this.body.pos.y + P.eyeHeight, this.body.pos.z);
     cam.position.copy(this.eye);
-    cam.rotation.set(this.pitch, this.yaw, 0, 'YXZ');
+    // a little shake decays quickly; it never touches the aim the player sees in yaw/pitch
+    this.shakeAmt = Math.max(0, this.shakeAmt - 1 / 30);
+    const s = this.shakeAmt * this.shakeAmt * 0.04;
+    cam.rotation.set(this.pitch + (Math.random() - 0.5) * s, this.yaw + (Math.random() - 0.5) * s, 0, 'YXZ');
     cam.updateMatrixWorld();
     this.forward.set(0, 0, -1).applyQuaternion(cam.quaternion);
   }

@@ -40,6 +40,8 @@ tests/             world/ 和 physics 的单元测试（vitest）
 
 **5. 数值集中在 `content/tuning.ts`。** 系统里不写魔法数字。
 
+**7. 声音和特效只是听众。** `AudioSystem` 和 `EffectsSystem` 只监听事件，玩法代码从不调用它们；删掉这两个系统游戏照样能玩。
+
 **6. 场景可以组合共享的玩法组件。** 城市场景由墨渍、画室、侵蚀、墨潮、墨怪等部件组成；墨怪组（`systems/combat/monsters.ts`）是共享组件，城市现在用，野外以后也用。它通过 `ctx.combat` 注册为可被射击的目标，武器不 import 它。
 
 ## 一帧

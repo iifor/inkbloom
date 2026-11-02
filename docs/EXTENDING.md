@@ -70,6 +70,15 @@
 - 墨迹标记：`tuning.ts` 的 `marks`；纸飞机：`player.glideFall` / `glideSpeed`
 - 繁荣画室产出：`economy.studioStockSeconds` / `studioStockCap`
 
+## 给某件事加声音或特效
+
+声音和特效只听事件，不被任何玩法代码调用：
+
+1. 在发生的地方发一个事件（事件名和载荷加在 [src/game/events.ts](../src/game/events.ts) 的 `GameEvents`，用 `ctx.events.emit`）
+2. 声音：在 [src/systems/audio/audio-system.ts](../src/systems/audio/audio-system.ts) 的构造函数里 `on('事件名', …)`，用 `synth.tone` / `synth.noise` 拼一个音色（`pos` 传位置就有远近和左右）
+3. 特效：在 [src/systems/effects/effects.ts](../src/systems/effects/effects.ts) 里 `on('事件名', …)`，用 `this.burst(位置, { 数量, 颜色, 速度, … })`
+4. 音乐的调性、速度、密度在 [src/systems/audio/music.ts](../src/systems/audio/music.ts) 顶部
+
 ## 加一种建筑 / 地标模板
 
 [src/content/templates.ts](../src/content/templates.ts) 的 `BUILDINGS` 或 `LANDMARKS` 加一项。参数都是范围或可选列表；生成器从里面挑。`weight` 越大越常见。

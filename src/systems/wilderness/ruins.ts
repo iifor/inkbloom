@@ -94,6 +94,11 @@ export class WildRuins {
       const knew = this.ctx.state.unlocked.includes(ruin.color);
       if (!this.ctx.apply({ kind: 'discover', ruin: ruin.id }).ok) continue;
       mesh.visible = false;
+      for (let k = 0; k < 3; k++)
+        this.ctx.events.emit('paint:bloom', {
+          at: { x: ruin.x, y: ruin.y + 1 + k, z: ruin.z },
+          color: ruin.color,
+        });
       const name = PALETTE[ruin.color]!.name;
       const tpl = RUINS[ruin.template]!.name;
       this.ctx.events.emit('toast', {

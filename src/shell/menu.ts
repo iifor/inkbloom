@@ -84,6 +84,9 @@ export class Menu {
         body = `<h2>设置</h2>
           <label>鼠标灵敏度 <input type="range" data-s="sensitivity" min="${smin}" max="${smax}" step="0.1" value="${s.sensitivity}"><span>${s.sensitivity.toFixed(1)}</span></label>
           <label>视野 <input type="range" data-s="fov" min="${fmin}" max="${fmax}" step="1" value="${s.fov}"><span>${s.fov}°</span></label>
+          <label>总音量 <input type="range" data-s="volume" min="0" max="1" step="0.05" value="${s.volume}"><span>${pct(s.volume)}</span></label>
+          <label>音乐 <input type="range" data-s="music" min="0" max="1" step="0.05" value="${s.music}"><span>${pct(s.music)}</span></label>
+          <label>音效 <input type="range" data-s="sfx" min="0" max="1" step="0.05" value="${s.sfx}"><span>${pct(s.sfx)}</span></label>
           <label>画质 <select data-s="quality"><option value="high"${s.quality === 'high' ? ' selected' : ''}>清晰</option><option value="low"${s.quality === 'low' ? ' selected' : ''}>流畅</option></select></label>
           <button data-a="reset">恢复默认</button>
           <button data-a="back">返回</button>`;
@@ -127,7 +130,8 @@ export class Menu {
         this.actions.applySettings(s);
         const label = el.nextElementSibling;
         if (label && key !== 'quality')
-          label.textContent = key === 'fov' ? `${s.fov}°` : s.sensitivity.toFixed(1);
+          label.textContent =
+            key === 'fov' ? `${s.fov}°` : key === 'sensitivity' ? s.sensitivity.toFixed(1) : pct(s[key]);
       };
     });
   }
@@ -158,6 +162,8 @@ export class Menu {
     }
   }
 }
+
+const pct = (v: number): string => `${Math.round(v * 100)}%`;
 
 function esc(s: string): string {
   return s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);

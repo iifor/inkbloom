@@ -224,13 +224,18 @@ export class WeaponSlot implements Tool {
       h.reloading <= 0 &&
       h.mag < h.def.magazine
     )
-      h.reloading = h.def.reload;
+      this.reload(h);
     if (!input.held('use') || h.cooldown > 0 || h.reloading > 0) return;
     if (h.def.magazine && h.mag <= 0) {
-      h.reloading = h.def.reload;
+      this.reload(h);
       return;
     }
     this.attack(h);
+  }
+
+  private reload(h: Held): void {
+    h.reloading = h.def.reload;
+    this.ctx.events.emit('weapon:reload', { key: h.def.key });
   }
 
   private switch(step: number): void {
@@ -249,6 +254,7 @@ export class WeaponSlot implements Tool {
     const def = h.def;
     h.cooldown = def.interval;
     if (def.magazine) h.mag--;
+    this.ctx.events.emit('weapon:fired', { key: def.key });
     this.kick = 1;
     const dmg = def.damage * this.power().weapon;
     if (def.kind === 'melee') {
@@ -257,7 +263,7 @@ export class WeaponSlot implements Tool {
     }
     if (def.kind === 'launcher') {
       this.fireShell(def.area, dmg);
-      if (h.mag === 0) h.reloading = def.reload;
+      if (h.mag === 0) this.reload(h);
       return;
     }
     const spread = new THREE.Vector3(
@@ -270,7 +276,7 @@ export class WeaponSlot implements Tool {
     const shot = combat.shoot(player.eye, this.dir, def.range, dmg * focus);
     player.pitch = Math.min(1.5, player.pitch + (def.key === 'sniper' ? 0.03 : 0.006));
     this.drawTracer(shot.point);
-    if (def.magazine && h.mag === 0) h.reloading = def.reload;
+    if (def.magazine && h.mag === 0) this.reload(h);
   }
 
   private skill(h: Held): void {
@@ -320,6 +326,7 @@ export class WeaponSlot implements Tool {
       }
     }
     h.skillT = h.def.skill.cooldown;
+    this.ctx.events.emit('weapon:skill', { key: h.def.key });
   }
 
   private fireShell(radius: number, damage: number): void {
@@ -376,6 +383,7 @@ export class WeaponSlot implements Tool {
   }
 
   private burst(at: THREE.Vector3, radius: number): void {
+    this.ctx.events.emit('blast', { at, radius });
     const mesh = new THREE.Mesh(this.burstGeo, this.material);
     mesh.position.copy(at);
     this.ctx.scenes.active.root.add(mesh);
