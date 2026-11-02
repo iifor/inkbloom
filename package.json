@@ -1,0 +1,31 @@
+{
+  "name": "inkbloom",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20.15.0"
+  },
+  "scripts": {
+    "dev": "vite --port 5190 --strictPort",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --host 127.0.0.1 --port 4190 --strictPort",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "check": "npm run typecheck && npm run test && npm run format:check && vite build"
+  },
+  "dependencies": {
+    "three": "0.170.0"
+  },
+  "devDependencies": {
+    "@types/node": "22.15.30",
+    "@types/three": "0.170.0",
+    "prettier": "3.9.6",
+    "typescript": "5.7.3",
+    "vite": "6.4.3",
+    "vitest": "3.2.4"
+  }
+}

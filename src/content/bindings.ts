@@ -1,0 +1,51 @@
+// Key and mouse bindings. Systems ask Input for actions by name, never for raw keys.
+export const ACTIONS = [
+  'forward',
+  'back',
+  'left',
+  'right',
+  'jump',
+  'sprint',
+  'crouch',
+  'interact',
+  'use',
+  'alt',
+  'slot1',
+  'slot2',
+  'slot3',
+  'slot4',
+  'nextColor',
+  'prevColor',
+  'pause',
+  'debugFly',
+  'debugPanel',
+] as const;
+export type Action = (typeof ACTIONS)[number];
+
+export const KEYS: Readonly<Record<string, Action>> = {
+  KeyW: 'forward',
+  KeyS: 'back',
+  KeyA: 'left',
+  KeyD: 'right',
+  ArrowUp: 'forward',
+  ArrowDown: 'back',
+  ArrowLeft: 'left',
+  ArrowRight: 'right',
+  Space: 'jump',
+  ShiftLeft: 'sprint',
+  ShiftRight: 'sprint',
+  KeyC: 'crouch',
+  ControlLeft: 'crouch',
+  KeyE: 'interact',
+  KeyQ: 'prevColor',
+  KeyR: 'nextColor',
+  Digit1: 'slot1',
+  Digit2: 'slot2',
+  Digit3: 'slot3',
+  Digit4: 'slot4',
+  Escape: 'pause',
+  F2: 'debugFly',
+  F3: 'debugPanel',
+};
+
+export const MOUSE: Readonly<Record<number, Action>> = { 0: 'use', 2: 'alt' };

@@ -1,0 +1,159 @@
+* {
+  box-sizing: border-box;
+}
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: #f6f4e7;
+  color: #2b2d36;
+  font-family: 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', system-ui, sans-serif;
+}
+#app {
+  position: fixed;
+  inset: 0;
+}
+#view {
+  width: 100%;
+  height: 100%;
+  display: block;
+  outline: none;
+}
+#hud {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  font-size: 15px;
+  text-shadow:
+    0 0 3px #f6f4e7,
+    0 0 6px #f6f4e7;
+}
+.hud-place {
+  position: absolute;
+  top: 16px;
+  left: 20px;
+  font-size: 18px;
+}
+.hud-place span {
+  font-size: 14px;
+  margin-left: 10px;
+  opacity: 0.8;
+}
+.hud-cross {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 8px;
+  height: 8px;
+  margin: -4px 0 0 -4px;
+  border: 2px solid #2b2d36;
+  border-radius: 50%;
+  opacity: 0.7;
+}
+.hud-bar {
+  position: absolute;
+  left: 50%;
+  top: calc(50% + 22px);
+  width: 90px;
+  height: 6px;
+  margin-left: -45px;
+  border: 1.5px solid #2b2d36;
+  border-radius: 3px;
+  visibility: hidden;
+}
+.hud-bar i {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: #2b2d36;
+}
+.hud-prompt {
+  position: absolute;
+  left: 50%;
+  top: 60%;
+  transform: translateX(-50%);
+  font-size: 18px;
+}
+.hud-tool {
+  position: absolute;
+  left: 20px;
+  bottom: 18px;
+  white-space: pre-line;
+  line-height: 1.6;
+}
+.hud-slots {
+  font-weight: 600;
+  white-space: pre;
+}
+.hud-swatch {
+  display: none;
+  width: 18px;
+  height: 18px;
+  border: 2px solid #2b2d36;
+  border-radius: 50%;
+  vertical-align: middle;
+  margin: 4px 0;
+}
+.hud-toasts {
+  position: absolute;
+  top: 18%;
+  left: 50%;
+  transform: translateX(-50%);
+  text-align: center;
+  font-size: 17px;
+  line-height: 1.8;
+}
+.debug-panel {
+  position: absolute;
+  top: 12px;
+  right: 14px;
+  margin: 0;
+  padding: 8px 10px;
+  font:
+    12px/1.5 ui-monospace,
+    Menlo,
+    monospace;
+  background: rgba(246, 244, 231, 0.85);
+  border: 1px solid #c9c6b6;
+  pointer-events: none;
+}
+#overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: rgba(246, 244, 231, 0.78);
+  text-align: center;
+}
+#overlay[hidden] {
+  display: none;
+}
+#overlay h1 {
+  font-size: 56px;
+  margin: 0 0 4px;
+  letter-spacing: 0.2em;
+}
+#overlay button {
+  margin: 14px 0;
+  font: inherit;
+  font-size: 20px;
+  padding: 10px 34px;
+  border: 2px solid #2b2d36;
+  border-radius: 6px;
+  background: #fffdf2;
+  cursor: pointer;
+}
+#overlay .keys {
+  font-size: 14px;
+  opacity: 0.75;
+  line-height: 1.8;
+}
+#overlay-error {
+  color: #b3262f;
+  max-width: 640px;
+  white-space: pre-wrap;
+}
