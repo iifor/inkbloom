@@ -63,6 +63,12 @@ export function installDevTools(game: OpenWorld): void {
         colliders: scene.physics.boxCount,
       };
     },
+    /** Start an ink tide in the current city right away. */
+    tide() {
+      const c = scenes.currentCity;
+      if (!c) throw new Error('Not in a city');
+      return c.tide.trigger();
+    },
     async save() {
       await game.save.flush();
     },

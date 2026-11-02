@@ -21,6 +21,9 @@ export interface SurfaceInfo {
   readonly color: number;
   /** Square metres. Large surfaces cost more pigment. */
   readonly area: number;
+  /** Centre in city-local metres, for effects that sweep across a chunk. */
+  readonly x: number;
+  readonly z: number;
 }
 
 /** The colour a surface shows for a given state, or null when drained. */

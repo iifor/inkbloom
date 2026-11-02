@@ -8,10 +8,13 @@ import { disposeTree } from '@/engine/resources';
 import type { GameContext, GameScene } from '@/game/types';
 import type { CityLayout } from '@/world/city/layout';
 import { isColored } from '@/world/paint/surfaces';
+import { blockState, type BlockState } from '@/world/city/blocks';
 import { cityStates } from '@/world/state';
 import type { Entrance } from '@/world/wilderness/generator';
 import { buildCity } from './build-city';
+import { Erosion } from './erosion';
 import { InkStains } from './ink-stains';
+import { InkTide } from './ink-tide';
 import { Studios } from './studios';
 
 export class CityScene implements GameScene {
@@ -31,7 +34,9 @@ export class CityScene implements GameScene {
   /** True when the saved states belonged to an older layout and were discarded. */
   readonly wasReset: boolean;
   readonly stains: InkStains;
+  readonly tide: InkTide;
   private readonly studios: Studios;
+  private readonly erosion: Erosion;
 
   constructor(
     private readonly ctx: GameContext,
@@ -61,6 +66,8 @@ export class CityScene implements GameScene {
     this.root.add(new THREE.Mesh(g.build(), this.material));
     this.stains = new InkStains(ctx, layout, stains, this.material, this.root);
     this.studios = new Studios(ctx, layout, states, (c) => this.progress(c), this.material, this.root);
+    this.erosion = new Erosion(ctx, layout, states, this);
+    this.tide = new InkTide(ctx, layout, states, this, this.material, this.root);
 
     this.release.push(
       ctx.events.on('patch:applied', ({ patch }) => {
@@ -106,6 +113,15 @@ export class CityScene implements GameScene {
     return total ? this.colored[chunk]! / total : 0;
   }
 
+  surfaceCount(chunk: number): number {
+    return this.totals[chunk] ?? 0;
+  }
+
+  /** Every block's state, read from its share of colour. */
+  blocks(): BlockState[] {
+    return this.totals.map((_, c) => blockState(this.progress(c)));
+  }
+
   /** Which city chunk (0..chunks²-1) a position is in. */
   chunkAt(pos: THREE.Vector3): number {
     const side = TUNING.city.chunks;
@@ -125,9 +141,11 @@ export class CityScene implements GameScene {
   }
 
   /** Walking out through a gate leaves the city, same as pressing E there. */
-  update(): void {
+  update(dt: number): void {
     if (this.exiting) return;
     this.stains.update();
+    this.erosion.update(dt);
+    this.tide.update(dt);
     const p = this.ctx.player.position;
     const s = this.layout.size;
     if (p.x < 0 || p.z < 0 || p.x > s || p.z > s) {
@@ -139,6 +157,7 @@ export class CityScene implements GameScene {
   dispose(): void {
     this.stains.dispose();
     this.studios.dispose();
+    this.tide.dispose();
     for (const r of this.release) r();
     this.texture.dispose();
     this.material.dispose();

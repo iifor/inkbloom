@@ -132,7 +132,7 @@ export function studioOpen(skel: CitySkeleton, states: Uint8Array, index: number
   const s = skel.studios[index];
   if (!s) return false;
   if (index === skel.homeStudio) return true;
-  return coloredRatio(states, skel.surfaces, s.chunk) >= TUNING.economy.studioOpenRatio;
+  return coloredRatio(states, skel.surfaces, s.chunk) >= TUNING.blocks.coloredAt;
 }
 
 /** Identifies a stain list so saved stain flags are dropped when the stains move. */

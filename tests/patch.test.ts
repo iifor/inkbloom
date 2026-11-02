@@ -9,9 +9,9 @@ import type { CitySkeleton } from '@/world/city/features';
 import type { PigmentSource } from '@/world/wilderness/sources';
 
 const SURFACES: SurfaceInfo[] = [
-  { kind: 'wall', chunk: 0, color: color('cream'), area: 40 },
-  { kind: 'roof', chunk: 0, color: color('red'), area: 400 },
-  { kind: 'door', chunk: 1, color: color('blue'), area: 4 },
+  { kind: 'wall', chunk: 0, color: color('cream'), area: 40, x: 10, z: 10 },
+  { kind: 'roof', chunk: 0, color: color('red'), area: 400, x: 20, z: 20 },
+  { kind: 'door', chunk: 1, color: color('blue'), area: 4, x: 140, z: 10 },
 ];
 const SKEL: CitySkeleton = {
   surfaces: SURFACES,
@@ -127,7 +127,10 @@ describe('saves', () => {
 });
 
 describe('skeleton fingerprints', () => {
-  const OTHER: SurfaceInfo[] = [...SURFACES, { kind: 'wall', chunk: 2, color: color('cream'), area: 30 }];
+  const OTHER: SurfaceInfo[] = [
+    ...SURFACES,
+    { kind: 'wall', chunk: 2, color: color('cream'), area: 30, x: 300, z: 10 },
+  ];
   const REORDERED: SurfaceInfo[] = [SURFACES[1]!, SURFACES[0]!, SURFACES[2]!];
 
   it('keeps states for the same skeleton', () => {
@@ -266,5 +269,19 @@ describe('pigment economy', () => {
     applyPatch(s, { kind: 'harvest', source: SOURCE.id }, ctx);
     s.clock = TUNING.economy.regrowSeconds + 1;
     expect(deserializeWorld(serializeWorld(s)).harvested.size).toBe(0);
+  });
+});
+
+describe('spend', () => {
+  it('pays pigment and ink, and refuses when short', () => {
+    const s = createWorldState('w', 1);
+    s.inventory.ink = 3;
+    const g = s.inventory.generic;
+    expect(applyPatch(s, { kind: 'spend', generic: 2, ink: 1 }, ctx).ok).toBe(true);
+    expect(s.inventory.generic).toBe(g - 2);
+    expect(s.inventory.ink).toBe(2);
+    expect(applyPatch(s, { kind: 'spend', generic: g }, ctx)).toEqual({ ok: false, reason: '通用颜料不足' });
+    expect(applyPatch(s, { kind: 'spend', ink: 5 }, ctx).ok).toBe(false);
+    expect(s.inventory.ink).toBe(2);
   });
 });

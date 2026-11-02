@@ -81,7 +81,7 @@ export class Studios {
     const s = this.layout.studios[i]!;
     if (!studioOpen(this.layout, this.states, i)) {
       const pct = Math.round(this.chunkProgress(s.chunk) * 100);
-      const need = Math.round(TUNING.economy.studioOpenRatio * 100);
+      const need = Math.round(TUNING.blocks.coloredAt * 100);
       return `画室未开门：街区有色 ${pct}% / ${need}%`;
     }
     const ink = this.ctx.state.inventory.ink;

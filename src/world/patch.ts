@@ -18,6 +18,8 @@ export type Patch =
   | { readonly kind: 'refine'; readonly city: string; readonly studio: number }
   /** Harvest a wilderness pigment source. */
   | { readonly kind: 'harvest'; readonly source: string }
+  /** Pay pigment or ink for an action (pushing back an ink tide). Fails if short. */
+  | { readonly kind: 'spend'; readonly generic?: number; readonly ink?: number }
   | {
       readonly kind: 'grant';
       readonly generic?: number;
@@ -48,6 +50,15 @@ export function applyPatch(state: WorldState, patch: Patch, ctx: PatchContext): 
       for (const g of patch.colored ?? [])
         inv.colored[g.color] = Math.max(0, (inv.colored[g.color] ?? 0) + g.amount);
       for (const c of patch.unlock ?? []) if (!state.unlocked.includes(c)) state.unlocked.push(c);
+      return OK;
+    }
+    case 'spend': {
+      const g = Math.max(0, patch.generic ?? 0);
+      const k = Math.max(0, patch.ink ?? 0);
+      if (inv.generic < g) return fail('通用颜料不足');
+      if (inv.ink < k) return fail('墨不足');
+      inv.generic -= g;
+      inv.ink -= k;
       return OK;
     }
     case 'harvest': {

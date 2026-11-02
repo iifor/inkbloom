@@ -28,7 +28,11 @@
 
 ## 调颜料经济
 
-都在 `tuning.ts` 的 `economy`：每个墨渍给多少墨、每街区多少墨渍、几墨换一份通用颜料、画室开门要多少有色率、颜料点多久长回来。改墨渍数量或位置只会重置城里的墨渍，不会重置涂色进度。
+都在 `tuning.ts` 的 `economy`：每个墨渍给多少墨、每街区多少墨渍、几墨换一份通用颜料、颜料点多久长回来。改墨渍数量或位置只会重置城里的墨渍，不会重置涂色进度。
+
+## 调街区状态和墨潮
+
+`tuning.ts` 的 `blocks`：清理中 / 有色 / 繁荣的比例门槛、侵蚀速度。有色门槛同时是画室开门的条件。`tide`：间隔、首次延迟、预警和持续时间、墨帘推进多深（`reach`）、推回速度和花费、守住的门槛、奖励。规则本身在 [src/world/city/blocks.ts](../src/world/city/blocks.ts)（纯函数，有测试），表现和计时在 [src/systems/city/ink-tide.ts](../src/systems/city/ink-tide.ts)、[erosion.ts](../src/systems/city/erosion.ts)。开发时可在控制台用 `inkbloom.tide()` 立刻触发一次墨潮。
 
 ## 加一种建筑 / 地标模板
 
@@ -88,7 +92,7 @@ const release = ctx.interactions.add({
 
 ## 开发者工具
 
-开发模式下浏览器控制台有 `window.inkbloom`：`teleport(x, z)`、`look(yaw, pitch)`、`fly()`、`enterNearestCity()`、`exitCity()`、`brush(秒数, 'restore' | 'graffiti')`、`step(帧数)`、`info()`、`save()`。不需要鼠标锁定，适合自动检查。
+开发模式下浏览器控制台有 `window.inkbloom`：`teleport(x, z)`、`look(yaw, pitch)`、`fly()`、`enterNearestCity()`、`exitCity()`、`brush(秒数, 'restore' | 'graffiti')`、`step(帧数)`、`info()`、`tide()`、`save()`。不需要鼠标锁定，适合自动检查。
 
 ## 存档版本记录
 

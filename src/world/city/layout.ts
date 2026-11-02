@@ -318,8 +318,15 @@ export function generateCity(id: string, seed: number): CityLayout {
   const chunkOf = (x: number, z: number): number =>
     Math.min(cfg.chunks - 1, Math.floor(z / chunkCells)) * cfg.chunks +
     Math.min(cfg.chunks - 1, Math.floor(x / chunkCells));
-  const addSurface = (kind: SurfaceKind, chunk: number, c: number, area: number): number => {
-    surfaces.push({ kind, chunk, color: c, area });
+  const addSurface = (
+    kind: SurfaceKind,
+    chunk: number,
+    c: number,
+    area: number,
+    x: number,
+    z: number,
+  ): number => {
+    surfaces.push({ kind, chunk, color: c, area, x, z });
     return surfaces.length - 1;
   };
   const buildingOf = new Uint16Array(n * n);
@@ -402,13 +409,12 @@ export function generateCity(id: string, seed: number): CityLayout {
           const sx = x1 - x0;
           const sz = z1 - z0;
           const walls = {
-            px: addSurface('wall', chunk, wall, sz * height),
-            nx: addSurface('wall', chunk, wall, sz * height),
-            pz: addSurface('wall', chunk, wall, sx * height),
-            nz: addSurface('wall', chunk, wall, sx * height),
+            px: addSurface('wall', chunk, wall, sz * height, x1, (z0 + z1) / 2),
+            nx: addSurface('wall', chunk, wall, sz * height, x0, (z0 + z1) / 2),
+            pz: addSurface('wall', chunk, wall, sx * height, (x0 + x1) / 2, z1),
+            nz: addSurface('wall', chunk, wall, sx * height, (x0 + x1) / 2, z0),
           };
-          const roof = addSurface('roof', chunk, rng.pick(tpl.roofs), sx * sz);
-          const door = addSurface('door', chunk, rng.pick(tpl.doors), 1.6 * 2.4);
+          const roof = addSurface('roof', chunk, rng.pick(tpl.roofs), sx * sz, (x0 + x1) / 2, (z0 + z1) / 2);
           // the door goes in the middle of the front-row run that actually touches the road
           const alongX = DX[along] !== 0;
           let lo = Infinity;
@@ -424,6 +430,16 @@ export function generateCity(id: string, seed: number): CityLayout {
             hi = Math.max(hi, coord);
           }
           const doorAt = ((lo + hi + 1) / 2) * cell;
+          const face = FACE_OF_DIR[roadDir]!;
+          const [dx, dz] =
+            face === 'px'
+              ? [x1, doorAt]
+              : face === 'nx'
+                ? [x0, doorAt]
+                : face === 'pz'
+                  ? [doorAt, z1]
+                  : [doorAt, z0];
+          const door = addSurface('door', chunk, rng.pick(tpl.doors), 1.6 * 2.4, dx, dz);
           buildings.push({
             id,
             x0,
@@ -448,11 +464,19 @@ export function generateCity(id: string, seed: number): CityLayout {
     if (open.length === 0) return { id: b, cells: cells.length, ground: -1 };
     const first = open[0]!;
     const fx = first % n;
+    let sx = 0;
+    let sz = 0;
+    for (const i of open) {
+      sx += (i % n) + 0.5;
+      sz += Math.floor(i / n) + 0.5;
+    }
     const ground = addSurface(
       'ground',
       chunkOf(fx, (first - fx) / n),
       rng.pick([color('grass'), color('sand'), color('green')]),
       open.length * cell * cell,
+      (sx / open.length) * cell,
+      (sz / open.length) * cell,
     );
     return { id: b, cells: cells.length, ground };
   });

@@ -86,6 +86,41 @@ export const TUNING = {
     startingGeneric: 30,
     startingColored: 6,
   },
+  blocks: {
+    /** Share of coloured surfaces at which a block counts as cleared, coloured, thriving. */
+    clearedAt: 0.15,
+    coloredAt: 0.7,
+    /** Stand-in for "all resident requests done" until requests exist. */
+    thrivingAt: 0.95,
+    /** Cleared blocks next to a drained one lose this share of their surfaces per minute.
+     * design: 10% per 10 minutes */
+    erosionPerMinute: 0.01,
+  },
+  tide: {
+    /** Seconds of play in a city between ink tides. design: 8–12 minutes */
+    intervalMin: 480,
+    intervalMax: 720,
+    /** First tide after entering a city comes sooner, so a short visit still sees one. */
+    firstDelay: 150,
+    warning: 30,
+    duration: 90,
+    /** A wave pushed back to its entry edge only counts as repelled after this many seconds. */
+    repelAfter: 3,
+    /** When no block can be struck, look again after this many seconds. */
+    retry: 60,
+    /** Share of the block an undefended wave sweeps in `duration`; what it leaves behind is the
+     * design's 30% for a lost block. */
+    reach: 0.7,
+    /** Metres per second the brush pushes it back while held on the wave. */
+    pushSpeed: 4,
+    /** Generic pigment spent per second of pushing. */
+    pushCostPerSecond: 1,
+    /** How far from the eye the brush reaches the wave. */
+    pushRange: 12,
+    /** Held when the block keeps at least this share of colour. design: 50% */
+    holdRatio: 0.5,
+    reward: { generic: 12, ink: 10 },
+  },
   economy: {
     /** Ink from one city ink stain. design: a stronghold's ink restores 40–60% of a block */
     inkPerStain: 6,
@@ -95,8 +130,6 @@ export const TUNING = {
     stainPickupRadius: 1.8,
     /** Studio refining: this much ink makes one generic pigment. design: 2 ink = 1 */
     inkPerGeneric: 2,
-    /** A chunk's studio opens once this share of its surfaces has colour. design: 有色 at 70% */
-    studioOpenRatio: 0.7,
     /** Seconds of play before a harvested wilderness source grows back. design: 10 min */
     regrowSeconds: 600,
   },

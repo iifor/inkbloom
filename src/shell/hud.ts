@@ -5,13 +5,33 @@ import type { GameContext, System } from '@/game/types';
 import { CityScene } from '@/systems/city/city-scene';
 import type { SceneManager } from '@/systems/scenes/scene-manager';
 import type { ToolBelt } from '@/systems/tools/tool';
+import { SIDE_NAMES, type TideStatus } from '@/systems/city/ink-tide';
+import { BLOCK_NAMES, blockState } from '@/world/city/blocks';
+
+function tideLine(t: TideStatus | null, here: number): string {
+  if (!t) return '';
+  const where = t.chunk === here ? '本街区' : '附近街区';
+  if (t.phase === 'warning') return `墨潮 ${Math.ceil(t.seconds)} 秒后从${SIDE_NAMES[t.from]}边涌向${where}`;
+  const action = t.blocked ?? (t.pushing ? '正在推回墨潮' : '对准墨帘按住左键推回（消耗通用颜料）');
+  return `墨潮侵入${where} ${Math.round(t.front * 100)}% · 剩 ${Math.ceil(t.seconds)} 秒 · ${action}`;
+}
 
 const css = (rgb: readonly number[]): string => `rgb(${rgb.map((v) => Math.round(v * 255)).join(',')})`;
 
 export class Hud implements System {
   readonly id = 'hud';
   private readonly el: Record<
-    'place' | 'progress' | 'res' | 'slots' | 'lines' | 'bar' | 'barFill' | 'prompt' | 'toasts' | 'swatch',
+    | 'place'
+    | 'progress'
+    | 'res'
+    | 'tide'
+    | 'slots'
+    | 'lines'
+    | 'bar'
+    | 'barFill'
+    | 'prompt'
+    | 'toasts'
+    | 'swatch',
     HTMLElement
   >;
   private readonly cache = new Map<string, string>();
@@ -25,6 +45,7 @@ export class Hud implements System {
   ) {
     root.innerHTML = `
       <div class="hud-place"><b data-k="place"></b><span data-k="progress"></span><div class="hud-res" data-k="res"></div></div>
+      <div class="hud-tide" data-k="tide"></div>
       <div class="hud-cross"></div>
       <div class="hud-bar" data-k="bar"><i data-k="barFill"></i></div>
       <div class="hud-prompt" data-k="prompt"></div>
@@ -35,6 +56,7 @@ export class Hud implements System {
       place: q('place'),
       progress: q('progress'),
       res: q('res'),
+      tide: q('tide'),
       slots: q('slots'),
       lines: q('lines'),
       bar: q('bar'),
@@ -69,9 +91,13 @@ export class Hud implements System {
       this.set(
         'progress',
         this.el.progress,
-        ` 街区有色 ${Math.round(here * 100)}% · 全城 ${Math.round(scene.progress() * 100)}% · 本街区墨渍 ${stains}`,
+        ` 街区${BLOCK_NAMES[blockState(here)]} ${Math.round(here * 100)}% · 全城 ${Math.round(scene.progress() * 100)}% · 本街区墨渍 ${stains}`,
       );
-    } else this.set('progress', this.el.progress, '');
+      this.set('tide', this.el.tide, tideLine(scene.tide.status(), chunk));
+    } else {
+      this.set('progress', this.el.progress, '');
+      this.set('tide', this.el.tide, '');
+    }
     const inv = this.ctx.state.inventory;
     this.set('res', this.el.res, `墨 ${inv.ink} · 通用颜料 ${inv.generic}`);
 

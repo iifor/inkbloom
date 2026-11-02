@@ -44,6 +44,16 @@ body {
   margin-left: 10px;
   opacity: 0.8;
 }
+.hud-tide {
+  position: absolute;
+  top: 74px;
+  white-space: nowrap;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 17px;
+  font-weight: 600;
+  color: #2b2d36;
+}
 .hud-cross {
   position: absolute;
   left: 50%;
