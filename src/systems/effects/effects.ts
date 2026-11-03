@@ -115,7 +115,7 @@ export class EffectsSystem implements System {
       on('city:completed', () => this.rainbow(ctx.player.position, 90, 3)),
       on('tide:start', ({ at }) => shakeNear(at, 200, 0.3)),
       on('tide:drip', ({ at }) =>
-        this.burst(at, { count: 1, color: ink, speed: 0.3, size: 0.16, lift: -12, life: 1.4 }),
+        this.burst(at, { count: 1, color: color('ink'), speed: 0.3, size: 0.16, lift: -12, life: 1.4 }),
       ),
     );
   }

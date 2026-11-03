@@ -14,7 +14,7 @@
 
 ## 加一种颜色
 
-在 [src/content/palette.ts](../src/content/palette.ts) 的 `PALETTE` **末尾**追加一项。不要插在中间或重排：存档和几何里存的是下标。`paintable: true` 才会出现在涂鸦笔刷里。上限 32 色。
+在 [src/content/palette.ts](../src/content/palette.ts) 的 `PALETTE` **末尾**追加一项。不要插在中间或重排：存档和几何里存的是下标。`paintable: true` 才会出现在涂鸦笔刷里。`solid: true` 的颜色画成实心的湿墨（不透出纸，受光面有一点反光），目前只有墨潮用的 `ink`。上限 32 色。
 
 ## 加一个群系
 
@@ -34,6 +34,8 @@
 
 `tuning.ts` 的 `blocks`：清理中 / 有色 / 繁荣的比例门槛、侵蚀速度。有色门槛同时是画室开门的条件。`tide`：间隔、首次延迟、预警和持续时间、墨帘推进多深（`reach`）、推回速度和花费、守住的门槛、奖励。规则本身在 [src/world/city/blocks.ts](../src/world/city/blocks.ts)（纯函数，有测试），表现和计时在 [src/systems/city/ink-tide.ts](../src/systems/city/ink-tide.ts)、[erosion.ts](../src/systems/city/erosion.ts)。开发时可在控制台用 `inkbloom.tide()` 立刻触发一次墨潮。
 
+墨潮的计时存在每座城的存档里（`CitySave.tide`），记的是"还剩多少秒"，只在玩家待在这座城时倒数：刷新页面会接着上次的进度，离开城市墨潮暂停，回来继续（不能靠出城躲墨潮）。墨帘的样子在 [src/systems/city/ink-curtain.ts](../src/systems/city/ink-curtain.ts)：柱子高度、浪头、底部翻滚、滴墨和身后的墨面都在那里调，它只管画面。墨帘不是碰撞体，但笔刷会被它挡住：场景可以实现 `GameScene.brushStop`，返回射线上挡住笔刷的距离
+
 ## 调第一座城、通关奖励、笔刷升级
 
 - 第一座城的大小：`tuning.ts` 的 `city.firstCityChunks`；其他城：`city.chunks`。改了会重置那座城的进度（布局变了）
@@ -49,6 +51,7 @@
 
 - 墨怪种类：[src/content/enemies.ts](../src/content/enemies.ts) 的 `ENEMIES` **末尾**追加（生命、速度、体型、发现距离、掉墨、攻击方式）。攻击方式 `melee`（近身咬）或 `spit`（远程吐墨）决定 AI 走哪一支；要新的行为，在 [src/systems/combat/monsters.ts](../src/systems/combat/monsters.ts) 的 `update` 里按 `attack.kind` 加一支
 - 据点规模、墨潮带几只、玩家生命和回血、死亡掉墨比例：`tuning.ts` 的 `combat`
+- 墨怪跳跃：`combat.monsterJump`（能跳上的最高台阶，比玩家的跳跃高一点）和 `combat.monsterDrop`（寻路时最多往下跳多高）。撞到台阶时先探测前方有没有能站上去的平台，太高的墙不会跳
 - 武器数值在 [src/content/weapons.ts](../src/content/weapons.ts)（见下一节）。攻击都走 `ctx.combat.shoot()` / `strike()` / `blast()`，武器自己不需要知道有哪些墨怪
 - 让新的东西能被打：实现 `TargetSource`，用 `ctx.combat.addTargets()` 注册（`MonsterGroup` 就是这样做的）
 - 改据点数量或位置只会重置"已打败"标记，不会重置涂色进度
@@ -154,3 +157,4 @@ const release = ctx.interactions.add({
 - v2 补充（2026-11-02，首版）：新增 `growth`、`discovered`、`marks`、`nextMark`、`hunted`，`inventory.glider` / `weapons`；城市存档新增 `co`（街区首次有色）、`rf`/`rd`（心愿指纹与完成标记）、`sk`（繁荣画室计时）。都是可选字段
 - v2 补充（2026-11-02，战斗）：新增 `drop`（死亡掉落）、`inventory.brushTier`，城市存档新增 `c`（已恢复）、`mf`/`d`（据点指纹与已打败标记）。均为可选字段，旧存档取默认值
 - v2 补充（2026-11-02）：新增可选字段 `inventory.ink`、`clock`、`harvested`，城市存档新增 `sf`/`st`（墨渍指纹与已吸走标记）。旧 v2 存档读入时取默认值，不需要升版本
+- v2 补充（2026-11-02，墨潮存档）：城市存档新增可选字段 `td`（`n` 距下一次墨潮的秒数，`w` 进行中的墨潮 `[街区, 方向, 距开始秒数, 距结束秒数, 推进米数]`）。旧存档读入时取默认值（首次墨潮延迟、没有进行中的墨潮）

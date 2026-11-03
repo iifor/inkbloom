@@ -50,7 +50,7 @@ export class CityScene implements GameScene {
     this.ref = { kind: 'city', id: layout.id };
     this.name = layout.name;
     this.root.name = `city:${layout.id}`;
-    const { states, stains, defeated, requestsDone, reset } = cityStates(ctx.state, layout.id, layout);
+    const { states, stains, defeated, requestsDone, tide, reset } = cityStates(ctx.state, layout.id, layout);
     this.states = states;
     this.wasReset = reset;
     if (reset) ctx.events.emit('toast', { text: `${layout.name}的布局已更新，颜色进度已重置`, seconds: 6 });
@@ -73,7 +73,7 @@ export class CityScene implements GameScene {
     this.erosion = new Erosion(ctx, layout, states, this);
     this.monsters = new CityMonsters(ctx, layout, defeated, this.physics, this.root, this.material);
     this.residents = new Residents(ctx, layout, states, requestsDone, this.material, this.root);
-    this.tide = new InkTide(ctx, layout, states, this, this.material, this.root);
+    this.tide = new InkTide(ctx, layout, states, this, tide, this.root);
 
     this.release.push(
       ctx.events.on('patch:applied', ({ patch }) => {
@@ -180,6 +180,10 @@ export class CityScene implements GameScene {
   }
 
   /** Walking out through a gate leaves the city, same as pressing E there. */
+  brushStop(eye: THREE.Vector3, forward: THREE.Vector3): number | null {
+    return this.tide.curtainDistance(eye, forward);
+  }
+
   update(dt: number): void {
     if (this.exiting) return;
     this.stains.update();

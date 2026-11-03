@@ -7,6 +7,8 @@ export interface ColorDef {
   readonly name: string;
   readonly rgb: readonly [number, number, number];
   readonly paintable: boolean;
+  /** Drawn as solid wet ink instead of a watercolour wash (the ink tide). */
+  readonly solid?: boolean;
 }
 
 export const PALETTE = [
@@ -31,6 +33,8 @@ export const PALETTE = [
   { key: 'stone', name: '石板路', rgb: [0.72, 0.7, 0.66], paintable: false },
   { key: 'bark', name: '树皮', rgb: [0.45, 0.32, 0.22], paintable: false },
   { key: 'snow', name: '雪', rgb: [0.96, 0.97, 1.0], paintable: false },
+  // the ink tide's own black, darker than any paint
+  { key: 'ink', name: '墨', rgb: [0.06, 0.06, 0.09], paintable: false, solid: true },
 ] as const satisfies readonly ColorDef[];
 
 export type ColorKey = (typeof PALETTE)[number]['key'];

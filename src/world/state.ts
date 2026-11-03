@@ -93,6 +93,53 @@ export interface CitySave {
   requestsDone: Uint8Array;
   /** Per block: clock time its studio stock counts from once 繁荣, or -1. */
   stockFrom: number[];
+  /** The city's ink tide timers. Written in place by the tide every frame it runs. */
+  tide: TideSave;
+}
+
+/**
+ * An ink tide's timers, as seconds of play in this city still to go. Counting down only while
+ * the player is in the city means a tide waits (rather than resolving) while they are away.
+ */
+export interface TideSave {
+  /** Until the next wave is announced (when none is under way). */
+  nextIn: number;
+  wave: TideWaveSave | null;
+}
+
+export interface TideWaveSave {
+  chunk: number;
+  /** Side it enters through, 0..3. */
+  from: number;
+  /** Until the curtain starts moving; 0 once it has. */
+  startsIn: number;
+  /** Until the wave ends. */
+  endsIn: number;
+  /** Metres the curtain has advanced into the block. */
+  front: number;
+}
+
+export const newTide = (): TideSave => ({ nextIn: TUNING.tide.firstDelay, wave: null });
+
+function validTide(t: unknown): TideSave {
+  const j = t as { n?: unknown; w?: unknown[] } | null | undefined;
+  const nextIn = typeof j?.n === 'number' && Number.isFinite(j.n) ? Math.max(0, j.n) : TUNING.tide.firstDelay;
+  const w =
+    Array.isArray(j?.w) && j.w.length === 5 && j.w.every((x) => typeof x === 'number' && Number.isFinite(x))
+      ? (j.w as number[])
+      : null;
+  return {
+    nextIn,
+    wave: w
+      ? {
+          chunk: w[0]! | 0,
+          from: w[1]! | 0,
+          startsIn: Math.max(0, w[2]!),
+          endsIn: Math.max(0, w[3]!),
+          front: Math.max(0, w[4]!),
+        }
+      : null,
+  };
 }
 
 /** Ink dropped on death, waiting where the player fell. */
@@ -152,6 +199,7 @@ export function cityStates(
   defeated: Uint8Array;
   coloredOnce: Uint8Array;
   requestsDone: Uint8Array;
+  tide: TideSave;
   reset: boolean;
 } {
   const fingerprint = surfaceFingerprint(skel.surfaces);
@@ -170,6 +218,8 @@ export function cityStates(
       saved.completed = false;
       saved.coloredOnce = new Uint8Array(skel.chunks * skel.chunks);
       saved.stockFrom = new Array<number>(skel.chunks * skel.chunks).fill(-1);
+      // block numbers may mean other blocks now
+      saved.tide = newTide();
       reset = true;
     }
   } else {
@@ -185,6 +235,7 @@ export function cityStates(
       requestFingerprint: requestFp,
       requestsDone: new Uint8Array(skel.requests.length),
       stockFrom: new Array<number>(skel.chunks * skel.chunks).fill(-1),
+      tide: newTide(),
     };
     state.cities.set(cityId, saved);
   }
@@ -204,12 +255,16 @@ export function cityStates(
     saved.stockFrom = new Array<number>(skel.chunks * skel.chunks).fill(-1);
   if (saved.coloredOnce.length !== skel.chunks * skel.chunks)
     saved.coloredOnce = new Uint8Array(skel.chunks * skel.chunks);
+  const w = saved.tide.wave;
+  if (w && (w.chunk < 0 || w.chunk >= skel.chunks * skel.chunks || w.from < 0 || w.from > 3))
+    saved.tide.wave = null;
   return {
     states: saved.states,
     stains: saved.stains,
     defeated: saved.defeated,
     coloredOnce: saved.coloredOnce,
     requestsDone: saved.requestsDone,
+    tide: saved.tide,
     reset,
   };
 }
@@ -260,6 +315,8 @@ interface WorldJson {
         rf?: number;
         rd?: string;
         sk?: number[];
+        /** Tide: n = nextIn, w = [chunk, from, startsIn, endsIn, front]. */
+        td?: { n: number; w?: number[] };
       }
     | string
   >;
@@ -313,6 +370,20 @@ export function serializeWorld(state: WorldState): string {
                   ? {}
                   : { rf: v.requestFingerprint, rd: toBase64(v.requestsDone) }),
                 sk: v.stockFrom,
+                td: {
+                  n: Math.round(v.tide.nextIn * 10) / 10,
+                  ...(v.tide.wave
+                    ? {
+                        w: [
+                          v.tide.wave.chunk,
+                          v.tide.wave.from,
+                          v.tide.wave.startsIn,
+                          v.tide.wave.endsIn,
+                          v.tide.wave.front,
+                        ].map((x) => Math.round(x * 10) / 10),
+                      }
+                    : {}),
+                },
               },
             ],
       ),
@@ -376,6 +447,7 @@ export function deserializeWorld(text: string): WorldState {
                 requestFingerprint: null,
                 requestsDone: new Uint8Array(),
                 stockFrom: [],
+                tide: newTide(),
               },
             ]
           : [
@@ -392,6 +464,7 @@ export function deserializeWorld(text: string): WorldState {
                 requestFingerprint: Number.isInteger(v.rf) ? v.rf! : null,
                 requestsDone: v.rd ? fromBase64(v.rd) : new Uint8Array(),
                 stockFrom: Array.isArray(v.sk) ? v.sk.map((t) => (Number.isFinite(t) ? t : -1)) : [],
+                tide: validTide(v.td),
               },
             ],
       ),

@@ -3,18 +3,22 @@
 // curtain of ink advances across the block for `duration` seconds, draining every surface it
 // passes. Hold the use button on the curtain to push it back with generic pigment. The block
 // is held if it keeps `holdRatio` of its colour; an undefended wave sweeps `reach` of it.
+//
+// Its timers live in the city's save (`TideSave`) as seconds still to go, written every frame
+// it runs: a refresh resumes the wave where it was, and leaving the city pauses it.
 import * as THREE from 'three';
-import { color } from '@/content/palette';
 import { TUNING } from '@/content/tuning';
-import { ALWAYS_COLOR, GeometryBuilder } from '@/engine/render/geometry-builder';
 import type { GameContext } from '@/game/types';
 import { blockBounds, depthFrom, tideTargets, type BlockState } from '@/world/city/blocks';
 import type { CityLayout } from '@/world/city/layout';
 import { isColored } from '@/world/paint/surfaces';
 import { stats } from '@/world/progression';
+import type { TideSave, TideWaveSave } from '@/world/state';
+import { CURTAIN_HEIGHT, InkCurtain } from './ink-curtain';
 
 const T = TUNING.tide;
-const HEIGHT = 16;
+/** Height of the plane that catches the brush and pushing, a little over the tallest crest. */
+const HEIGHT = CURTAIN_HEIGHT + 3;
 /** Direction a wave comes from, as the side of the block it enters through. */
 export const SIDE_NAMES = ['东', '南', '西', '北'] as const;
 
@@ -47,6 +51,8 @@ interface Wave {
   endsAt: number;
   /** Metres into the block. */
   front: number;
+  /** The same wave in the save, kept current. */
+  readonly saved: TideWaveSave;
   /** Surfaces of the block sorted by depth from the entry edge. */
   order: number[];
   pushing: boolean;
@@ -57,7 +63,7 @@ interface Wave {
 export class InkTide {
   private nextAt: number;
   private wave: Wave | null = null;
-  private readonly curtain: THREE.Mesh;
+  private readonly curtain: InkCurtain;
   private readonly per: number;
 
   constructor(
@@ -65,16 +71,23 @@ export class InkTide {
     private readonly layout: CityLayout,
     private readonly states: Uint8Array,
     private readonly host: TideHost,
-    material: THREE.Material,
+    private readonly saved: TideSave,
     root: THREE.Object3D,
   ) {
-    this.nextAt = ctx.state.clock + T.firstDelay;
+    const now = ctx.state.clock;
+    this.nextAt = now + saved.nextIn;
     this.per = layout.size / layout.chunks;
-    this.curtain = new THREE.Mesh(buildCurtain(this.per), material);
-    this.curtain.visible = false;
-    this.curtain.frustumCulled = false;
-    root.add(this.curtain);
+    this.curtain = new InkCurtain(this.per);
+    root.add(this.curtain.root);
+    const w = saved.wave;
+    if (w) {
+      this.begin(w.chunk, w.from, now + w.startsIn, now + w.endsIn, w.front);
+      // said on the first update: the city may be built before the HUD is listening
+      this.resumed = true;
+    }
   }
+
+  private resumed = false;
 
   status(): TideStatus | null {
     const w = this.wave;
@@ -104,9 +117,21 @@ export class InkTide {
     const now = this.ctx.state.clock;
     if (!this.wave) {
       if (now >= this.nextAt && !this.schedule()) this.nextAt = now + T.retry;
+      this.saved.nextIn = Math.max(0, this.nextAt - now);
       return;
     }
     const w = this.wave;
+    this.record(w, now);
+    if (this.resumed) {
+      this.resumed = false;
+      this.ctx.events.emit('toast', {
+        text:
+          now < w.startsAt
+            ? `墨潮还有 ${Math.ceil(w.startsAt - now)} 秒从${SIDE_NAMES[w.from]}边涌来`
+            : '墨潮还在继续：对准墨帘按住左键把它推回去',
+        seconds: 5,
+      });
+    }
     if (now < w.startsAt) return;
     if (!this.curtain.visible) {
       this.host.spawnTideMonsters(w.chunk, w.from);
@@ -119,8 +144,16 @@ export class InkTide {
     this.drainPassed(w);
     this.placeCurtain(w, now);
     this.drip(w, dt);
+    this.record(w, now);
     const repelled = w.front <= 0 && now - w.startsAt > T.repelAfter;
     if (now >= w.endsAt || repelled) this.finish(w, repelled);
+  }
+
+  private record(w: Wave, now: number): void {
+    const s = w.saved;
+    s.startsIn = Math.max(0, w.startsAt - now);
+    s.endsIn = Math.max(0, w.endsAt - now);
+    s.front = w.front;
   }
 
   private schedule(): boolean {
@@ -133,26 +166,8 @@ export class InkTide {
       Math.abs((c % side) - (here % side)) + Math.abs(Math.floor(c / side) - Math.floor(here / side));
     targets.sort((a, b) => dist(a.chunk) - dist(b.chunk));
     const { chunk, from } = targets[0]!;
-    const bounds = blockBounds(chunk, this.layout);
-    const order = this.layout.surfaces
-      .flatMap((s, i) => (s.chunk === chunk ? [i] : []))
-      .sort(
-        (a, b) =>
-          depthFrom(this.layout.surfaces[a]!, from, bounds) -
-          depthFrom(this.layout.surfaces[b]!, from, bounds),
-      );
     const now = this.ctx.state.clock;
-    this.wave = {
-      chunk,
-      from,
-      startsAt: now + T.warning,
-      endsAt: now + T.warning + T.duration,
-      front: 0,
-      order,
-      pushing: false,
-      blocked: null,
-      spendOwed: 0,
-    };
+    this.begin(chunk, from, now + T.warning, now + T.warning + T.duration, 0);
     this.ctx.events.emit('tide:warning', { at: this.blockCentre(chunk) });
     const where = chunk === here ? '这个街区' : '附近的街区';
     this.ctx.events.emit('toast', {
@@ -162,11 +177,40 @@ export class InkTide {
     return true;
   }
 
+  /** Set up a wave (new, or resumed from the save). */
+  private begin(chunk: number, from: number, startsAt: number, endsAt: number, front: number): void {
+    const bounds = blockBounds(chunk, this.layout);
+    const order = this.layout.surfaces
+      .flatMap((s, i) => (s.chunk === chunk ? [i] : []))
+      .sort(
+        (a, b) =>
+          depthFrom(this.layout.surfaces[a]!, from, bounds) -
+          depthFrom(this.layout.surfaces[b]!, from, bounds),
+      );
+    const saved: TideWaveSave = { chunk, from, startsIn: 0, endsIn: 0, front };
+    this.saved.wave = saved;
+    this.wave = {
+      chunk,
+      from,
+      startsAt,
+      endsAt,
+      front,
+      saved,
+      order,
+      pushing: false,
+      blocked: null,
+      spendOwed: 0,
+    };
+    this.record(this.wave, this.ctx.state.clock);
+  }
+
   /** Holding use while aiming at the curtain pushes it back and spends pigment. */
   private push(w: Wave, dt: number): void {
     w.pushing = false;
     w.blocked = null;
-    if (!this.ctx.input.held('use') || !this.aimingAtCurtain(w)) return;
+    if (!this.ctx.input.held('use')) return;
+    const d = this.curtainDistance(this.ctx.player.eye, this.ctx.player.forward);
+    if (d === null || d > T.pushRange) return;
     w.spendOwed += T.pushCostPerSecond * dt;
     if (w.spendOwed >= 1) {
       const r = this.ctx.apply({ kind: 'spend', generic: 1 });
@@ -181,8 +225,13 @@ export class InkTide {
     w.front = Math.max(0, w.front - ((T.pushSpeed * stats(this.ctx.state.growth).skill) / 100) * dt);
   }
 
-  private aimingAtCurtain(w: Wave): boolean {
-    const { eye, forward } = this.ctx.player;
+  /**
+   * How far along a ray the moving curtain is, or null when the ray misses it or no curtain is
+   * up. The brush stops here, so it cannot paint walls behind the ink.
+   */
+  curtainDistance(eye: THREE.Vector3, forward: THREE.Vector3): number | null {
+    const w = this.wave;
+    if (!w || !this.curtain.visible) return null;
     const b = blockBounds(w.chunk, this.layout);
     // the curtain is the plane at depth `front` from the entry edge
     const alongX = w.from === 0 || w.from === 2;
@@ -196,13 +245,13 @@ export class InkTide {
             : b.z0 + w.front;
     const o = alongX ? eye.x : eye.z;
     const d = alongX ? forward.x : forward.z;
-    if (Math.abs(d) < 1e-4) return false;
+    if (Math.abs(d) < 1e-4) return null;
     const t = (plane - o) / d;
-    if (t < 0 || t > T.pushRange) return false;
+    if (t < 0) return null;
     const hitY = eye.y + forward.y * t;
     const hitAcross = alongX ? eye.z + forward.z * t : eye.x + forward.x * t;
     const [lo, hi] = alongX ? [b.z0, b.z1] : [b.x0, b.x1];
-    return hitY >= -1 && hitY <= HEIGHT && hitAcross >= lo && hitAcross <= hi;
+    return hitY >= -1 && hitY <= HEIGHT && hitAcross >= lo && hitAcross <= hi ? t : null;
   }
 
   private drainPassed(w: Wave): void {
@@ -222,7 +271,7 @@ export class InkTide {
     this.dripT = 0.05;
     const b = blockBounds(w.chunk, this.layout);
     const along = Math.random();
-    const y = 4 + Math.random() * 10;
+    const y = 4 + Math.random() * (CURTAIN_HEIGHT - 5);
     const at =
       w.from === 0 || w.from === 2
         ? { x: w.from === 0 ? b.x1 - w.front : b.x0 + w.front, y, z: b.z0 + along * (b.z1 - b.z0) }
@@ -232,26 +281,27 @@ export class InkTide {
 
   private placeCurtain(w: Wave, now: number): void {
     const b = blockBounds(w.chunk, this.layout);
-    const c = this.curtain;
-    // curtain geometry runs along +x from 0..per; rotate it to lie across the entry direction
+    const c = this.curtain.root;
+    // the curtain runs along local +x and advances towards local -z: turn it to face the way
+    // the wave travels, anchored at the corner where its local x starts
     switch (w.from) {
-      case 0:
+      case 0: // from the east, travelling west
         c.position.set(b.x1 - w.front, 0, b.z1);
         c.rotation.set(0, Math.PI / 2, 0);
         break;
-      case 1:
+      case 1: // from the south, travelling north
         c.position.set(b.x0, 0, b.z1 - w.front);
         c.rotation.set(0, 0, 0);
         break;
-      case 2:
-        c.position.set(b.x0 + w.front, 0, b.z1);
-        c.rotation.set(0, Math.PI / 2, 0);
+      case 2: // from the west, travelling east
+        c.position.set(b.x0 + w.front, 0, b.z0);
+        c.rotation.set(0, -Math.PI / 2, 0);
         break;
-      default:
-        c.position.set(b.x0, 0, b.z0 + w.front);
-        c.rotation.set(0, 0, 0);
+      default: // from the north, travelling south
+        c.position.set(b.x1, 0, b.z0 + w.front);
+        c.rotation.set(0, Math.PI, 0);
     }
-    c.scale.y = 0.9 + 0.1 * Math.sin(now * 3);
+    this.curtain.update(w.front, now);
   }
 
   private blockCentre(chunk: number): { x: number; y: number; z: number } {
@@ -261,9 +311,11 @@ export class InkTide {
 
   private finish(w: Wave, repelled: boolean): void {
     this.wave = null;
+    this.saved.wave = null;
     this.curtain.visible = false;
     this.host.clearTideMonsters();
     this.nextAt = this.ctx.state.clock + T.intervalMin + Math.random() * (T.intervalMax - T.intervalMin);
+    this.saved.nextIn = this.nextAt - this.ctx.state.clock;
     const held = repelled || this.host.progress(w.chunk) >= T.holdRatio;
     this.ctx.events.emit('tide:end', { held });
     if (held) {
@@ -276,26 +328,6 @@ export class InkTide {
   }
 
   dispose(): void {
-    this.curtain.geometry.dispose();
-    this.curtain.removeFromParent();
+    this.curtain.dispose();
   }
-}
-
-/** Ragged vertical strokes of ink along +x from 0 to `length`, standing on y = 0 at z = 0. */
-function buildCurtain(length: number): THREE.BufferGeometry {
-  const g = new GeometryBuilder();
-  const ink = color('charcoal');
-  const faces = { px: ink, nx: ink, pz: ink, nz: ink, py: ink };
-  const always = { px: ALWAYS_COLOR, nx: ALWAYS_COLOR, pz: ALWAYS_COLOR, nz: ALWAYS_COLOR, py: ALWAYS_COLOR };
-  let x = 0;
-  let k = 0;
-  while (x < length) {
-    const w = 0.35 + 0.5 * Math.abs(Math.sin(k * 12.9898));
-    const h = HEIGHT * (0.45 + 0.55 * Math.abs(Math.sin(k * 78.233)));
-    const dz = 0.6 * Math.sin(k * 3.7);
-    g.box({ x, y: 0, z: dz - 0.2 }, { x: x + w, y: h, z: dz + 0.2 }, faces, always);
-    x += w + 0.25 + 0.6 * Math.abs(Math.sin(k * 5.1));
-    k++;
-  }
-  return g.build();
 }

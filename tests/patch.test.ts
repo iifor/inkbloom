@@ -636,3 +636,35 @@ describe('weapon unlocks', () => {
     expect(deserializeWorld(serializeWorld(s)).inventory.weapons).toEqual(s.inventory.weapons);
   });
 });
+
+describe('ink tide save', () => {
+  it('starts a new city with the first-tide delay and no wave', () => {
+    const s = createWorldState('w', 1);
+    const { tide } = cityStates(s, 'c', SKEL);
+    expect(tide).toEqual({ nextIn: TUNING.tide.firstDelay, wave: null });
+  });
+
+  it('round-trips a wave in progress', () => {
+    const s = createWorldState('w', 1);
+    const { tide } = cityStates(s, 'c', SKEL);
+    tide.nextIn = 0;
+    tide.wave = { chunk: 3, from: 2, startsIn: 0, endsIn: 41.26, front: 7.04 };
+    const back = cityStates(deserializeWorld(serializeWorld(s)), 'c', SKEL).tide;
+    expect(back.wave).toEqual({ chunk: 3, from: 2, startsIn: 0, endsIn: 41.3, front: 7 });
+  });
+
+  it('drops a wave aimed at a block the city does not have', () => {
+    const s = createWorldState('w', 1);
+    cityStates(s, 'c', SKEL).tide.wave = { chunk: 9, from: 0, startsIn: 5, endsIn: 95, front: 0 };
+    expect(cityStates(deserializeWorld(serializeWorld(s)), 'c', SKEL).tide.wave).toBeNull();
+  });
+
+  it('reads saves without a tide as a fresh timer', () => {
+    const s = createWorldState('w', 1);
+    cityStates(s, 'c', SKEL);
+    const json = JSON.parse(serializeWorld(s)) as { cities: Record<string, { td?: unknown }> };
+    delete json.cities.c!.td;
+    const back = cityStates(deserializeWorld(JSON.stringify(json)), 'c', SKEL).tide;
+    expect(back).toEqual({ nextIn: TUNING.tide.firstDelay, wave: null });
+  });
+});

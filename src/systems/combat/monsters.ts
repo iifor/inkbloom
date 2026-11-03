@@ -5,7 +5,8 @@
 // blots run straight at them and bite, spitters keep their distance and spit. Out of sight,
 // a monster follows an A* path over the scene's NavGrid (re-planned every ~1 s, a few plans
 // per frame at most). A monster dragged too far from its post gives up and paths home.
-// Without a NavGrid it falls back to sidestepping along walls.
+// Without a NavGrid it falls back to sidestepping along walls. A monster that runs into a ledge
+// no higher than `combat.monsterJump`, with room on top, jumps up onto it.
 import * as THREE from 'three';
 import { ENEMIES, type EnemyDef } from '@/content/enemies';
 import { TUNING } from '@/content/tuning';
@@ -22,6 +23,11 @@ const SPIT_LIFE = 3;
 const PLANS_PER_FRAME = 3;
 /** Line-of-sight checks are refreshed this often (seconds). */
 const SIGHT_INTERVAL = 0.25;
+
+/** Extra height cleared on a jump, so the body's feet pass over the lip. */
+const JUMP_MARGIN = 0.35;
+/** How far ahead of its body a monster looks for a ledge. */
+const LEDGE_PROBE = 0.35;
 
 /** Ids are unique across every group, so overlays can track one monster. */
 let nextId = 1;
@@ -46,6 +52,7 @@ interface Monster {
   seeT: number;
   path: Waypoint[] | null;
   repathT: number;
+  jumpT: number;
 }
 
 interface Spit {
@@ -173,6 +180,7 @@ export class MonsterGroup implements TargetSource {
       attackT: Math.random() * def.attack.cooldown,
       sidestepT: 0,
       sidestepDir: 1,
+      jumpT: 0,
       strafe: Math.random() < 0.5 ? 1 : -1,
       hurtT: 0,
       dead: false,
@@ -284,6 +292,28 @@ export class MonsterGroup implements TargetSource {
     return hit === null;
   }
 
+  /**
+   * Height of a ledge just ahead in the direction it is heading (`_dir`), if it can jump onto
+   * it: higher than a step, no higher than `monsterJump`, with headroom for its body on top.
+   */
+  private ledgeAhead(m: Monster): number | null {
+    const p = m.body.pos;
+    const len = Math.hypot(_dir.x, _dir.z);
+    if (len < 1e-3) return null;
+    const reach = m.def.halfWidth + LEDGE_PROBE;
+    const x = p.x + (_dir.x / len) * reach;
+    const z = p.z + (_dir.z / len) * reach;
+    const top = TUNING.combat.monsterJump + JUMP_MARGIN;
+    // look down from just above the highest ledge it could take; starting inside a taller
+    // wall finds nothing, which is the answer we want
+    const down = this.physics.raycast({ x, y: p.y + top, z }, { x: 0, y: -1, z: 0 }, top);
+    if (!down) return null;
+    const rise = down.point.y - p.y;
+    if (rise <= m.body.stepHeight || rise > TUNING.combat.monsterJump) return null;
+    const up = this.physics.raycast({ x, y: down.point.y + 0.05, z }, { x: 0, y: 1, z: 0 }, m.def.height);
+    return up ? null : rise;
+  }
+
   /** Point _dir along a path to `goal`, planning one if needed and allowed. */
   private follow(m: Monster, goal: Waypoint): void {
     const p = m.body.pos;
@@ -316,6 +346,7 @@ export class MonsterGroup implements TargetSource {
       m.hurtT -= dt;
       m.repathT -= dt;
       m.seeT -= dt;
+      m.jumpT -= dt;
       _to.set(pp.x - b.pos.x, 0, pp.z - b.pos.z);
       const dist = _to.length();
       if (dist > 1e-3) _to.divideScalar(dist);
@@ -386,7 +417,14 @@ export class MonsterGroup implements TargetSource {
       b.vel.z += THREE.MathUtils.clamp(tz - b.vel.z, -ACCEL * dt, ACCEL * dt);
       b.vel.y -= GRAVITY * dt;
       this.physics.moveBody(b, dt);
-      if (b.hitWall && m.aggro && m.sidestepT <= 0) {
+      const rise =
+        b.hitWall && b.onGround && m.jumpT <= 0 && _dir.lengthSq() > 0.04 ? this.ledgeAhead(m) : null;
+      if (rise !== null) {
+        // jumping is the answer to this wall, not sidestepping round it
+        b.vel.y = Math.sqrt(2 * GRAVITY * (rise + JUMP_MARGIN));
+        m.jumpT = 0.6;
+        m.sidestepT = 0;
+      } else if (b.hitWall && m.aggro && m.sidestepT <= 0) {
         m.sidestepT = 0.6;
         m.sidestepDir = Math.random() < 0.5 ? 1 : -1;
       }

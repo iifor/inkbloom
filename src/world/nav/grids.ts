@@ -17,17 +17,21 @@ export function cityNav(l: CityLayout): NavGrid {
 }
 
 /**
- * Wilderness: dry terrace cells, stepping only between cells whose heights differ by no more
- * than a body can step up (monsters cannot jump). `blocked` marks trees and towers.
+ * Wilderness: dry terrace cells. A monster can step or jump up to `combat.monsterJump` and drop
+ * down up to `combat.monsterDrop`, so a path may go down a cliff it cannot come back up.
+ * `blocked` marks trees and towers.
  */
 export function terrainNav(
   height: (ix: number, iz: number) => number,
   blocked: (ix: number, iz: number) => boolean,
 ): NavGrid {
-  const step = TUNING.player.stepHeight;
+  const { monsterJump, monsterDrop } = TUNING.combat;
   return {
     cell: TUNING.world.cellSize,
     walkable: (ix, iz) => !blocked(ix, iz) && height(ix, iz) > WATER_LEVEL,
-    passable: (ax, az, bx, bz) => Math.abs(height(ax, az) - height(bx, bz)) <= step,
+    passable: (ax, az, bx, bz) => {
+      const rise = height(bx, bz) - height(ax, az);
+      return rise <= monsterJump && -rise <= monsterDrop;
+    },
   };
 }

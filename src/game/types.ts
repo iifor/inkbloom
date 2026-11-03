@@ -29,6 +29,11 @@ export interface GameScene {
   activate?(): void;
   /** Called when the scene stops being active. Scenes may stay cached. */
   deactivate?(): void;
+  /**
+   * Distance along a ray to something that is not a collider but still stops the brush (the
+   * ink tide's curtain), or null when nothing is in the way.
+   */
+  brushStop?(eye: THREE.Vector3, forward: THREE.Vector3): number | null;
   dispose(): void;
 }
 

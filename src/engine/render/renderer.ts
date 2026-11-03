@@ -3,7 +3,7 @@
 // a graphite sketch on paper; saturation 1 adds a watercolour wash and coloured ink.
 // Ported from doodle-game's render.js; the colour model is new.
 import * as THREE from 'three';
-import { MAX_COLORS, PALETTE } from '@/content/palette';
+import { type ColorDef, MAX_COLORS, PALETTE } from '@/content/palette';
 import { disposeTree } from '../resources';
 import { shared } from './ink-material';
 
@@ -29,6 +29,7 @@ uniform vec3 uColors[${MAX_COLORS}];
 uniform mat4 uInvProj;
 uniform mat4 uInvView;
 uniform float uWash;
+uniform float uSolid[${MAX_COLORS}];
 
 float hash21(vec2 p) { p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }
 float vnoise(vec2 p) {
@@ -42,6 +43,12 @@ vec3 paletteColor(float code) {
   vec3 c = uColors[0];
   for (int k = 0; k < ${MAX_COLORS}; k++) if (k == i) c = uColors[k];
   return c;
+}
+float solidOf(float code) {
+  int i = int(floor(code + 0.0005));
+  float s = 0.0;
+  for (int k = 0; k < ${MAX_COLORS}; k++) if (k == i) s = uSolid[k];
+  return s;
 }
 float satOf(float code) { return clamp(fract(code + 0.0005) / 0.9, 0.0, 1.0); }
 float stripes(vec2 p, vec2 dir, float spacing, float width) {
@@ -136,6 +143,10 @@ void main() {
     vec3 wash = paletteColor(s.g) * mix(0.8, 1.04, shade);
     float wf = uWash * sat * bleed * mix(1.0, 0.55, smoothstep(60.0, 380.0, d));
     col = mix(col, wash, wf);
+    // solid ink: no paper showing through, a wet sheen where the light catches it
+    float solid = solidOf(s.g) * sat;
+    vec3 wet = mix(paletteColor(s.g), vec3(0.36, 0.37, 0.44), pow(shade, 6.0) * 0.55);
+    col = mix(col, wet, solid * mix(0.97, 0.7, smoothstep(80.0, 300.0, d)));
   }
   col = mix(col, inkOf(s.g), hatch * 0.6 * fade);
   float ew = 0.75 + 0.35 * vnoise(pp * 0.35);
@@ -208,6 +219,11 @@ export class InkRenderer {
         uPaper: { value: new THREE.Vector3(0.965, 0.955, 0.905) },
         uGraphite: { value: new THREE.Vector3(0.2, 0.21, 0.25) },
         uColors: { value: colors },
+        uSolid: {
+          value: Array.from({ length: MAX_COLORS }, (_, i) =>
+            (PALETTE[i] as ColorDef | undefined)?.solid ? 1 : 0,
+          ),
+        },
         uInvProj: { value: new THREE.Matrix4() },
         uInvView: { value: new THREE.Matrix4() },
         uWash: { value: 0.72 },

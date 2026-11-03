@@ -1,3 +1,4 @@
+import { TUNING } from '@/content/tuning';
 import { describe, expect, it } from 'vitest';
 import { generateCity } from '@/world/city/layout';
 import { cityNav, terrainNav } from '@/world/nav/grids';
@@ -91,6 +92,25 @@ describe('findPath', () => {
     expect(p).not.toBeNull();
     // never steps onto the 3 m plateau
     for (const w of p) expect(heights[Math.floor(w.z / cell)]![Math.floor(w.x / cell)]).toBeLessThan(1);
+  });
+
+  it('jumps up a low terrace and drops off a high one, but never climbs the high one', () => {
+    const { monsterJump, monsterDrop } = TUNING.combat;
+    const low = monsterJump - 0.2;
+    // too far above the low terrace to jump, but not too far to drop from
+    const high = low + monsterJump + 0.4;
+    expect(high - low).toBeLessThanOrEqual(monsterDrop);
+    // a strip: ground, a low terrace, a high plateau
+    const heights = [[0, low, high]];
+    const g = terrainNav(
+      (ix, iz) => heights[iz]?.[ix] ?? 99,
+      () => false,
+    );
+    const cell = g.cell;
+    const at = (ix: number) => ({ x: (ix + 0.5) * cell, z: 0.5 * cell });
+    expect(findPath(g, at(0), at(1))).not.toBeNull();
+    expect(findPath(g, at(2), at(0))).not.toBeNull();
+    expect(findPath(g, at(1), at(2))).toBeNull();
   });
 });
 

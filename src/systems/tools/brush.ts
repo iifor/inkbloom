@@ -3,6 +3,7 @@
 // surface for secondsPerSurface; switching target resets progress.
 import { PALETTE } from '@/content/palette';
 import { BRUSH_TIERS } from '@/content/brush-tiers';
+import { TUNING } from '@/content/tuning';
 import { surfaceAt } from '@/engine/physics/world';
 import type { GameContext } from '@/game/types';
 import { standingMonsters } from '@/world/city/features';
@@ -54,6 +55,18 @@ export class Brush implements Tool {
     const layout = this.ctx.cities.byId(cityId);
     const tier = BRUSH_TIERS[this.ctx.state.inventory.brushTier] ?? BRUSH_TIERS[0];
     const hit = scene.physics.raycast(player.eye, player.forward, tier.range);
+    // the ink curtain is not a collider, but nothing behind it can be painted
+    const curtain = scene.brushStop?.(player.eye, player.forward) ?? null;
+    if (curtain !== null && curtain < (hit?.dist ?? tier.range)) {
+      this.target = null;
+      this.progress = 0;
+      this.hint =
+        curtain > TUNING.tide.pushRange
+          ? '墨帘挡住了：走近一点，按住左键把墨潮推回去'
+          : '按住左键把墨潮推回去';
+      this.setStroking(input.held('use') && curtain <= TUNING.tide.pushRange);
+      return;
+    }
     const surface = hit ? surfaceAt(hit) : null;
     if (surface === null || !layout) {
       this.target = null;

@@ -108,6 +108,11 @@ export const TUNING = {
     tideMonsters: [2, 4],
     /** A monster gives up and goes home beyond this distance from its post. */
     leash: 45,
+    /** Highest ledge a monster jumps up onto, metres. Above the player's own jump (about
+     * 1.3 m), so a terrace the player can jump onto is no refuge. */
+    monsterJump: 1.6,
+    /** Highest drop a monster's path will step down, metres. */
+    monsterDrop: 4,
     /** Wilderness monsters per chunk by how drained the land is (derived saturation below
      * `drainedBelow` counts as drained, below `greyBelow` as grey): [min, max]. */
     wild: { drainedBelow: 0.35, greyBelow: 0.75, drained: [2, 4], grey: [0, 2] },
