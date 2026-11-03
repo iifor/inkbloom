@@ -59,6 +59,8 @@ export class EffectsSystem implements System {
     ctx.renderer.scene.add(this.mesh);
 
     const ink = color('charcoal');
+    // monsters and the tide are made of solid ink; drained paint and dust stay graphite
+    const blot = color('ink');
     const on = ctx.events.on.bind(ctx.events);
     const shakeNear = (at: Point3, reach: number, amount: number): void => {
       const d = Math.hypot(at.x - ctx.player.position.x, at.z - ctx.player.position.z);
@@ -76,10 +78,15 @@ export class EffectsSystem implements System {
         this.burst(at, { count: 4, color: color('cream'), speed: 1.2, size: 0.07, lift: -2, life: 0.4 });
         this.burst(at, { count: 3, color: ink, speed: 2.5, up: 1, size: 0.035, lift: -9, life: 0.5 });
       }),
-      on('monster:hit', ({ at }) => this.burst(at, { count: 6, color: ink, speed: 4, size: 0.09, lift: -9 })),
-      on('monster:died', ({ at }) => {
-        this.burst(at, { count: 26, color: ink, speed: 6, up: 2, size: 0.14, lift: -9, life: 0.9 });
-        this.burst(at, { count: 6, color: ink, speed: 2, size: 0.3, lift: -9, life: 0.7 });
+      on('monster:hit', ({ at }) =>
+        this.burst(at, { count: 6, color: blot, speed: 4, size: 0.09, lift: -9 }),
+      ),
+      on('monster:died', ({ at, colors }) => {
+        this.burst(at, { count: 18, color: blot, speed: 6, up: 2, size: 0.14, lift: -9, life: 0.9 });
+        this.burst(at, { count: 5, color: blot, speed: 2, size: 0.3, lift: -9, life: 0.7 });
+        // the colours it stole float free and drift up
+        for (const c of colors)
+          this.burst(at, { count: 14, color: c, speed: 3, up: 2.5, size: 0.11, lift: 1.5, life: 1.4 });
       }),
       on('blast', ({ at, radius }) => {
         this.burst(at, { count: 40, color: ink, speed: radius * 2.2, up: 3, size: 0.18, lift: -9, life: 1 });
@@ -94,7 +101,7 @@ export class EffectsSystem implements System {
         shakeNear(at, radius * 6, 0.9);
       }),
       on('monster:spit', ({ at }) =>
-        this.burst(at, { count: 4, color: ink, speed: 1.5, size: 0.07, lift: -9 }),
+        this.burst(at, { count: 4, color: blot, speed: 1.5, size: 0.07, lift: -9 }),
       ),
       on('player:hurt', () => ctx.player.shake(0.45)),
       on('player:land', ({ impact }) => {
@@ -115,7 +122,7 @@ export class EffectsSystem implements System {
       on('city:completed', () => this.rainbow(ctx.player.position, 90, 3)),
       on('tide:start', ({ at }) => shakeNear(at, 200, 0.3)),
       on('tide:drip', ({ at }) =>
-        this.burst(at, { count: 1, color: color('ink'), speed: 0.3, size: 0.16, lift: -12, life: 1.4 }),
+        this.burst(at, { count: 1, color: blot, speed: 0.3, size: 0.16, lift: -12, life: 1.4 }),
       ),
     );
   }

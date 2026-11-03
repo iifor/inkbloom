@@ -12,6 +12,12 @@
 - 未恢复城市周围多大范围变灰：`drain.innerRadius` / `drain.outerRadius`（城市间距约 900 米，外半径要远小于一半，否则野外永远是灰的）
 - 跳多高、跑多快：`player.*`
 
+调之前先看试玩报告：暂停菜单"导出试玩报告"会下载一份 Markdown，里面有每个街区从进城到清理中 / 有色 / 繁荣用了多久、颜料从哪来花到哪、被拒绝的操作（卡在哪）、战斗和墨潮、每 5 分钟的资源曲线，末尾附原始数据。记录只存在这个浏览器里，按世界分开，不会上传。
+
+## 让试玩报告多记一样东西
+
+记录在 [src/systems/playtest/playtest-system.ts](../src/systems/playtest/playtest-system.ts)：在构造函数里 `on('事件名', …)` 往日志里写。数据结构和报告格式在 [src/world/playtest.ts](../src/world/playtest.ts)（纯函数，有测试）：加字段时同时加到 `newLog` 的默认值里，旧日志读入时会自动补上；结构大改就升 `PLAYTEST_VERSION`，旧日志会重新开始。颜料收支不用单独记：任何补丁前后的库存差都会自动记在那个补丁的种类下
+
 ## 加一种颜色
 
 在 [src/content/palette.ts](../src/content/palette.ts) 的 `PALETTE` **末尾**追加一项。不要插在中间或重排：存档和几何里存的是下标。`paintable: true` 才会出现在涂鸦笔刷里。`solid: true` 的颜色画成实心的湿墨（不透出纸，受光面有一点反光），目前只有墨潮用的 `ink`。上限 32 色。
@@ -51,6 +57,8 @@
 
 - 墨怪种类：[src/content/enemies.ts](../src/content/enemies.ts) 的 `ENEMIES` **末尾**追加（生命、速度、体型、发现距离、掉墨、攻击方式）。攻击方式 `melee`（近身咬）或 `spit`（远程吐墨）决定 AI 走哪一支；要新的行为，在 [src/systems/combat/monsters.ts](../src/systems/combat/monsters.ts) 的 `update` 里按 `attack.kind` 加一支
 - 据点规模、墨潮带几只、玩家生命和回血、死亡掉墨比例：`tuning.ts` 的 `combat`
+- 墨怪的样子：[src/systems/combat/monster-figure.ts](../src/systems/combat/monster-figure.ts)。每种墨怪是一套关节（髋、躯干、头、上臂、前臂、大腿、小腿），零件只有"圆块"和"肢体"两种，颜色是墨或抢来的两种颜色之一。新墨怪加一个 `buildXxx()`，在 `rig()` 里按种类选；动作（走、攻击、受击、跳、融化）都在 `pose()`。同一组的墨怪合成两次绘制。攻击的出手时机：`monsters.ts` 顶部的 `MELEE_LANDS` / `SPIT_LEAVES`
+- 墨怪带什么颜色：生成时传 `colors`（`SpawnOptions`）。城里用街区表面原本的颜色、野外用颜料点和地形的颜色，挑法在 [src/world/paint/stolen.ts](../src/world/paint/stolen.ts)（越鲜艳越优先）
 - 墨怪跳跃：`combat.monsterJump`（能跳上的最高台阶，比玩家的跳跃高一点）和 `combat.monsterDrop`（寻路时最多往下跳多高）。撞到台阶时先探测前方有没有能站上去的平台，太高的墙不会跳
 - 武器数值在 [src/content/weapons.ts](../src/content/weapons.ts)（见下一节）。攻击都走 `ctx.combat.shoot()` / `strike()` / `blast()`，武器自己不需要知道有哪些墨怪
 - 让新的东西能被打：实现 `TargetSource`，用 `ctx.combat.addTargets()` 注册（`MonsterGroup` 就是这样做的）
@@ -148,7 +156,7 @@ const release = ctx.interactions.add({
 
 ## 开发者工具
 
-开发模式下浏览器控制台有 `window.inkbloom`：`teleport(x, z)`、`look(yaw, pitch)`、`fly()`、`enterNearestCity()`、`exitCity()`、`brush(秒数, 'restore' | 'graffiti')`、`step(帧数)`、`info()`、`tide()`、`save()`。不需要鼠标锁定，适合自动检查。
+开发模式下浏览器控制台有 `window.inkbloom`：`teleport(x, z)`、`look(yaw, pitch)`、`fly()`、`enterNearestCity()`、`exitCity()`、`brush(秒数, 'restore' | 'graffiti')`、`step(帧数)`、`info()`、`tide()`、`save()`、`report()`（试玩报告的 Markdown）。不需要鼠标锁定，适合自动检查。
 
 ## 存档版本记录
 

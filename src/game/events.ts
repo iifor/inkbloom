@@ -28,7 +28,13 @@ export interface GameEvents {
     readonly anchor: Point3;
     readonly height: number;
   };
-  'monster:died': { readonly at: Point3; readonly id: number; readonly amount: number };
+  'monster:died': {
+    readonly at: Point3;
+    readonly id: number;
+    readonly amount: number;
+    /** The colours it had stolen, set free as it melts. */
+    readonly colors: readonly number[];
+  };
   'monster:spit': { readonly at: Point3 };
   'monster:bite': { readonly at: Point3 };
   /** A surface the brush just coloured (bloom of its colour). */

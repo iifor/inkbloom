@@ -9,11 +9,13 @@
 // no higher than `combat.monsterJump`, with room on top, jumps up onto it.
 import * as THREE from 'three';
 import { ENEMIES, type EnemyDef } from '@/content/enemies';
+import { color } from '@/content/palette';
 import { TUNING } from '@/content/tuning';
 import { type Body, type PhysicsWorld, makeBody } from '@/engine/physics/world';
 import { ALWAYS_COLOR, GeometryBuilder } from '@/engine/render/geometry-builder';
 import type { GameContext, TargetHit, TargetSource } from '@/game/types';
 import { findPath, type NavGrid, type Waypoint } from '@/world/nav/path';
+import { FigureRenderer } from './monster-figure';
 
 const GRAVITY = 22;
 const ACCEL = 18;
@@ -24,6 +26,14 @@ const PLANS_PER_FRAME = 3;
 /** Line-of-sight checks are refreshed this often (seconds). */
 const SIGHT_INTERVAL = 0.25;
 
+/** Seconds of a melee swing; the blow lands at `MELEE_LANDS` of it. */
+const MELEE_TIME = 0.5;
+const MELEE_LANDS = 0.55;
+/** Seconds of a spit; the ink leaves at `SPIT_LEAVES` of it. */
+const SPIT_TIME = 0.6;
+const SPIT_LEAVES = 0.45;
+/** Seconds a defeated monster takes to melt into a puddle. */
+const MELT_TIME = 0.6;
 /** Extra height cleared on a jump, so the body's feet pass over the lip. */
 const JUMP_MARGIN = 0.35;
 /** How far ahead of its body a monster looks for a ledge. */
@@ -36,8 +46,16 @@ interface Monster {
   readonly id: number;
   readonly def: EnemyDef;
   readonly body: Body;
-  readonly mesh: THREE.Mesh;
   readonly home: THREE.Vector3;
+  /** Stolen colours it wears (palette indices). */
+  readonly colors: readonly number[];
+  yaw: number;
+  /** Walk cycle phase. */
+  walk: number;
+  /** An attack under way: its kind, progress 0..1, and whether it has landed / fired. */
+  act: { kind: 'melee' | 'spit'; t: number; done: boolean } | null;
+  /** -1 while alive; 0..1 while melting after defeat. */
+  melt: number;
   readonly tag: string;
   readonly onDefeat: (() => void) | undefined;
   hp: number;
@@ -63,68 +81,6 @@ interface Spit {
   life: number;
 }
 
-const geometries = new Map<number, THREE.BufferGeometry>();
-function monsterGeometry(type: number): THREE.BufferGeometry {
-  let g = geometries.get(type);
-  if (g) return g;
-  const def = ENEMIES[type]!;
-  const b = new GeometryBuilder();
-  const blob = new THREE.IcosahedronGeometry(1, 1);
-  const eye = new THREE.BoxGeometry(1, 1, 1);
-  const m = new THREE.Matrix4();
-  const h = def.height;
-  const w = def.halfWidth;
-  if (def.attack.kind === 'melee') {
-    b.mesh(
-      blob,
-      m.compose(
-        new THREE.Vector3(0, h * 0.45, 0),
-        new THREE.Quaternion(),
-        new THREE.Vector3(w * 1.25, h * 0.5, w * 1.25),
-      ),
-      def.body,
-      ALWAYS_COLOR,
-    );
-  } else {
-    b.mesh(
-      blob,
-      m.compose(
-        new THREE.Vector3(0, h * 0.3, 0),
-        new THREE.Quaternion(),
-        new THREE.Vector3(w * 1.1, h * 0.32, w * 1.1),
-      ),
-      def.body,
-      ALWAYS_COLOR,
-    );
-    b.mesh(
-      blob,
-      m.compose(
-        new THREE.Vector3(0, h * 0.78, 0),
-        new THREE.Quaternion(),
-        new THREE.Vector3(w * 0.9, h * 0.25, w * 0.9),
-      ),
-      def.body,
-      ALWAYS_COLOR,
-    );
-  }
-  // eyes on the -z side, which is "forward" once the mesh is turned to face its target
-  const ey = def.attack.kind === 'melee' ? h * 0.6 : h * 0.85;
-  for (const sx of [-1, 1])
-    b.mesh(
-      eye,
-      m.compose(
-        new THREE.Vector3(sx * w * 0.38, ey, -w * 1.05),
-        new THREE.Quaternion(),
-        new THREE.Vector3(w * 0.28, w * 0.36, 0.08),
-      ),
-      def.eyes,
-      ALWAYS_COLOR,
-    );
-  g = b.build();
-  geometries.set(type, g);
-  return g;
-}
-
 let spitGeometry: THREE.BufferGeometry | null = null;
 function spitGeo(): THREE.BufferGeometry {
   if (!spitGeometry) {
@@ -143,6 +99,8 @@ export interface SpawnOptions {
   /** Group label so a set (e.g. a tide's monsters) can be cleared together. */
   readonly tag: string;
   readonly onDefeat?: () => void;
+  /** The colours it stole from where it lives; see world/paint/stolen.ts. */
+  readonly colors?: readonly number[];
 }
 
 export class MonsterGroup implements TargetSource {
@@ -150,6 +108,7 @@ export class MonsterGroup implements TargetSource {
   private readonly spits: Spit[] = [];
   private readonly release: () => void;
   private plans = 0;
+  private readonly figures: FigureRenderer;
   /** Walkability of the scene; null falls back to sidestepping along walls. */
   nav: NavGrid | null = null;
 
@@ -160,19 +119,21 @@ export class MonsterGroup implements TargetSource {
     private readonly material: THREE.Material,
   ) {
     this.release = ctx.combat.addTargets(this);
+    this.figures = new FigureRenderer(root, material);
   }
 
   spawn(type: number, pos: THREE.Vector3, opts: SpawnOptions): void {
     const def = ENEMIES[type]!;
-    const mesh = new THREE.Mesh(monsterGeometry(type), this.material);
-    mesh.position.copy(pos);
-    this.root.add(mesh);
     this.monsters.push({
       id: nextId++,
       def,
       body: makeBody(pos, def.halfWidth, def.height, 0.55),
-      mesh,
       home: pos.clone(),
+      colors: opts.colors?.length ? opts.colors : [color('red')],
+      yaw: Math.random() * Math.PI * 2,
+      walk: Math.random() * Math.PI * 2,
+      act: null,
+      melt: -1,
       tag: opts.tag,
       onDefeat: opts.onDefeat,
       hp: def.hp,
@@ -240,7 +201,7 @@ export class MonsterGroup implements TargetSource {
           return false;
         }
         this.remove(m);
-        this.ctx.events.emit('monster:died', { at, id: m.id, amount: dealt });
+        this.ctx.events.emit('monster:died', { at, id: m.id, amount: dealt, colors: m.colors });
         m.onDefeat?.();
         return true;
       },
@@ -278,7 +239,9 @@ export class MonsterGroup implements TargetSource {
 
   private remove(m: Monster): void {
     m.dead = true;
-    m.mesh.removeFromParent();
+    // it stays drawn while it melts away
+    m.melt = 0;
+    m.act = null;
   }
 
   private sees(m: Monster): boolean {
@@ -338,9 +301,13 @@ export class MonsterGroup implements TargetSource {
     const pp = player.position;
     this.plans = 0;
     for (const m of this.monsters) {
-      if (m.dead) continue;
+      if (m.dead) {
+        m.melt += dt / MELT_TIME;
+        continue;
+      }
       const b = m.body;
       const def = m.def;
+      if (m.act) m.act.t += dt / (m.act.kind === 'melee' ? MELEE_TIME : SPIT_TIME);
       m.attackT -= dt;
       m.sidestepT -= dt;
       m.hurtT -= dt;
@@ -371,11 +338,19 @@ export class MonsterGroup implements TargetSource {
         else m.path = null;
         if (a.kind === 'melee') {
           if (m.canSee && dist > a.range * 0.8) _dir.copy(_to);
-          if (dist < a.range && Math.abs(pp.y - b.pos.y) < 2 && m.attackT <= 0) {
-            combat.damagePlayer(a.damage, b.pos);
-            this.ctx.events.emit('monster:bite', { at: b.pos });
+          // wind up first; the blow lands partway through the swing, if the player is still there
+          if (!m.act && dist < a.range && Math.abs(pp.y - b.pos.y) < 2 && m.attackT <= 0) {
+            m.act = { kind: 'melee', t: 0, done: false };
             m.attackT = a.cooldown;
           }
+          if (m.act?.kind === 'melee' && !m.act.done && m.act.t >= MELEE_LANDS) {
+            m.act.done = true;
+            if (dist < a.range * 1.25 && Math.abs(pp.y - b.pos.y) < 2) {
+              combat.damagePlayer(a.damage, b.pos);
+              this.ctx.events.emit('monster:bite', { at: b.pos });
+            }
+          }
+          if (m.act) speed *= 0.3;
         } else if (m.canSee) {
           if (dist < a.keepAway[0]) _dir.copy(_to).negate();
           else if (dist > a.keepAway[1]) _dir.copy(_to);
@@ -384,8 +359,8 @@ export class MonsterGroup implements TargetSource {
             speed *= 0.5;
           }
           if (Math.random() < dt * 0.4) m.strafe = -m.strafe;
-          if (m.attackT <= 0 && dist < a.range) {
-            this.spit(m, a.speed, a.damage);
+          if (!m.act && m.attackT <= 0 && dist < a.range) {
+            m.act = { kind: 'spit', t: 0, done: false };
             m.attackT = a.cooldown;
           }
         }
@@ -396,6 +371,12 @@ export class MonsterGroup implements TargetSource {
         else m.path = null;
         speed *= 0.5;
       }
+      const att = def.attack;
+      if (m.act?.kind === 'spit' && !m.act.done && m.act.t >= SPIT_LEAVES && att.kind === 'spit') {
+        m.act.done = true;
+        this.spit(m, att.speed, att.damage);
+      }
+      if (m.act && m.act.t >= 1) m.act = null;
       // keep apart from each other
       for (const o of this.monsters) {
         if (o === m || o.dead) continue;
@@ -432,14 +413,46 @@ export class MonsterGroup implements TargetSource {
         this.remove(m);
         continue;
       }
-      m.mesh.position.copy(b.pos);
-      if (dist > 0.1 && m.aggro) m.mesh.rotation.y = Math.atan2(-_to.x, -_to.z);
-      const squash = m.hurtT > 0 ? 0.85 : 1 + 0.04 * Math.sin(this.ctx.state.clock * 9 + b.pos.x);
-      m.mesh.scale.set(1 / Math.sqrt(squash), squash, 1 / Math.sqrt(squash));
+      // face the player when after them, otherwise the way it walks; turn smoothly
+      const moving = Math.hypot(b.vel.x, b.vel.z);
+      const want =
+        m.aggro && dist > 0.1
+          ? Math.atan2(-_to.x, -_to.z)
+          : moving > 0.5
+            ? Math.atan2(-b.vel.x, -b.vel.z)
+            : m.yaw;
+      m.yaw += wrapAngle(want - m.yaw) * Math.min(1, dt * 10);
+      m.walk += moving * dt * (def.attack.kind === 'melee' ? 3.4 : 2.6);
     }
-    for (let i = this.monsters.length - 1; i >= 0; i--)
-      if (this.monsters[i]!.dead) this.monsters.splice(i, 1);
+    for (let i = this.monsters.length - 1; i >= 0; i--) {
+      const m = this.monsters[i]!;
+      if (m.dead && m.melt >= 1) this.monsters.splice(i, 1);
+    }
+    this.draw();
     this.updateSpits(dt);
+  }
+
+  private draw(): void {
+    const t = this.ctx.state.clock;
+    this.figures.begin();
+    for (const m of this.monsters) {
+      const b = m.body;
+      this.figures.draw(m.def, {
+        x: b.pos.x,
+        y: b.pos.y,
+        z: b.pos.z,
+        yaw: m.yaw,
+        walk: m.walk,
+        stride: m.dead ? 0 : Math.min(1, Math.hypot(b.vel.x, b.vel.z) / m.def.speed),
+        attack: m.act ? Math.min(1, m.act.t) : -1,
+        hurt: Math.max(0, m.hurtT) / 0.12,
+        air: !m.dead && !b.onGround,
+        dying: m.dead ? m.melt : -1,
+        t,
+        colors: m.colors,
+      });
+    }
+    this.figures.end();
   }
 
   private spit(m: Monster, speed: number, damage: number): void {
@@ -480,11 +493,16 @@ export class MonsterGroup implements TargetSource {
 
   dispose(): void {
     this.release();
-    for (const m of this.monsters) m.mesh.removeFromParent();
+    this.figures.dispose();
     for (const s of this.spits) s.mesh.removeFromParent();
     this.monsters.length = 0;
     this.spits.length = 0;
   }
+}
+
+/** Angle into -π..π. */
+function wrapAngle(a: number): number {
+  return a - Math.PI * 2 * Math.round(a / (Math.PI * 2));
 }
 
 /** Ray against an axis-aligned box; distance or null. */

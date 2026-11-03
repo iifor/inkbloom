@@ -7,7 +7,9 @@ import { ENEMIES } from '@/content/enemies';
 import { TUNING } from '@/content/tuning';
 import type { PhysicsWorld } from '@/engine/physics/world';
 import type { GameContext } from '@/game/types';
+import { BIOMES } from '@/content/biomes';
 import { MonsterGroup } from '@/systems/combat/monsters';
+import { stolenColors } from '@/world/paint/stolen';
 import { terrainNav } from '@/world/nav/grids';
 import { wildMonsterBack } from '@/world/state';
 import { chunkKey, type WildChunk } from '@/world/wilderness/chunk';
@@ -58,11 +60,25 @@ export class WildMonsterCamps {
         for (let dz = -TOWER_CLEARANCE; dz <= TOWER_CLEARANCE; dz += cell) block(e.x + dx, e.z + dz);
     }
 
+    // they wear the land's colours: its pigment sources first, then its ground and trees
+    const biome =
+      BIOMES[
+        this.ctx.wilderness.biomeAt(
+          (chunk.cx + 0.5) * TUNING.world.chunkSize,
+          (chunk.cz + 0.5) * TUNING.world.chunkSize,
+        )
+      ]!;
+    const colors = stolenColors([
+      ...chunk.sources.flatMap((s) => [s.color, s.color, s.color]),
+      biome.ground,
+      biome.treeColor,
+    ]);
     const sat = chunkSaturation(this.ctx.wilderness, chunk.cx, chunk.cz, (c) => this.ctx.cities.progress(c));
     for (const m of wildMonstersInChunk(this.ctx.wilderness, chunk.cx, chunk.cz, sat)) {
       if (!wildMonsterBack(this.ctx.state, m.id)) continue;
       this.group.spawn(m.type, new THREE.Vector3(m.x, m.y + 0.05, m.z), {
         tag: key,
+        colors,
         onDefeat: () => {
           if (!this.ctx.apply({ kind: 'hunt', monster: m.id }).ok) return;
           const def = ENEMIES[m.type]!;

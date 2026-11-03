@@ -63,7 +63,7 @@ async function boot(): Promise<void> {
     }
   }
 
-  const game: OpenWorld = startOpenWorld({ canvas, hudRoot, state, store, onError: showFatal });
+  const game: OpenWorld = startOpenWorld({ canvas, hudRoot, state, store, kv, onError: showFatal });
   installDevTools(game);
   for (const text of notices) game.ctx.events.emit('toast', { text, seconds: 8 });
 
@@ -99,6 +99,15 @@ async function boot(): Promise<void> {
     listWorlds: () => store.list(),
     settings: () => settings,
     applySettings: apply,
+    exportReport() {
+      // a Markdown file the player can send back; nothing is uploaded anywhere
+      const blob = new Blob([game.playtest.report()], { type: 'text/markdown' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `inkbloom-playtest-${state.id}-${new Date().toISOString().slice(0, 10)}.md`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    },
   });
   menu.show('main');
   input.onLockChange = (locked) => {

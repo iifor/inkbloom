@@ -10,9 +10,11 @@ import { blockBounds, depthFrom } from '@/world/city/blocks';
 import { standingMonsters } from '@/world/city/features';
 import { ROAD_NONE, type CityLayout } from '@/world/city/layout';
 import { cityNav } from '@/world/nav/grids';
+import { stolenColors } from '@/world/paint/stolen';
 
 export class CityMonsters {
   readonly group: MonsterGroup;
+  private readonly palettes = new Map<number, number[]>();
 
   constructor(
     private readonly ctx: GameContext,
@@ -29,8 +31,22 @@ export class CityMonsters {
       this.group.spawn(m.type, new THREE.Vector3(m.x, 0.05, m.z), {
         tag: 'stronghold',
         onDefeat: () => this.defeat(i),
+        colors: this.colorsOf(m.chunk),
       });
     });
+  }
+
+  /** A block's own colours (what its walls and roofs were before the ink), which its
+   * monsters wear: they stole them. */
+  private colorsOf(chunk: number): number[] {
+    let c = this.palettes.get(chunk);
+    if (!c) {
+      c = stolenColors(
+        this.layout.surfaces.filter((s) => s.chunk === chunk && s.kind !== 'ground').map((s) => s.color),
+      );
+      this.palettes.set(chunk, c);
+    }
+    return c;
   }
 
   private defeat(i: number): void {
@@ -65,8 +81,10 @@ export class CityMonsters {
     const count = lo + Math.floor(Math.random() * (hi - lo + 1));
     for (let k = 0; k < count && spots.length; k++) {
       const spot = spots.splice(Math.floor(Math.random() * spots.length), 1)[0]!;
+      // tide monsters come for this block's colour, and already wear it
       this.group.spawn(enemyIndex(Math.random() < TUNING.combat.spitterChance ? 'spitter' : 'blot'), spot, {
         tag: 'tide',
+        colors: this.colorsOf(chunk),
       });
     }
   }

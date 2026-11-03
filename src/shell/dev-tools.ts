@@ -72,6 +72,10 @@ export function installDevTools(game: OpenWorld): void {
     async save() {
       await game.save.flush();
     },
+    /** The playtest report as Markdown (what the pause menu exports). */
+    report() {
+      return game.playtest.report();
+    },
   };
   (window as unknown as { inkbloom: typeof api }).inkbloom = api;
 }

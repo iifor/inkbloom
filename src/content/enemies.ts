@@ -51,7 +51,7 @@ export const ENEMIES = [
     aggro: 22,
     ink: 5,
     attack: { kind: 'melee', range: 1.8, damage: 12, cooldown: 0.9 },
-    body: color('charcoal'),
+    body: color('ink'),
     eyes: color('red'),
   },
   {
@@ -64,7 +64,7 @@ export const ENEMIES = [
     aggro: 28,
     ink: 6,
     attack: { kind: 'spit', keepAway: [9, 16], range: 26, damage: 10, cooldown: 2.2, speed: 18 },
-    body: color('charcoal'),
+    body: color('ink'),
     eyes: color('yellow'),
   },
 ] as const satisfies readonly EnemyDef[];

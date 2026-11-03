@@ -14,6 +14,8 @@ export interface MenuActions {
   listWorlds(): Promise<WorldState[]>;
   settings(): Settings;
   applySettings(s: Settings): void;
+  /** Download the playtest report for this world. */
+  exportReport(): void;
 }
 
 const CONTROLS = [
@@ -75,6 +77,7 @@ export class Menu {
           <button data-a="play">继续游戏</button>
           <button data-a="settings">设置</button>
           <button data-a="controls">操作说明</button>
+          <button data-a="report">导出试玩报告</button>
           <button data-a="main">回到主菜单</button>`;
         break;
       case 'settings': {
@@ -158,6 +161,9 @@ export class Menu {
       case 'reset':
         this.actions.applySettings({ ...DEFAULT_SETTINGS });
         this.show('settings');
+        break;
+      case 'report':
+        this.actions.exportReport();
         break;
     }
   }

@@ -11,6 +11,7 @@ import { CharacterPanel } from '@/shell/character-panel';
 import { AudioSystem } from '@/systems/audio/audio-system';
 import { EffectsSystem } from '@/systems/effects/effects';
 import { CombatOverlay } from '@/shell/combat-overlay';
+import { PlaytestSystem } from '@/systems/playtest/playtest-system';
 import { CityRegistry } from '@/systems/city/city-registry';
 import { ClockSystem } from '@/systems/clock/clock';
 import { DebugPanel } from '@/systems/debug/debug-panel';
@@ -28,7 +29,7 @@ import { WildScene } from '@/systems/wilderness/wild-scene';
 import { applyPatch } from '@/world/patch';
 import { levelOf } from '@/world/progression';
 import type { WorldState } from '@/world/state';
-import type { WorldStore } from '@/world/store';
+import type { KeyValue, WorldStore } from '@/world/store';
 import { createWilderness } from '@/world/wilderness/generator';
 import { sourceById } from '@/world/wilderness/sources';
 import { chunkSaturation, wildMonsterById } from '@/world/wilderness/wild-monsters';
@@ -43,6 +44,7 @@ export interface OpenWorld {
   readonly save: SaveSystem;
   readonly loop: Loop;
   readonly audio: AudioSystem;
+  readonly playtest: PlaytestSystem;
   dispose(): void;
 }
 
@@ -51,6 +53,8 @@ export function startOpenWorld(opts: {
   hudRoot: HTMLElement;
   state: WorldState;
   store: WorldStore;
+  /** Where the playtest log is kept; null keeps it in memory only. */
+  kv?: KeyValue | null;
   onError: (e: unknown) => void;
 }): OpenWorld {
   const lifetime = new AbortController();
@@ -112,6 +116,7 @@ export function startOpenWorld(opts: {
   const hud = new Hud(ctx, opts.hudRoot, belt, scenes, objectives);
   // after the HUD, which rewrites its root when built
   const overlay = new CombatOverlay(ctx, opts.hudRoot);
+  const playtest = new PlaytestSystem(ctx, opts.kv ?? null);
   const debug = new DebugPanel(ctx, opts.hudRoot.parentElement ?? opts.hudRoot);
 
   // Order matters: movement, then the scene streams around the new position, then
@@ -130,6 +135,7 @@ export function startOpenWorld(opts: {
     audio,
     effects,
     overlay,
+    playtest,
     save,
     debug,
   ];
@@ -154,6 +160,7 @@ export function startOpenWorld(opts: {
     scenes,
     belt,
     save,
+    playtest,
     loop,
     audio,
     dispose() {
