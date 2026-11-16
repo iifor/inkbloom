@@ -83,10 +83,13 @@ export function createWilderness(seed: number): Wilderness {
     return h;
   };
 
-  const cache = new Map<string, Entrance | null>();
+  /** Numeric key for a pair of city-cell coordinates (cells are hundreds of metres across). */
+  const cellKey = (gx: number, gz: number): number => (gx + 32768) * 65536 + (gz + 32768);
+  const cache = new Map<number, Entrance | null>();
   const entranceInCell = (gx: number, gz: number): Entrance | null => {
-    const key = `${gx},${gz}`;
-    if (cache.has(key)) return cache.get(key)!;
+    const key = cellKey(gx, gz);
+    const known = cache.get(key);
+    if (known !== undefined) return known;
     const half = Math.floor(S.cityGrid / 2);
     let cx: number;
     let cz: number;
@@ -133,11 +136,23 @@ export function createWilderness(seed: number): Wilderness {
     return out;
   };
 
+  // heightAt runs thousands of times per chunk: keep each city cell's neighbourhood of
+  // entrances ready, instead of gathering a fresh list on every call
+  const nearCache = new Map<number, Entrance[]>();
+  const flat2 = S.entranceFlatRadius * S.entranceFlatRadius;
   const heightAt = (x: number, z: number): number => {
     let h = rawHeightAt(x, z);
-    for (const e of entrancesNear(x, z, 1)) {
-      const d = Math.hypot(x - e.x, z - e.z);
-      const f = smoothstep(S.entranceFlatRadius, S.entranceFlatRadius * 0.55, d);
+    const gx = cityCellOf(Math.floor(x / W.chunkSize));
+    const gz = cityCellOf(Math.floor(z / W.chunkSize));
+    const key = cellKey(gx, gz);
+    let near = nearCache.get(key);
+    if (!near) nearCache.set(key, (near = entrancesNear(x, z, 1)));
+    for (const e of near) {
+      const dx = x - e.x;
+      const dz = z - e.z;
+      // the plateau only reaches entranceFlatRadius; skip the rest cheaply
+      if (dx * dx + dz * dz >= flat2) continue;
+      const f = smoothstep(S.entranceFlatRadius, S.entranceFlatRadius * 0.55, Math.sqrt(dx * dx + dz * dz));
       if (f > 0) h = lerp(h, e.y, f);
     }
     return h;

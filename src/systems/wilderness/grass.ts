@@ -31,6 +31,11 @@ const NEAR_SPACING = SPACING / 2;
 /** Cells across each grid's window around the player (covers its reach, with room). */
 const WINDOW = 160;
 const NEAR_WINDOW = 64;
+/** Flowers are sparse, so they get their own coarser grid (and fewer, mostly filled slots):
+ * each flower cell covers this many grass cells' worth of ground. */
+const FLOWER_SPACING = SPACING * 2;
+const FLOWER_WINDOW = 80;
+const FLOWER_AREA = (FLOWER_SPACING / SPACING) ** 2;
 /** Height of a flower head above the ground at full size, as a share of its clump's size. */
 const FLOWER_LIFT = 0.5;
 
@@ -100,12 +105,15 @@ function bake(geometry: THREE.BufferGeometry): THREE.BufferGeometry {
   return b.build();
 }
 
+/** The three grids: the grass field, the finer ring near the player, and the flowers. */
+type Kind = 'coarse' | 'near' | 'flower';
+
 /** One grid's window of instance slots and where it currently sits. */
 interface Window {
-  readonly fine: boolean;
+  readonly kind: Kind;
   readonly side: number;
   readonly step: number;
-  readonly tufts: THREE.InstancedMesh;
+  readonly mesh: THREE.InstancedMesh;
   /** First cell (i, k) of the window, or null before the first fill. */
   i0: number | null;
   k0: number | null;
@@ -136,12 +144,13 @@ export class GrassField {
     field: this.nearField,
   });
   private readonly flowerMaterial = makeInkMaterial({ wind: true, field: this.field });
-  private readonly flowers: THREE.InstancedMesh;
-  private readonly coarseWindow: Window;
-  private readonly nearWindow: Window;
-  /** Grid points worked out so far: the field's grid, and the finer one near the player. */
-  private readonly coarse = new SpotCache(256);
-  private readonly fine = new SpotCache(64);
+  private readonly windows: readonly Window[];
+  /** Grid points worked out so far, per grid. */
+  private readonly caches: Record<Kind, SpotCache> = {
+    coarse: new SpotCache(256),
+    near: new SpotCache(64),
+    flower: new SpotCache(128),
+  };
   private readonly names = [...BIOME_INDEX].reduce<string[]>((a, [k, i]) => ((a[i] = k), a), []);
   /** Where flowers gather in drifts, and which colour each drift is. */
   private readonly drifts: Noise2D;
@@ -165,35 +174,36 @@ export class GrassField {
       return mesh;
     };
     const clump = makeCardClump(1.25, 0.8);
-    this.coarseWindow = {
-      fine: false,
-      side: WINDOW,
-      step: SPACING,
-      tufts: instanced(clump, this.material, WINDOW * WINDOW),
+    const window = (kind: Kind, side: number, step: number, mesh: THREE.InstancedMesh): Window => ({
+      kind,
+      side,
+      step,
+      mesh,
       i0: null,
       k0: null,
-    };
-    this.nearWindow = {
-      fine: true,
-      side: NEAR_WINDOW,
-      step: NEAR_SPACING,
-      tufts: instanced(clump.clone(), this.nearMaterial, NEAR_WINDOW * NEAR_WINDOW),
-      i0: null,
-      k0: null,
-    };
-    this.flowers = instanced(
-      bake(new THREE.OctahedronGeometry(0.075, 0)),
-      this.flowerMaterial,
-      WINDOW * WINDOW,
-    );
+    });
+    this.windows = [
+      window('coarse', WINDOW, SPACING, instanced(clump, this.material, WINDOW * WINDOW)),
+      window(
+        'near',
+        NEAR_WINDOW,
+        NEAR_SPACING,
+        instanced(clump.clone(), this.nearMaterial, NEAR_WINDOW ** 2),
+      ),
+      window(
+        'flower',
+        FLOWER_WINDOW,
+        FLOWER_SPACING,
+        instanced(bake(new THREE.TetrahedronGeometry(0.08, 0)), this.flowerMaterial, FLOWER_WINDOW ** 2),
+      ),
+    ];
   }
 
   /** `flowers`: how many wildflowers the season brings, 0..1 (see content/seasons.ts). */
   update(at: THREE.Vector3, flowers = 1): void {
     this.field.uField.value.copy(at);
     this.field.uBloom.value = flowers;
-    this.slide(this.coarseWindow, at);
-    this.slide(this.nearWindow, at);
+    for (const win of this.windows) this.slide(win, at);
   }
 
   /**
@@ -228,8 +238,7 @@ export class GrassField {
     }
     win.i0 = i0;
     win.k0 = k0;
-    this.upload(win.tufts, changed, 16, 3);
-    if (!win.fine) this.upload(this.flowers, changed, 16, 3);
+    this.upload(win.mesh, changed, 16, 3);
   }
 
   /**
@@ -240,11 +249,9 @@ export class GrassField {
     if (k1 <= k0) return [];
     const side = win.side;
     const mi = ((i % side) + side) % side;
-    const D = (win.fine ? this.fine : this.coarse).data;
-    const tm = win.tufts.instanceMatrix.array as Float32Array;
-    const tc = win.tufts.instanceColor!.array as Float32Array;
-    const fm = this.flowers.instanceMatrix.array as Float32Array;
-    const fc = this.flowers.instanceColor!.array as Float32Array;
+    const D = this.caches[win.kind].data;
+    const m = win.mesh.instanceMatrix.array as Float32Array;
+    const c = win.mesh.instanceColor!.array as Float32Array;
     const ranges: number[] = [];
     let runStart = -1;
     let last = -2;
@@ -256,29 +263,24 @@ export class GrassField {
         runStart = slot;
       }
       last = slot;
-      const o = this.spot(i, k, win.fine);
+      const o = this.spot(i, k, win.kind);
       if (o < 0) {
-        tm.fill(0, slot * 16, slot * 16 + 16);
-        if (!win.fine) fm.fill(0, slot * 16, slot * 16 + 16);
+        m.fill(0, slot * 16, slot * 16 + 16);
         continue;
       }
       const size = D[o + F.SIZE]!;
-      put(tm, slot, D, o, size, size * D[o + F.TALL]!, D[o + F.Y]!);
-      tc[slot * 3] = D[o + F.BLADE]!;
-      if (win.fine) continue;
-      const chance = D[o + F.FLOWER_CHANCE]!;
-      if (chance <= 0 || D[o + F.FLOWER_ROLL]! >= chance) {
-        fm.fill(0, slot * 16, slot * 16 + 16);
+      if (win.kind !== 'flower') {
+        put(m, slot, D, o, size, size * D[o + F.TALL]!, D[o + F.Y]!);
+        c[slot * 3] = D[o + F.BLADE]!;
         continue;
       }
       const fs = D[o + F.FLOWER_SIZE]!;
       const lift = FLOWER_LIFT * size + 0.04;
-      put(fm, slot, D, o, fs, fs * 0.8, D[o + F.Y]! + lift);
-      fm[slot * 16 + 12] = D[o + F.X]! + 0.05;
-      fc[slot * 3] = D[o + F.FLOWER]!;
+      put(m, slot, D, o, fs, fs * 0.8, D[o + F.Y]! + lift);
+      c[slot * 3] = D[o + F.FLOWER]!;
       // shown while the season's bloom is at least roll / chance
-      fc[slot * 3 + 1] = D[o + F.FLOWER_ROLL]! / chance;
-      fc[slot * 3 + 2] = lift - 0.04;
+      c[slot * 3 + 1] = D[o + F.FLOWER_ROLL]! / D[o + F.FLOWER_CHANCE]!;
+      c[slot * 3 + 2] = lift - 0.04;
     }
     if (runStart >= 0) ranges.push(runStart, last + 1);
     return ranges;
@@ -307,8 +309,8 @@ export class GrassField {
   }
 
   /** The data offset of grid point (i, k), worked out on first use; -1 if nothing grows. */
-  private spot(i: number, k: number, fine: boolean): number {
-    const cache = fine ? this.fine : this.coarse;
+  private spot(i: number, k: number, kind: Kind): number {
+    const cache = this.caches[kind];
     const slot = cache.slot(i, k);
     const o = slot * STRIDE;
     const D = cache.data;
@@ -317,10 +319,10 @@ export class GrassField {
     cache.keys[slot * 2 + 1] = k;
     D[o + F.GROWS] = 0;
     const w = this.wilderness;
-    const salt = fine ? 0x3c71 : 0x6a55;
+    const salt = kind === 'near' ? 0x3c71 : kind === 'flower' ? 0x1f3d : 0x6a55;
     /** Independent 0..1 numbers for this grid point. */
     const r = (n: number): number => unit(hashInts(w.seed ^ salt, i, k, n));
-    const step = fine ? NEAR_SPACING : SPACING;
+    const step = kind === 'near' ? NEAR_SPACING : kind === 'flower' ? FLOWER_SPACING : SPACING;
     const x = (i + r(0) * 0.9) * step;
     const z = (k + r(1) * 0.9) * step;
     const cover = COVER[this.names[w.biomeAt(x, z)] ?? ''];
@@ -332,6 +334,9 @@ export class GrassField {
     const a = r(4) * Math.PI * 2;
     // flowers gather in drifts of mostly one colour, with a few strays between them
     const drift = THREE.MathUtils.smoothstep(this.drifts(x / DRIFT, z / DRIFT), 0.25, 0.6);
+    // a flower cell stands for several grass cells' worth of ground, so its chance is theirs together
+    const chance = kind === 'flower' ? Math.min(0.95, FLOWER_AREA * cover.flower * (0.25 + 4 * drift)) : 0;
+    if (kind === 'flower' && r(7) >= chance) return -1;
     D[o + F.GROWS] = 1;
     D[o + F.X] = x;
     D[o + F.Y] = y;
@@ -343,7 +348,7 @@ export class GrassField {
     D[o + F.TALL] = 0.65 + 0.7 * r(5) * r(5);
     D[o + F.BLADE] = color(cover.blades[Math.floor(r(6) * cover.blades.length)]!);
     D[o + F.FLOWER_ROLL] = r(7);
-    D[o + F.FLOWER_CHANCE] = fine ? 0 : cover.flower * (0.25 + 4 * drift);
+    D[o + F.FLOWER_CHANCE] = chance;
     D[o + F.FLOWER] = color(this.flowerColour(x, z, r(9)));
     D[o + F.FLOWER_SIZE] = 0.8 + 0.5 * r(8);
     return o;
@@ -357,7 +362,7 @@ export class GrassField {
   }
 
   dispose(): void {
-    for (const mesh of [this.coarseWindow.tufts, this.nearWindow.tufts, this.flowers]) {
+    for (const { mesh } of this.windows) {
       mesh.removeFromParent();
       mesh.geometry.dispose();
       mesh.dispose();

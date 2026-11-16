@@ -12,6 +12,7 @@ import { type ColorDef, MAX_COLORS, PALETTE, color } from '@/content/palette';
 import { SEASONS } from '@/content/seasons';
 import { TUNING } from '@/content/tuning';
 import { type Daylight, daylightAt } from './daylight';
+import { ResolutionGovernor } from './resolution';
 import { Precipitation } from './precipitation';
 import { disposeTree } from '../resources';
 import { NO_SHADOW_LAYER, shared } from './ink-material';
@@ -73,29 +74,17 @@ float fbm(vec2 p) {
   for (int i = 0; i < 4; i++) { v += a * vnoise(p); p = p * 2.03 + 17.1; a *= 0.48; }
   return v;
 }
+/** Two octaves: enough for broad shapes (cloud warping, far ridges, fields of colour). The
+ * constant stands in for the dropped octaves' average, so it centres where fbm does. */
+float fbm2(vec2 p) { return 0.5 * vnoise(p) + 0.24 * vnoise(p * 2.03 + 17.1) + 0.085; }
 float linDepth(float z) { float zn = z * 2.0 - 1.0; return 2.0 * uNear * uFar / (uFar + uNear - zn * (uFar - uNear)); }
-int indexOf(float code) { return int(floor(code + 0.0005)); }
-vec3 paletteColor(float code) {
-  int i = indexOf(code); vec3 c = uColors[0];
-  for (int k = 0; k < ${MAX_COLORS}; k++) if (k == i) c = uColors[k];
-  return c;
-}
-float solidOf(float code) {
-  int i = indexOf(code); float s = 0.0;
-  for (int k = 0; k < ${MAX_COLORS}; k++) if (k == i) s = uSolid[k];
-  return s;
-}
-float textureOf(float code) {
-  int i = indexOf(code); float s = 0.25;
-  for (int k = 0; k < ${MAX_COLORS}; k++) if (k == i) s = uTexture[k];
-  return s;
-}
+// palette lookups index the uniform arrays directly (WebGL 2 allows it): one read, not a scan
+int indexOf(float code) { return clamp(int(floor(code + 0.0005)), 0, ${MAX_COLORS} - 1); }
+vec3 paletteColor(float code) { return uColors[indexOf(code)]; }
+float solidOf(float code) { return uSolid[indexOf(code)]; }
+float textureOf(float code) { return uTexture[indexOf(code)]; }
 /** 0 unchanged by the seasons, 1 meadow (ground, grass), 2 broadleaf crowns. */
-float seasonKindOf(float code) {
-  int i = indexOf(code); float s = 0.0;
-  for (int k = 0; k < ${MAX_COLORS}; k++) if (k == i) s = uSeasonKind[k];
-  return s;
-}
+float seasonKindOf(float code) { return uSeasonKind[indexOf(code)]; }
 /** target, taking most of c's lightness, so dark woods stay darker than sunny meadows. */
 vec3 atLightness(vec3 target, vec3 c) {
   float l = dot(c, vec3(0.3, 0.59, 0.11)) / max(dot(target, vec3(0.3, 0.59, 0.11)), 0.01);
@@ -168,7 +157,7 @@ vec3 skyPaint(vec3 rd) {
   // stretching into streaks
   vec2 cuv = rd.xz / (max(e, 0.0) + 0.3) * 1.0 + vec2(uTime * 0.006, uTime * 0.0025);
   // warp the noise into rounded heaps rather than streaks
-  cuv += (vec2(fbm(cuv * 0.6), fbm(cuv * 0.6 + 3.1)) - 0.5) * 1.3;
+  cuv += (vec2(fbm2(cuv * 0.6), fbm2(cuv * 0.6 + 3.1)) - 0.5) * 1.3;
   float n = fbm(cuv);
   float above = smoothstep(-0.01, 0.1, e);
   // the weather's cloud cover fills the gaps until the sky is one grey deck
@@ -200,8 +189,8 @@ vec4 farRanges(vec3 rd) {
   vec3 haze = horizonOf(rd);
   vec3 far = mix(haze, mix(uZenith, uShade, 0.4), 0.32);
   vec3 near = mix(haze, mix(uShade * vec3(0.8, 0.95, 0.9), uZenith, 0.35), 0.55);
-  float h1 = 0.035 + 0.075 * fbm(dir * 3.0 + 11.0);
-  float h2 = 0.012 + 0.05 * fbm(dir * 5.5 + 29.0);
+  float h1 = 0.035 + 0.075 * fbm2(dir * 3.0 + 11.0);
+  float h2 = 0.012 + 0.05 * fbm2(dir * 5.5 + 29.0);
   float m1 = smoothstep(h1 + 0.002, h1 - 0.002, e);
   float m2 = smoothstep(h2 + 0.002, h2 - 0.002, e);
   // lighter towards their feet, where the haze is thickest
@@ -278,10 +267,11 @@ void main() {
     float dabFade = near * (1.0 - smoothstep(35.0, 90.0, d)) * smoothstep(0.35, 0.8, tex);
     // strongest on leafy crowns, gentle on flat ground
     dabFade *= mix(1.0, 0.4, smoothstep(0.85, 0.98, wn.y));
-    float dab = dabs(bp * 1.7);
+    // only where it shows (leafy, near): walls, roads and the distance skip the work
+    float dab = dabFade > 0.001 ? dabs(bp * 1.7) : 0.0;
     base *= 1.0 + dab * 0.16 * dabFade;
     // big fields of colour across meadows and hills: warm yellow-green here, cool blue-green there
-    float field = fbm(wpos.xz * 0.011 + 3.0);
+    float field = fbm2(wpos.xz * 0.011 + 3.0);
     vec3 warm = base * vec3(1.12, 1.07, 0.8);
     vec3 cool = base * vec3(0.88, 0.99, 1.06);
     base = mix(base, mix(cool, warm, smoothstep(0.32, 0.68, field)), tex * near);
@@ -404,7 +394,7 @@ void main() { gl_FragColor = vec4(texture2D(tGlow, vUv).rgb * uStrength, 1.0); }
 
 /**
  * The brush pass: turns the rendered frame into strokes of paint, then grades it like a
- * painting. A smooth Kuwahara filter looks at eight wedges of a circle around each pixel and
+ * painting. A smooth Kuwahara filter looks at six wedges of a circle around each pixel and
  * keeps the colour of the calmest ones, so areas break into rounded patches of paint with soft
  * edges while outlines stay sharp. Then: warm lift and a gentle S-curve, a little more colour, a
  * warm vignette, and a canvas weave with fine grain over everything.
@@ -453,10 +443,10 @@ void main() {
   vec3 centre = texture2D(tSrc, vUv).rgb;
   vec3 acc = vec3(0.0);
   float total = 0.0;
-  for (int k = 0; k < 8; k++) {
+  for (int k = 0; k < 6; k++) {
     vec3 mean;
     float variance;
-    float ang = float(k) * (PI / 4.0);
+    float ang = float(k) * (PI / 3.0);
     wedge(vec2(cos(ang), sin(ang)), centre, mean, variance);
     // calmer wedges count for much more (smooth rather than winner-takes-all, so no blocks)
     float w = 1.0 / (variance * 400.0 + 1e-3);
@@ -526,6 +516,10 @@ export class InkRenderer {
   private readonly postCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
   private readonly clearColor = new THREE.Color(1, 0, 0);
   private pixelRatio: number;
+  /** The quality setting's pixel ratio: the most the frame is ever drawn at. */
+  private maxPixelRatio: number;
+  /** Automatic resolution: how much of maxPixelRatio is drawn now. */
+  private readonly governor = new ResolutionGovernor();
   /** Sun shadows: a depth map from the sun's side, covering a square around the camera. */
   private readonly shadowRt: THREE.WebGLRenderTarget;
   private readonly shadowCam = new THREE.OrthographicCamera(
@@ -585,7 +579,8 @@ export class InkRenderer {
     this.renderer.autoClear = false;
     // count draws across both passes; render() resets once per frame
     this.renderer.info.autoReset = false;
-    this.pixelRatio = Math.min(window.devicePixelRatio || 1, 1.5);
+    this.maxPixelRatio = Math.min(window.devicePixelRatio || 1, 1.5);
+    this.pixelRatio = this.maxPixelRatio;
     const depthTexture = new THREE.DepthTexture(2, 2);
     depthTexture.format = THREE.DepthFormat;
     depthTexture.type = THREE.FloatType;
@@ -752,7 +747,10 @@ export class InkRenderer {
   }
 
   setQuality(quality: 'high' | 'low'): void {
-    this.pixelRatio = Math.min(window.devicePixelRatio || 1, quality === 'high' ? 1.5 : 1);
+    this.maxPixelRatio = Math.min(window.devicePixelRatio || 1, quality === 'high' ? 1.5 : 1);
+    // a new setting starts again from full resolution and finds its own level
+    this.governor.reset();
+    this.pixelRatio = this.maxPixelRatio;
     // smaller strokes on the faster setting (the filter cost does not change, the look does)
     this.brushSpread = quality === 'high' ? 2.8 : 2;
     this.resize();
@@ -811,7 +809,16 @@ export class InkRenderer {
       for (const v of [d.sun, d.shade, d.zenith, d.horizon]) v.addScaledVector(_flash, w.flash);
   }
 
+  /** How much of the quality setting's resolution is drawn now (automatic resolution). */
+  get resolutionScale(): number {
+    return this.governor.scale;
+  }
+
   render(): void {
+    if (this.governor.frame(performance.now())) {
+      this.pixelRatio = this.maxPixelRatio * this.governor.scale;
+      this.resize();
+    }
     this.camera.updateMatrixWorld();
     daylightAt(this.atmosphere.hour, this.atmosphere.declination, this.day);
     this.applyWeather();

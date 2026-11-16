@@ -162,6 +162,12 @@ varying float vGust;
 float sunlight() {
   vec3 p = vShadow.xyz / vShadow.w;
   if (p.x <= 0.0 || p.x >= 1.0 || p.y <= 0.0 || p.y >= 1.0 || p.z >= 1.0) return 1.0;
+  #ifdef WIND
+    // grass and flowers: one tap. Blades sway and overlap many deep, so soft edges would not
+    // show, but nine taps per layer of grass would cost more than the whole rest of the scene
+    vec2 e1 = min(p.xy, 1.0 - p.xy);
+    return mix(1.0, step(p.z - 0.0012, texture2D(uShadowMap, p.xy).r), smoothstep(0.0, 0.08, min(e1.x, e1.y)));
+  #endif
   float turn = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453) * 6.2832;
   float sum = step(p.z - 0.0008, texture2D(uShadowMap, p.xy).r);
   for (int i = 0; i < 8; i++) {
