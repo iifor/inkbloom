@@ -366,6 +366,11 @@ void wedge(vec2 dir, vec3 centre, out vec3 mean, out float variance) {
 }
 
 float hash(vec2 p) { p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }
+float vnoise(vec2 p) {
+  vec2 i = floor(p); vec2 f = fract(p); f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), f.x), mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x), f.y);
+}
+float lum(vec3 c) { return dot(c, vec3(0.3, 0.59, 0.11)); }
 
 void main() {
   vec3 centre = texture2D(tSrc, vUv).rgb;
@@ -383,6 +388,20 @@ void main() {
     total += w;
   }
   vec3 col = acc / total;
+
+  // brush streaks: fine ridges of paint dragged along the forms (across the local gradient),
+  // stronger where the picture has structure, a soft cross-hatch of strokes where it is flat
+  vec2 e = uTexel * uSpread * 2.0;
+  vec2 grad = vec2(
+    lum(texture2D(tSrc, vUv + vec2(e.x, 0.0)).rgb) - lum(texture2D(tSrc, vUv - vec2(e.x, 0.0)).rgb),
+    lum(texture2D(tSrc, vUv + vec2(0.0, e.y)).rgb) - lum(texture2D(tSrc, vUv - vec2(0.0, e.y)).rgb));
+  float edge = smoothstep(0.01, 0.08, length(grad));
+  vec2 across = mix(normalize(vec2(0.6, 0.8)), normalize(grad + 1e-6), edge);
+  vec2 along = vec2(-across.y, across.x);
+  vec2 pp0 = gl_FragCoord.xy / max(uSpread, 1.0);
+  float streak = vnoise(vec2(dot(pp0, along) * 0.07, dot(pp0, across) * 0.9));
+  col *= 1.0 + (streak - 0.5) * mix(0.025, 0.12, edge);
+
 
   // grade like a painting: warm lift, gentle S-curve, a little more colour
   col = clamp(col * vec3(1.03, 1.0, 0.95) + vec3(0.022, 0.016, 0.004), 0.0, 1.0);
@@ -427,7 +446,7 @@ export class InkRenderer {
   private readonly brush: THREE.ShaderMaterial;
   private readonly brushScene = new THREE.Scene();
   /** Pixels between brush-filter taps at 900 px tall (scaled with the frame); quality sets it. */
-  private brushSpread = 2;
+  private brushSpread = 2.8;
   private readonly postCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
   private readonly clearColor = new THREE.Color(1, 0, 0);
   private pixelRatio: number;
@@ -628,7 +647,7 @@ export class InkRenderer {
   setQuality(quality: 'high' | 'low'): void {
     this.pixelRatio = Math.min(window.devicePixelRatio || 1, quality === 'high' ? 1.5 : 1);
     // smaller strokes on the faster setting (the filter cost does not change, the look does)
-    this.brushSpread = quality === 'high' ? 2 : 1.4;
+    this.brushSpread = quality === 'high' ? 2.8 : 2;
     this.resize();
   }
 

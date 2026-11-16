@@ -1,10 +1,12 @@
-// The picture on a grass card: dozens of thin curved stalks, a few of them carrying seed
-// heads, painted once at start-up onto a canvas (no image files). Red holds light and dark
+// The picture on a grass card: a dense layer of short blades along the bottom (so a clump is
+// solid at its base, not a row of spikes) and dozens of thin curved stalks above it, a few
+// carrying seed heads, painted once at start-up onto a canvas (no image files). Red holds light and dark
 // (stalks dark at the root, pale at the tip, seed heads palest); alpha cuts the card out.
 // Colour comes from the palette per clump, so one picture serves every season and biome.
 import * as THREE from 'three';
 
-const SIZE = 256;
+/** Big enough that stalk edges stay smooth on the clumps right beside the player. */
+const SIZE = 512;
 
 /** A small deterministic random sequence, so every run paints the same card. */
 function sequence(seed: number): () => number {
@@ -22,13 +24,8 @@ export function makeGrassCard(): THREE.Texture {
   const g = canvas.getContext('2d')!;
   const rand = sequence(0x6b1d);
   g.clearRect(0, 0, SIZE, SIZE);
-  for (let i = 0; i < 70; i++) {
-    const x0 = SIZE * (0.06 + 0.88 * rand());
-    // most stalks are short; a few stand up tall
-    const tall = rand() < 0.25;
-    const h = SIZE * (tall ? 0.7 + 0.28 * rand() : 0.3 + 0.35 * rand());
-    const lean = (rand() - 0.5) * SIZE * 0.35;
-    const w = SIZE * (0.008 + 0.01 * rand());
+  /** One tapering blade from the bottom edge; returns where its tip ended up. */
+  const blade = (x0: number, h: number, lean: number, w: number): { x: number; y: number } => {
     const top = { x: x0 + lean, y: SIZE - h };
     const bend = { x: x0 + lean * 0.2, y: SIZE - h * 0.55 };
     const shade = g.createLinearGradient(0, SIZE, 0, top.y);
@@ -36,13 +33,29 @@ export function makeGrassCard(): THREE.Texture {
     shade.addColorStop(0, `rgb(${base},${base},${base})`);
     shade.addColorStop(1, `rgb(${200 + 40 * rand()},0,0)`);
     g.fillStyle = shade;
-    // a tapering blade: wide at the root, a point at the tip
+    // wide at the root, a point at the tip
     g.beginPath();
     g.moveTo(x0 - w, SIZE);
     g.quadraticCurveTo(bend.x - w * 0.6, bend.y, top.x, top.y);
     g.quadraticCurveTo(bend.x + w * 0.6, bend.y, x0 + w, SIZE);
     g.closePath();
     g.fill();
+    return top;
+  };
+  // the undergrowth: many short, broad blades side by side
+  for (let i = 0; i < 90; i++)
+    blade(
+      SIZE * (0.02 + 0.96 * rand()),
+      SIZE * (0.14 + 0.18 * rand()),
+      (rand() - 0.5) * SIZE * 0.2,
+      SIZE * (0.014 + 0.012 * rand()),
+    );
+  // the stalks above it: most medium, a few tall ones with seed heads
+  for (let i = 0; i < 80; i++) {
+    const tall = rand() < 0.25;
+    const h = SIZE * (tall ? 0.7 + 0.28 * rand() : 0.3 + 0.35 * rand());
+    const lean = (rand() - 0.5) * SIZE * 0.35;
+    const top = blade(SIZE * (0.06 + 0.88 * rand()), h, lean, SIZE * (0.008 + 0.01 * rand()));
     if (tall && rand() < 0.7) {
       // a seed head: a pale feathery oval at the tip
       g.fillStyle = `rgb(${235 + 20 * rand()},0,0)`;
