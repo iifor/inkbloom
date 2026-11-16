@@ -61,9 +61,8 @@ export class InkStains {
       if (this.collected[i]) return;
       if (Math.abs(s.x - p.x) > r + s.size || Math.abs(s.z - p.z) > r + s.size) return;
       if (Math.hypot(s.x - p.x, s.z - p.z) > r + s.size * 0.5) return;
-      const result = this.ctx.apply({ kind: 'collect', city: this.layout.id, stain: i });
-      if (result.ok)
-        this.ctx.events.emit('toast', { text: `+${TUNING.economy.inkPerStain} 墨`, seconds: 1.2 });
+      // the ink count on the HUD ticks up: no message
+      this.ctx.apply({ kind: 'collect', city: this.layout.id, stain: i });
     });
   }
 

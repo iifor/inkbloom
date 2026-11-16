@@ -632,3 +632,50 @@ body {
     font-size: 64px;
   }
 }
+
+/* ---- the quiet HUD: parts fade in when they have something to say, then away again ---- */
+.hud-place,
+.hud-hp {
+  transition: opacity 0.6s ease;
+}
+.hud-place.quiet,
+.hud-hp.quiet {
+  opacity: 0;
+}
+/* lines inside a card take no room while they are hidden */
+.hud-place .quiet,
+.hud-tool .quiet {
+  display: none;
+}
+/* a place name across the upper screen when arriving */
+.hud-title {
+  position: absolute;
+  top: 20%;
+  left: 50%;
+  transform: translate(-50%, 8px);
+  text-align: center;
+  /* faded in and out by the HUD each frame */
+  opacity: 0;
+  pointer-events: none;
+  text-shadow:
+    0 0 10px var(--paper),
+    0 0 22px var(--paper);
+}
+.hud-title b {
+  display: block;
+  font-family: var(--title);
+  font-weight: 400;
+  font-size: 56px;
+  letter-spacing: 0.15em;
+  color: var(--ink);
+}
+.hud-title span {
+  display: block;
+  margin-top: 4px;
+  font-family: var(--hand);
+  font-size: 18px;
+  color: var(--ink-soft);
+}
+.hud-title span:empty {
+  display: none;
+}

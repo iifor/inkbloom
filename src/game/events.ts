@@ -65,7 +65,11 @@ export interface GameEvents {
   /** Lightning struck `distance` metres from where the weather is read (the player, or a
    * city's entrance outside). Thunder follows at the speed of sound. */
   'weather:bolt': { readonly at: Point3; readonly distance: number };
-  toast: { readonly text: string; readonly seconds?: number };
+  /** A short message. With `once`, it is a lesson: shown the first time(s) only (see
+   * shell/hints.ts), never again once the player has seen it. */
+  toast: { readonly text: string; readonly seconds?: number; readonly once?: string };
+  /** A place name shown as a fading title card (entering a city, arriving by travel). */
+  title: { readonly text: string; readonly sub?: string };
 }
 
 export interface Point3 {

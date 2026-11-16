@@ -123,20 +123,17 @@ export class InkTide {
     }
     const w = this.wave;
     this.record(w, now);
-    if (this.resumed) {
-      this.resumed = false;
-      this.ctx.events.emit('toast', {
-        text:
-          now < w.startsAt
-            ? `墨潮还有 ${Math.ceil(w.startsAt - now)} 秒从${SIDE_NAMES[w.from]}边涌来`
-            : '墨潮还在继续：对准墨帘按住左键把它推回去',
-        seconds: 5,
-      });
-    }
+    // a resumed wave needs no message: the tide banner already says where it stands
+    this.resumed = false;
     if (now < w.startsAt) return;
     if (!this.curtain.visible) {
       this.host.spawnTideMonsters(w.chunk, w.from, () => this.knockBack(T.monsterKnockBack));
       this.ctx.events.emit('tide:start', { at: this.blockCentre(w.chunk) });
+      this.ctx.events.emit('toast', {
+        text: '对准墨帘按住左键，用通用颜料把它推回去',
+        seconds: 5,
+        once: 'tide-push',
+      });
     }
     this.curtain.visible = true;
     const speed = (this.per * T.reach) / T.duration;
@@ -157,7 +154,6 @@ export class InkTide {
     w.front = Math.max(0, w.front - metres);
     // checked here, not in update: the next frame would move the front off the edge first
     if (w.front <= 0 && this.ctx.state.clock - w.startsAt > T.repelAfter) this.finish(w, true);
-    else this.ctx.events.emit('toast', { text: '墨怪倒下，墨帘退了回去', seconds: 2 });
   }
 
   private record(w: Wave, now: number): void {
@@ -180,11 +176,7 @@ export class InkTide {
     const now = this.ctx.state.clock;
     this.begin(chunk, from, now + T.warning, now + T.warning + T.duration, 0);
     this.ctx.events.emit('tide:warning', { at: this.blockCentre(chunk) });
-    const where = chunk === here ? '这个街区' : '附近的街区';
-    this.ctx.events.emit('toast', {
-      text: `墨潮将在 ${T.warning} 秒后从${SIDE_NAMES[from]}边涌向${where}！`,
-      seconds: 5,
-    });
+    // the tide banner announces it (where, from which side, how long)
     return true;
   }
 
@@ -331,11 +323,8 @@ export class InkTide {
     this.ctx.events.emit('tide:end', { held });
     if (held) {
       this.ctx.apply({ kind: 'tideHeld', city: this.layout.id });
-      this.ctx.events.emit('toast', {
-        text: `${repelled ? '墨潮被推回去了' : '守住了街区'}！通用颜料 +${T.reward.generic}，墨 +${T.reward.ink}`,
-        seconds: 5,
-      });
-    } else this.ctx.events.emit('toast', { text: '街区失守：墨潮带走了颜色', seconds: 5 });
+      this.ctx.events.emit('toast', { text: repelled ? '墨潮被推回去了' : '守住了街区', seconds: 4 });
+    } else this.ctx.events.emit('toast', { text: '街区失守', seconds: 4 });
   }
 
   dispose(): void {

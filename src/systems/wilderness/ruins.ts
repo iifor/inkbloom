@@ -107,9 +107,7 @@ export class WildRuins {
       const name = PALETTE[ruin.color]!.name;
       const tpl = RUINS[ruin.template]!.name;
       this.ctx.events.emit('toast', {
-        text: knew
-          ? `在${tpl}找到一支${name}蜡笔：已经有了，换成 ${TUNING.structures.ruinPigment} 份${name}颜料`
-          : `在${tpl}找到新颜色：${name}！涂鸦时可以用了`,
+        text: knew ? `${name}颜料 +${TUNING.structures.ruinPigment}` : `在${tpl}找到新颜色：${name}`,
         seconds: 5,
       });
     }

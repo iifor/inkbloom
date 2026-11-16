@@ -157,12 +157,8 @@ export class CityScene implements GameScene {
     if (!this.blocks().every((b) => b === 'colored' || b === 'thriving')) return;
     const hadGlider = this.ctx.state.inventory.glider;
     if (!this.ctx.apply({ kind: 'complete', city: this.layout.id }).ok) return;
-    if (!hadGlider) this.ctx.events.emit('toast', { text: '得到纸飞机：在空中按住空格就能滑翔', seconds: 8 });
-    const r = TUNING.city.completeReward;
-    this.ctx.events.emit('toast', {
-      text: `${this.layout.name}恢复了颜色！通用颜料 +${r.generic}，墨 +${r.ink}。周围的野外也会亮起来`,
-      seconds: 8,
-    });
+    this.ctx.events.emit('title', { text: `${this.layout.name}恢复了颜色`, sub: '周围的野外也亮了起来' });
+    if (!hadGlider) this.ctx.events.emit('toast', { text: '得到纸飞机：在空中按住空格滑翔', seconds: 6 });
     this.ctx.events.emit('city:completed', { city: this.layout.id, name: this.layout.name });
   }
 

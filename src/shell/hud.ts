@@ -1,5 +1,10 @@
 // Plain-DOM heads-up display. Reads game state once per frame and only touches the DOM when a
 // value changed. Menus will move to a UI framework later; the HUD stays plain DOM.
+//
+// A quiet HUD: most of the time only the crosshair is on screen. Things appear when they have
+// something to say and fade again: the objective when it changes (or on J), resources when
+// they change, block progress while painting, tool names after switching, health when hurt,
+// a title card on arriving somewhere. Lessons (toast `once`) show the first time only.
 import { PALETTE } from '@/content/palette';
 import { TUNING } from '@/content/tuning';
 import type { GameContext, System } from '@/game/types';
@@ -11,13 +16,23 @@ import { SIDE_NAMES, type TideStatus } from '@/systems/city/ink-tide';
 import { BLOCK_NAMES, blockState } from '@/world/city/blocks';
 import { levelProgress } from '@/world/progression';
 import { WEAPONS } from '@/content/weapons';
+import { lesson } from './hints';
 
+/** Seconds things stay up after they change. */
+const SHOW = { goal: 8, recall: 6, res: 3, slots: 2.5, title: 3.5, fullHealth: 2 } as const;
+/** Most messages on screen at once; the oldest goes first. */
+const MAX_TOASTS = 3;
+
+/** HUD time, in seconds: wall clock, so fades run on while the game is paused too. */
+const now = (): number => performance.now() / 1000;
 function tideLine(t: TideStatus | null, here: number): string {
   if (!t) return '';
   const where = t.chunk === here ? '本街区' : '附近街区';
-  if (t.phase === 'warning') return `墨潮 ${Math.ceil(t.seconds)} 秒后从${SIDE_NAMES[t.from]}边涌向${where}`;
-  const action = t.blocked ?? (t.pushing ? '正在推回墨潮' : '对准墨帘按住左键推回（消耗通用颜料）');
-  return `墨潮侵入${where} ${Math.round(t.front * 100)}% · 剩 ${Math.ceil(t.seconds)} 秒 · ${action}`;
+  if (t.phase === 'warning')
+    return `墨潮 · ${Math.ceil(t.seconds)} 秒后从${SIDE_NAMES[t.from]}边涌向${where}`;
+  // how to push it back is a lesson when the wave starts; here only what is happening
+  const state = t.blocked ?? (t.pushing ? '推回中' : '');
+  return `墨潮 ${Math.round(t.front * 100)}% · ${Math.ceil(t.seconds)} 秒${state ? ` · ${state}` : ''}`;
 }
 
 const LOW_HEALTH = TUNING.combat.feel.lowHealth;
@@ -42,11 +57,24 @@ export class Hud implements System {
     | 'barFill'
     | 'prompt'
     | 'toasts'
-    | 'swatch',
+    | 'swatch'
+    | 'title'
+    | 'titleText'
+    | 'titleSub'
+    | 'tool',
     HTMLElement
   >;
   private readonly cache = new Map<string, string>();
   private readonly release: (() => void)[] = [];
+  /** HUD times until which each part stays up (see SHOW). */
+  private goalUntil = 0;
+  private recallUntil = 0;
+  private resUntil = 0;
+  private slotsUntil = 0;
+  private fullSince = 0;
+  private goalSeenAt = -Infinity;
+  private lastRes = '';
+  private lastTool = -1;
 
   constructor(
     private readonly ctx: GameContext,
@@ -64,8 +92,9 @@ export class Hud implements System {
       <div class="hud-hp" data-k="hp"><i data-k="hpFill"></i></div>
       <div class="hud-bar" data-k="bar"><i data-k="barFill"></i></div>
       <div class="hud-prompt" data-k="prompt"></div>
-      <div class="hud-tool"><div class="hud-slots" data-k="slots"></div><span class="hud-swatch" data-k="swatch"></span><div data-k="lines"></div></div>
-      <div class="hud-toasts" data-k="toasts"></div>`;
+      <div class="hud-tool" data-k="tool"><div class="hud-slots" data-k="slots"></div><span class="hud-swatch" data-k="swatch"></span><div data-k="lines"></div></div>
+      <div class="hud-toasts" data-k="toasts"></div>
+      <div class="hud-title" data-k="title"><b data-k="titleText"></b><span data-k="titleSub"></span></div>`;
     const q = (k: string): HTMLElement => root.querySelector<HTMLElement>(`[data-k="${k}"]`)!;
     this.el = {
       place: q('place'),
@@ -84,18 +113,29 @@ export class Hud implements System {
       prompt: q('prompt'),
       toasts: q('toasts'),
       swatch: q('swatch'),
+      title: q('title'),
+      titleText: q('titleText'),
+      titleSub: q('titleSub'),
+      tool: q('tool'),
     };
-    this.release.push(ctx.events.on('toast', ({ text, seconds }) => this.toast(text, seconds)));
+    this.release.push(
+      ctx.events.on('toast', ({ text, seconds, once }) => {
+        // a lesson already learned is not repeated
+        if (once && !lesson(once)) return;
+        this.toast(text, seconds);
+      }),
+    );
+    this.release.push(ctx.events.on('title', ({ text, sub }) => this.title(text, sub)));
     this.release.push(ctx.events.on('player:hurt', () => this.flash(this.el.hurt, 'on', 250)));
-    this.release.push(ctx.events.on('growth:level', ({ level }) => this.toast(`升到 ${level} 级！`, 4)));
+    this.release.push(ctx.events.on('growth:level', ({ level }) => this.toast(`升到 ${level} 级`, 4)));
     this.release.push(
       ctx.events.on('weapon:unlocked', ({ key }) => {
         const w = WEAPONS.find((x) => x.key === key);
-        if (w) this.toast(`得到新武器：${w.name}（按 2 拿武器，Q/R 切换，G：${w.skill.name}）`, 6);
+        if (w) this.toast(`得到新武器：${w.name}`, 5);
       }),
     );
     this.release.push(
-      ctx.events.on('growth:points', ({ gained }) => this.toast(`获得 ${gained} 个属性点，按 Tab 分配`, 5)),
+      ctx.events.on('growth:points', ({ gained }) => this.toast(`获得 ${gained} 个属性点（Tab）`, 4)),
     );
     this.release.push(
       // hit marker: a cross round the crosshair; a bigger red one for a kill
@@ -121,14 +161,59 @@ export class Hud implements System {
   }
 
   toast(text: string, seconds = 2.5): void {
+    const box = this.el.toasts;
+    // the same message twice in a row says nothing new
+    for (const c of box.children) if (c.textContent === text) return;
+    while (box.children.length >= MAX_TOASTS) box.firstElementChild?.remove();
     const t = document.createElement('div');
     t.textContent = text;
-    this.el.toasts.append(t);
+    box.append(t);
     setTimeout(() => t.remove(), seconds * 1000);
   }
 
+  /** A place name across the upper screen; update() fades it in, holds it, fades it out. */
+  private title(text: string, sub?: string): void {
+    this.el.titleText.textContent = text;
+    this.el.titleSub.textContent = sub ?? '';
+    this.titleAt = now();
+  }
+
+  private titleAt = -Infinity;
+
+  /** The title card's opacity at HUD time t: in over 0.8 s, held, out over 1 s. */
+  private titleFade(t: number): number {
+    const age = t - this.titleAt;
+    if (age < 0.8) return age / 0.8;
+    if (age < SHOW.title) return 1;
+    return Math.max(0, 1 - (age - SHOW.title));
+  }
+
+  /** Show or hide an element with the HUD's fade (only touching the DOM on a change). */
+  private shown(key: string, el: HTMLElement, on: boolean): void {
+    const v = on ? '1' : '0';
+    if (this.cache.get(`shown:${key}`) === v) return;
+    this.cache.set(`shown:${key}`, v);
+    el.classList.toggle('quiet', !on);
+  }
+
   update(): void {
+    const t = now();
     const scene = this.scenes.active;
+    const brush = this.belt.active?.id === 'brush';
+    if (this.ctx.input.pressed('goal')) this.recallUntil = t + SHOW.recall;
+    if (this.objectives.changedAt !== this.goalSeenAt) {
+      this.goalSeenAt = this.objectives.changedAt;
+      this.goalUntil = t + SHOW.goal;
+    }
+    const recall = t < this.recallUntil;
+    // driven from here rather than a CSS transition, so it fades the same in every browser
+    const fade = this.titleFade(t).toFixed(2);
+    if (this.cache.get('titleFade') !== fade) {
+      this.cache.set('titleFade', fade);
+      this.el.title.style.opacity = fade;
+      this.el.title.style.transform = `translate(-50%, ${((1 - Number(fade)) * 8).toFixed(1)}px)`;
+    }
+    const goalOn = recall || t < this.goalUntil;
     this.set('place', this.el.place, scene.name);
     if (scene instanceof CityScene) {
       const chunk = scene.chunkAt(this.ctx.player.position);
@@ -144,12 +229,25 @@ export class Hud implements System {
       this.set('progress', this.el.progress, '');
       this.set('tide', this.el.tide, '');
     }
+    // block progress is for painting: only while the brush is out in a city (or on J)
+    const progressOn = scene instanceof CityScene && (brush || recall);
+    this.shown('progress', this.el.progress, progressOn);
     const inv = this.ctx.state.inventory;
     const g = this.ctx.state.growth;
     const lp = levelProgress(g.xp);
     const lv = `Lv ${lp.level}${lp.need ? ` (${lp.into}/${lp.need})` : ''}${g.points ? ` · ${g.points} 属性点（Tab）` : ''}`;
-    this.set('res', this.el.res, `${lv} · 墨 ${inv.ink} · 通用颜料 ${inv.generic}`);
+    const res = `${lv} · 墨 ${inv.ink} · 通用颜料 ${inv.generic}`;
+    if (res !== this.lastRes) {
+      // the very first value is not news
+      if (this.lastRes) this.resUntil = t + SHOW.res;
+      this.lastRes = res;
+    }
+    this.set('res', this.el.res, res);
+    const resOn = recall || t < this.resUntil;
+    this.shown('res', this.el.res, resOn);
     this.set('goal', this.el.goal, this.objectives.text);
+    this.shown('goal', this.el.goal, goalOn);
+    this.shown('place', this.el.place.parentElement!, goalOn || resOn || progressOn);
     const { hp, maxHp, alive } = this.ctx.combat;
     const pct = `${Math.round((hp / maxHp) * 100)}%`;
     if (this.cache.get('hp') !== pct) {
@@ -161,12 +259,23 @@ export class Hud implements System {
       this.el.lowhp.style.opacity = low.toFixed(2);
     }
     this.el.hurt.classList.toggle('dead', !alive);
+    // health is news only when it is not full
+    if (hp < maxHp || !alive) this.fullSince = t;
+    this.shown('hp', this.el.hp, t - this.fullSince < SHOW.fullHealth);
 
     this.set(
       'slots',
       this.el.slots,
-      this.belt.tools.map((t, i) => `${i === this.belt.index ? '▸' : ' '}${i + 1} ${t.name}`).join('   '),
+      this.belt.tools
+        .map((tool, i) => `${i === this.belt.index ? '▸' : ' '}${i + 1} ${tool.name}`)
+        .join('   '),
     );
+    // which slot is which: shown for a moment after switching
+    if (this.belt.index !== this.lastTool) {
+      if (this.lastTool >= 0) this.slotsUntil = t + SHOW.slots;
+      this.lastTool = this.belt.index;
+    }
+    this.shown('slots', this.el.slots, recall || t < this.slotsUntil);
     const hud = this.belt.active?.hud();
     const glide = this.ctx.player.gliding ? '\n纸飞机滑翔中' : '';
     this.set('lines', this.el.lines, (hud?.lines.join('\n') ?? '') + glide);

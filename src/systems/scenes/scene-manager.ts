@@ -53,7 +53,10 @@ export class SceneManager implements SceneApi, System {
     this.switchTo(this.city);
     const s = this.city.spawn();
     player.teleport(s.pos, s.yaw);
-    this.ctx.events.emit('toast', { text: `${layout.name}：颜色被抽走了` });
+    this.ctx.events.emit('title', {
+      text: layout.name,
+      sub: this.ctx.state.cities.get(layout.id)?.completed ? undefined : '颜色被抽走了',
+    });
   }
 
   enterWild(at?: { pos: THREE.Vector3; yaw: number }): void {
@@ -105,7 +108,7 @@ export class SceneManager implements SceneApi, System {
       this.wild.ensureAt(target.pos.x, target.pos.z);
       this.ctx.player.teleport(target.pos, target.yaw);
     } else this.enterWild({ pos: target.pos, yaw: target.yaw });
-    this.ctx.events.emit('toast', { text: `传送到${target.name}`, seconds: 3 });
+    this.ctx.events.emit('title', { text: target.name });
   }
 
   travelAction(fromCity: string): { label(): string | null; activate(): void } {

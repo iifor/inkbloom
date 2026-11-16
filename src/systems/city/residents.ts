@@ -77,7 +77,7 @@ export class Residents {
     const old = this.signs[i]!;
     old.geometry.dispose();
     old.geometry = this.signGeometry(r.door, color('cream'));
-    this.ctx.events.emit('toast', { text: `${r.resident}的心愿完成了！通用颜料 +10，墨 +10`, seconds: 4 });
+    this.ctx.events.emit('toast', { text: `${r.resident}的心愿完成了`, seconds: 4 });
   }
 
   /** Requests in a block not yet done. */

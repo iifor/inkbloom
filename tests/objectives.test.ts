@@ -38,7 +38,7 @@ describe('objectives', () => {
   });
 
   it('in a city: paint, then refine, then soak up stains, then go home', () => {
-    expect(objective({ ...base, scene: 'city', city }).text).toContain('有色街区 1 / 4');
+    expect(objective({ ...base, scene: 'city', city }).text).toContain('有色街区 1/4');
     expect(objective({ ...base, scene: 'city', city, generic: 0, ink: 5 }).target).toEqual(city.studio);
     expect(objective({ ...base, scene: 'city', city, generic: 0, ink: 1 }).target).toEqual(city.stain);
     expect(objective({ ...base, scene: 'city', city, generic: 0, ink: 1 }).text).toContain('墨渍');
@@ -84,9 +84,12 @@ describe('wish objectives', () => {
 describe('combat objectives', () => {
   it('sends the player at a guarded block with the rifle', () => {
     const guarded = { ...city, guards: 3, nearestGuard: { x: 5, z: 5 } };
-    expect(objective({ ...base, scene: 'city', city: guarded }).text).toContain('按 2 换武器');
+    // the how-to is a lesson the HUD shows the first time or two
+    const unarmed = objective({ ...base, scene: 'city', city: guarded });
+    expect(unarmed.text).toContain('3 只墨怪');
+    expect(unarmed.teach?.text).toContain('按 2');
     const armed = objective({ ...base, scene: 'city', city: { ...guarded, holdsWeapon: true } });
-    expect(armed.text).toContain('左键攻击');
+    expect(armed.teach?.text).toContain('左键攻击');
     expect(armed.target).toEqual({ x: 5, z: 5 });
   });
 

@@ -23,6 +23,10 @@ export class Brush implements Tool {
   private target: number | null = null;
   private progress = 0;
   private hint = '';
+  /** The wilderness lesson is offered once per session (and shown once ever; see shell/hints). */
+  private toldWild = false;
+  /** The how-to lesson is offered on the first frame the brush is held. */
+  private toldUse = false;
   private stroking = false;
   private readonly hitPoint = { x: 0, y: 0, z: 0 };
   /** A stroke the save rejected; not retried until the target, mode or colour changes. */
@@ -38,7 +42,20 @@ export class Brush implements Tool {
 
   update(dt: number): void {
     const { input, scenes, player } = this.ctx;
-    if (input.pressed('alt')) this.mode = this.mode === 'restore' ? 'graffiti' : 'restore';
+    // on its first frame in hand (the brush is held from the start, before the HUD listens)
+    if (!this.toldUse) {
+      this.toldUse = true;
+      this.ctx.events.emit('toast', {
+        text: '按住左键还色 · 右键切换修复 / 涂鸦',
+        seconds: 5,
+        once: 'brush-use',
+      });
+    }
+    if (input.pressed('alt')) {
+      this.mode = this.mode === 'restore' ? 'graffiti' : 'restore';
+      if (this.mode === 'graffiti')
+        this.ctx.events.emit('toast', { text: 'Q/R 或滚轮换颜色', seconds: 4, once: 'graffiti-colours' });
+    }
     const wheel = input.takeWheel();
     if (input.pressed('nextColor') || wheel > 0) this.colorIndex++;
     if (input.pressed('prevColor') || wheel < 0) this.colorIndex--;
@@ -47,7 +64,15 @@ export class Brush implements Tool {
     if (scene.ref.kind !== 'city') {
       this.target = null;
       this.progress = 0;
-      this.hint = '野外的颜色会随附近城市一起恢复';
+      this.hint = '';
+      if (!this.toldWild) {
+        this.toldWild = true;
+        this.ctx.events.emit('toast', {
+          text: '野外的颜色会随附近的城一起恢复',
+          seconds: 5,
+          once: 'wild-colour',
+        });
+      }
       this.setStroking(false);
       return;
     }
@@ -60,10 +85,7 @@ export class Brush implements Tool {
     if (curtain !== null && curtain < (hit?.dist ?? tier.range)) {
       this.target = null;
       this.progress = 0;
-      this.hint =
-        curtain > TUNING.tide.pushRange
-          ? '墨帘挡住了：走近一点，按住左键把墨潮推回去'
-          : '按住左键把墨潮推回去';
+      this.hint = curtain > TUNING.tide.pushRange ? '走近墨帘' : '按住左键推回墨潮';
       this.setStroking(input.held('use') && curtain <= TUNING.tide.pushRange);
       return;
     }
@@ -148,12 +170,16 @@ export class Brush implements Tool {
     const modeLine =
       this.mode === 'restore'
         ? `修复 · 通用颜料 ${inv.generic}`
-        : `涂鸦 · ${PALETTE[this.color]!.name} ${inv.colored[this.color] ?? 0}（Q/R 或滚轮换色）`;
+        : `涂鸦 · ${PALETTE[this.color]!.name} ${inv.colored[this.color] ?? 0}`;
     return {
-      lines: [modeLine, '右键切换修复 / 涂鸦', this.hint].filter(Boolean),
+      lines: [modeLine, this.hint].filter(Boolean),
       progress: this.target !== null && this.progress > 0 ? this.progress : null,
       swatch: this.mode === 'graffiti' ? this.color : null,
     };
+  }
+
+  onEquip(): void {
+    this.toldUse = false;
   }
 
   onUnequip(): void {

@@ -1,7 +1,7 @@
 // A city's monsters: the strongholds guarding drained blocks (saved when defeated) and the
 // monsters an ink tide brings (gone when the tide ends).
 import * as THREE from 'three';
-import { ENEMIES, enemyIndex } from '@/content/enemies';
+import { enemyIndex } from '@/content/enemies';
 import { TUNING } from '@/content/tuning';
 import type { PhysicsWorld } from '@/engine/physics/world';
 import type { GameContext } from '@/game/types';
@@ -52,13 +52,9 @@ export class CityMonsters {
   private defeat(i: number): void {
     const m = this.layout.monsters[i]!;
     if (!this.ctx.apply({ kind: 'defeat', city: this.layout.id, monster: i }).ok) return;
-    const def = ENEMIES[m.type]!;
-    this.ctx.events.emit('toast', {
-      text: `打败了${def.name}　墨 +${def.ink}，它抢走的颜色回来了`,
-      seconds: 2,
-    });
+    // the kill shows itself (colour bursts back, the ink count ticks up): no message
     if (standingMonsters(this.layout, this.defeated, m.chunk).length === 0)
-      this.ctx.events.emit('toast', { text: '这个街区的墨怪都赶走了，可以上色了！', seconds: 4 });
+      this.ctx.events.emit('toast', { text: '墨怪赶走了，可以上色了', seconds: 3 });
   }
 
   /** Stronghold monsters still standing in a block. */

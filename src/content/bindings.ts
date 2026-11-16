@@ -20,6 +20,7 @@ export const ACTIONS = [
   'prevColor',
   'pause',
   'character',
+  'goal',
   'debugFly',
   'debugPanel',
 ] as const;
@@ -50,6 +51,7 @@ export const KEYS: Readonly<Record<string, Action>> = {
   Digit4: 'slot4',
   Escape: 'pause',
   Tab: 'character',
+  KeyJ: 'goal',
   F2: 'debugFly',
   F3: 'debugPanel',
 };

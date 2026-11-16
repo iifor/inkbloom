@@ -10,6 +10,14 @@ export class Marker implements Tool {
 
   constructor(private readonly ctx: GameContext) {}
 
+  onEquip(): void {
+    this.ctx.events.emit('toast', {
+      text: `左键放下标记（${TUNING.marks.cost} 通用颜料）· 右键收回附近的`,
+      seconds: 5,
+      once: 'marker-use',
+    });
+  }
+
   update(): void {
     const { input, scenes, player, state } = this.ctx;
     if (!this.ctx.combat.alive) return;
@@ -21,10 +29,14 @@ export class Marker implements Tool {
       const p = player.position;
       const r = this.ctx.apply({ kind: 'mark', x: p.x, y: p.y, z: p.z });
       this.ctx.events.emit('toast', {
-        text: r.ok
-          ? `放下了墨迹标记（${state.marks.length}/${TUNING.marks.max}）：在已恢复的城或标记旁按 F 传送`
-          : r.reason,
+        text: r.ok ? `放下墨迹标记 ${state.marks.length}/${TUNING.marks.max}` : r.reason,
       });
+      if (r.ok)
+        this.ctx.events.emit('toast', {
+          text: '在已恢复的城或标记旁按 F 传送',
+          seconds: 5,
+          once: 'mark-travel',
+        });
     }
     if (input.pressed('alt')) {
       const p = player.position;
@@ -36,17 +48,14 @@ export class Marker implements Tool {
         return;
       }
       if (this.ctx.apply({ kind: 'unmark', id: near.m.id }).ok)
-        this.ctx.events.emit('toast', { text: '收回了墨迹标记（颜料不退）' });
+        this.ctx.events.emit('toast', { text: '收回了墨迹标记' });
     }
   }
 
   hud(): ToolHud {
     const n = this.ctx.state.marks.length;
     return {
-      lines: [
-        `墨迹标记 ${n} / ${TUNING.marks.max}`,
-        `左键放置（${TUNING.marks.cost} 通用颜料）· 右键收回附近的`,
-      ],
+      lines: [`墨迹标记 ${n} / ${TUNING.marks.max}`],
       progress: null,
       swatch: null,
     };

@@ -108,9 +108,7 @@ export class Studios {
     const r = this.ctx.apply({ kind: 'upgrade', tool: 'brush' });
     const tier = BRUSH_TIERS[this.ctx.state.inventory.brushTier]!;
     this.ctx.events.emit('toast', {
-      text: r.ok
-        ? `换上了${tier.name}：够得更远（${tier.range} 米），涂得更快（${tier.secondsPerSurface} 秒一面）`
-        : r.reason,
+      text: r.ok ? `换上了${tier.name}` : r.reason,
       seconds: r.ok ? 5 : 2.5,
     });
   }

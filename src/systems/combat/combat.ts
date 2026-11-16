@@ -142,7 +142,8 @@ export class CombatSystem implements System, CombatApi {
     const lost = before - this.ctx.state.inventory.ink;
     this.ctx.events.emit('player:died', { lostInk: lost });
     this.ctx.events.emit('toast', {
-      text: lost > 0 ? `你被墨吞没了，掉了 ${lost} 墨，回到倒下的地方可以捡回来` : '你被墨吞没了',
+      // the objective then points back to the dropped ink
+      text: lost > 0 ? `被墨吞没了，掉了 ${lost} 墨` : '被墨吞没了',
       seconds: 5,
     });
   }

@@ -40,42 +40,61 @@ export interface Situation {
 }
 
 export interface Objective {
+  /** What to do, in a few words. */
   readonly text: string;
   readonly target: Point | null;
+  /** How to do it, for the first time or two only (the HUD keeps count; see shell/hints.ts). */
+  readonly teach?: { readonly id: string; readonly text: string };
 }
 
 export function objective(s: Situation): Objective {
-  if (s.drop && s.drop.ink > 0) return { text: `去捡回掉落的 ${s.drop.ink} 墨（红旗处）`, target: s.drop };
+  if (s.drop && s.drop.ink > 0) return { text: `捡回掉落的 ${s.drop.ink} 墨`, target: s.drop };
   if (s.scene === 'city' && s.city) {
     const c = s.city;
-    if (c.completed) return { text: `${c.name}恢复了！走出城门，去找下一座城`, target: c.gate };
+    if (c.completed) return { text: `${c.name}恢复了 · 去找下一座城`, target: c.gate };
     if (c.guards > 0)
       return {
-        text: c.holdsWeapon
-          ? `这个街区有 ${c.guards} 只墨怪守着：按住左键攻击赶走它们`
-          : `这个街区有 ${c.guards} 只墨怪守着：按 2 换武器`,
+        text: `赶走这个街区的 ${c.guards} 只墨怪`,
         target: c.nearestGuard,
+        teach: c.holdsWeapon
+          ? { id: 'attack', text: '按住左键攻击' }
+          : { id: 'draw-weapon', text: '按 2 拿武器' },
       };
     if (c.wishes > 0)
       return {
-        text: `这个街区有了颜色，还有 ${c.wishes} 位居民有心愿（门口的彩色牌子）：完成后街区繁荣，画室会产出颜料`,
+        text: `还有 ${c.wishes} 位居民有心愿`,
         target: c.nearestWish,
+        teach: { id: 'wishes', text: '门口的彩色牌子；都完成后街区繁荣，画室产出颜料' },
       };
     if (s.generic < 1) {
       if (s.ink >= s.inkPerGeneric && c.studio)
-        return { text: '去画室把墨提炼成通用颜料（找橙色招牌，按 E）', target: c.studio };
-      if (c.stain) return { text: '颜料用完了：走过路上的墨渍吸墨，再去画室提炼', target: c.stain };
-      return { text: '颜料用完了：回野外采颜料', target: c.gate };
+        return { text: '去画室提炼颜料', target: c.studio, teach: { id: 'studio', text: '橙色招牌，按 E' } };
+      if (c.stain)
+        return {
+          text: '颜料用完了 · 去吸路上的墨渍',
+          target: c.stain,
+          teach: { id: 'stains', text: '走过墨渍就能吸墨，再去画室提炼' },
+        };
+      return { text: '颜料用完了 · 回野外采', target: c.gate };
     }
     return {
-      text: `把街区涂回颜色（按住左键）：有色街区 ${c.coloredBlocks} / ${c.blocks}，每个街区要 70%`,
+      text: `涂回颜色 · 有色街区 ${c.coloredBlocks}/${c.blocks}`,
       target: null,
+      teach: { id: 'paint', text: '按住左键；每个街区要 70%' },
     };
   }
   if (!s.visitedCity && s.nextCity)
-    return { text: `去远处的塔楼：那是${s.nextCity.name}的入口，按 E 进城`, target: s.nextCity };
+    return {
+      text: `去远处的塔楼：${s.nextCity.name}`,
+      target: s.nextCity,
+      teach: { id: 'enter-city', text: '走到门口按 E 进城' },
+    };
   if (s.generic < 1 && s.ink < s.inkPerGeneric)
-    return { text: '采颜料：花田、浆果丛、矿脉、芦苇丛，走近按 E', target: null };
+    return {
+      text: '去野外采颜料',
+      target: null,
+      teach: { id: 'harvest', text: '花田、浆果丛、矿脉、芦苇丛，走近按 E' },
+    };
   if (s.nextCity)
     return {
       text: s.restoredCities > 0 ? `下一座城：${s.nextCity.name}` : `回${s.nextCity.name}，把颜色还回去`,

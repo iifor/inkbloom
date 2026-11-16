@@ -170,6 +170,18 @@ export class WeaponSlot implements Tool {
     this.equipped = true;
     this.sync();
     this.show();
+    this.ctx.events.emit('toast', {
+      text: '左键攻击 · 右键装弹或瞄准 · Q/R 换武器 · G 技能',
+      seconds: 5,
+      once: 'weapon-use',
+    });
+    const h = this.current;
+    if (h)
+      this.ctx.events.emit('toast', {
+        text: `G ${h.def.skill.name}：${h.def.skill.help}`,
+        seconds: 5,
+        once: `skill:${h.def.key}`,
+      });
   }
 
   onUnequip(): void {
@@ -252,6 +264,13 @@ export class WeaponSlot implements Tool {
     const n = this.ctx.state.inventory.weapons.length;
     this.index = (((this.index + step) % n) + n) % n;
     this.show();
+    const h = this.current;
+    if (h)
+      this.ctx.events.emit('toast', {
+        text: `G ${h.def.skill.name}：${h.def.skill.help}`,
+        seconds: 5,
+        once: `skill:${h.def.key}`,
+      });
   }
 
   private power(): { weapon: number; skill: number } {
@@ -448,18 +467,10 @@ export class WeaponSlot implements Tool {
     if (!h) return { lines: ['还没有武器'], progress: null, swatch: null };
     const def = h.def;
     const ammo = def.magazine ? ` ${h.mag} / ${def.magazine}` : '';
-    const skill =
-      h.skillT > 0
-        ? `G ${def.skill.name}（${Math.ceil(h.skillT)} 秒）`
-        : `G ${def.skill.name}：${def.skill.help}`;
-    const owned = this.ctx.state.inventory.weapons.length;
-    const zoom = def.key === 'sniper' ? ' · 右键瞄准' : def.magazine ? ' · 右键装弹' : '';
+    // what it is and what is left; how to use it is a lesson on first equip (see onEquip)
+    const cooling = h.skillT > 0 ? `${def.skill.name} ${Math.ceil(h.skillT)} 秒` : '';
     return {
-      lines: [
-        `${def.name}${ammo}${h.reloading > 0 ? ' 装弹中…' : ''}`,
-        skill,
-        `左键攻击${zoom}${owned > 1 ? ` · Q/R 换武器（${owned} 把）` : ''}`,
-      ],
+      lines: [`${def.name}${ammo}${h.reloading > 0 ? ' 装弹中…' : ''}`, cooling].filter(Boolean),
       progress: h.reloading > 0 && def.reload ? 1 - h.reloading / def.reload : null,
       swatch: null,
     };

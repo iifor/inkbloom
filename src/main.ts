@@ -88,7 +88,11 @@ async function boot(): Promise<void> {
       menu.hide();
       canvas.focus();
       if (!(await input.requestLock()))
-        game.ctx.events.emit('toast', { text: '浏览器拒绝了鼠标捕获：按住鼠标拖动来转视角', seconds: 5 });
+        game.ctx.events.emit('toast', {
+          text: '浏览器拒绝了鼠标捕获：按住鼠标拖动来转视角',
+          seconds: 5,
+          once: 'pointer-lock',
+        });
     },
     newWorld() {
       void game.save.flush().then(() => openWorld(`w${Date.now().toString(36)}`));

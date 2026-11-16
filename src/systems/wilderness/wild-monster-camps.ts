@@ -3,7 +3,6 @@
 // `wildRespawnSeconds` of play (a `hunt` patch). They path over a terrain NavGrid built from
 // the loaded chunks, with trees and city towers blocked.
 import * as THREE from 'three';
-import { ENEMIES } from '@/content/enemies';
 import { TUNING } from '@/content/tuning';
 import type { PhysicsWorld } from '@/engine/physics/world';
 import type { GameContext } from '@/game/types';
@@ -80,9 +79,8 @@ export class WildMonsterCamps {
         tag: key,
         colors,
         onDefeat: () => {
-          if (!this.ctx.apply({ kind: 'hunt', monster: m.id }).ok) return;
-          const def = ENEMIES[m.type]!;
-          this.ctx.events.emit('toast', { text: `打败了${def.name}　墨 +${def.ink}`, seconds: 1.5 });
+          // the ink count on the HUD ticks up: no message
+          this.ctx.apply({ kind: 'hunt', monster: m.id });
         },
       });
     }

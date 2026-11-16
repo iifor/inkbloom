@@ -68,9 +68,9 @@ export class WildSources {
     }
     const name = PALETTE[src.color]!.name;
     this.ctx.events.emit('paint:bloom', { at: { x: src.x, y: src.y + 1, z: src.z }, color: src.color });
-    this.ctx.events.emit('toast', { text: `${name}颜料 +${src.amount}　墨 +${src.ink}` });
+    // the pigment counts tick up on the HUD; only a new colour is worth a message
     if (!knew && this.ctx.state.unlocked.includes(src.color))
-      this.ctx.events.emit('toast', { text: `新颜色：${name}！涂鸦时可以用了`, seconds: 4 });
+      this.ctx.events.emit('toast', { text: `新颜色：${name}`, seconds: 4 });
     this.refresh();
   }
 

@@ -8,12 +8,21 @@ import { CityScene } from '@/systems/city/city-scene';
 import type { SceneManager } from '@/systems/scenes/scene-manager';
 import { studioOpen } from '@/world/city/features';
 import { bearing, objective, type Point, type Situation } from '@/world/objectives';
+import { lesson } from './hints';
+
+/** How many times each lesson is added to the objective before the player is trusted with it. */
+const LESSON_TIMES = 2;
 
 export class ObjectiveSystem implements System {
   readonly id = 'objectives';
   /** The line the HUD shows. */
   text = '';
+  /** Seconds of play when the objective itself (not its distance) last changed. */
+  changedAt = -Infinity;
   private t = 0;
+  private last = '';
+  /** The lesson to add to the current objective, decided once when it appears. */
+  private teach = '';
 
   constructor(
     private readonly ctx: GameContext,
@@ -26,13 +35,20 @@ export class ObjectiveSystem implements System {
     if (this.t > 0) return;
     this.t = 0.25;
     const o = objective(this.situation());
+    if (o.text !== this.last) {
+      this.last = o.text;
+      this.changedAt = this.ctx.state.clock;
+      // a lesson counts as shown when its objective appears, so a few showings retire it
+      this.teach = o.teach && lesson(`goal:${o.teach.id}`, LESSON_TIMES) ? o.teach.text : '';
+    }
+    const line = this.teach ? `${o.text}（${this.teach}）` : o.text;
     if (!o.target) {
-      this.text = o.text;
+      this.text = line;
       return;
     }
     const { player } = this.ctx;
     const b = bearing({ x: player.position.x, z: player.position.z }, player.yaw, o.target);
-    this.text = b.metres < 6 ? o.text : `${o.text}　${b.arrow} ${b.metres} 米`;
+    this.text = b.metres < 6 ? line : `${line}　${b.arrow} ${b.metres} 米`;
   }
 
   /** Open wishes in the player's block, once the block itself is coloured. */
