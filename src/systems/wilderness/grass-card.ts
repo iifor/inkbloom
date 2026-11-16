@@ -80,16 +80,17 @@ export function makeGrassCard(): THREE.Texture {
 }
 
 /**
- * A clump: three cards crossed like an asterisk, each a quad `width` wide and `height` tall
+ * A clump: `cards` cards crossed like an asterisk (three by default), each a quad `width` wide
+ * and `height` tall
  * standing on the ground, with the attributes the ink material expects plus uv. Normals point
  * up so a clump shades like the meadow it grows from.
  */
-export function makeCardClump(width = 1, height = 0.8): THREE.BufferGeometry {
+export function makeCardClump(width = 1, height = 0.8, cards = 3): THREE.BufferGeometry {
   const pos: number[] = [];
   const nor: number[] = [];
   const uv: number[] = [];
-  for (let k = 0; k < 3; k++) {
-    const a = (k / 3) * Math.PI;
+  for (let k = 0; k < cards; k++) {
+    const a = (k / cards) * Math.PI;
     const dx = (Math.cos(a) * width) / 2;
     const dz = (Math.sin(a) * width) / 2;
     const corners: [number, number, number, number, number][] = [

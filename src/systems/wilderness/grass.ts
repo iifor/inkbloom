@@ -188,7 +188,9 @@ export class GrassField {
         'near',
         NEAR_WINDOW,
         NEAR_SPACING,
-        instanced(clump.clone(), this.nearMaterial, NEAR_WINDOW ** 2),
+        // four times as dense as the field: two cards a clump are plenty here, and a third
+        // fewer layers of grass to draw right where it fills the most screen
+        instanced(makeCardClump(1.25, 0.8, 2), this.nearMaterial, NEAR_WINDOW ** 2),
       ),
       window(
         'flower',

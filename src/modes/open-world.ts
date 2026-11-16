@@ -2,6 +2,7 @@
 // a feature, write a system and add one line in the list below.
 import { Input } from '@/engine/input/input';
 import { InkRenderer } from '@/engine/render/renderer';
+import { warmShaders } from '@/engine/render/warm-up';
 import { EventBus, type GameEvents } from '@/game/events';
 import { Loop } from '@/game/loop';
 import type { GameContext, System } from '@/game/types';
@@ -66,7 +67,8 @@ export function startOpenWorld(opts: {
   ctx.renderer = new InkRenderer(opts.canvas);
   ctx.input = new Input(opts.canvas, lifetime.signal);
   ctx.wilderness = createWilderness(opts.state.seed);
-  ctx.cities = new CityRegistry(ctx);
+  const cities = new CityRegistry(ctx);
+  ctx.cities = cities;
   ctx.apply = (patch) => {
     const levelBefore = levelOf(ctx.state.growth.xp);
     const pointsBefore = ctx.state.growth.points;
@@ -149,6 +151,8 @@ export function startOpenWorld(opts: {
   ];
 
   scenes.restore(opts.state.player);
+  // compile the shader variants a city or an effect will need now, not on first use
+  warmShaders(ctx.renderer);
 
   const resize = (): void => ctx.renderer.resize();
   window.addEventListener('resize', resize, { signal: lifetime.signal });
@@ -177,6 +181,7 @@ export function startOpenWorld(opts: {
       lifetime.abort();
       for (const s of [...systems].reverse()) s.dispose?.();
       ctx.events.clear();
+      cities.dispose();
       ctx.renderer.dispose();
     },
   };

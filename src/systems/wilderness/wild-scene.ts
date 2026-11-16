@@ -11,7 +11,7 @@ import { disposeTree } from '@/engine/resources';
 import type { GameContext, GameScene } from '@/game/types';
 import { calendarAt, seasonBlend } from '@/world/climate/calendar';
 import { chunkKey, generateWildChunk } from '@/world/wilderness/chunk';
-import { buildChunkGeometry, addChunkColliders } from './build-chunk';
+import { buildChunkSteps, addChunkColliders } from './build-chunk';
 import { buildLandmark } from './build-landmark';
 import { WildSources } from './pigment-sources';
 import { WildMonsterCamps } from './wild-monster-camps';
@@ -25,6 +25,8 @@ interface Loaded {
 }
 
 const W = TUNING.world;
+/** Milliseconds a frame spent building the next chunk. */
+const BUILD_MS = 2;
 
 export class WildScene implements GameScene {
   readonly ref = { kind: 'wild' } as const;
@@ -33,6 +35,8 @@ export class WildScene implements GameScene {
   readonly physics = new PhysicsWorld(8);
   private readonly material = makeInkMaterial();
   private readonly loaded = new Map<string, Loaded>();
+  /** The chunk being built a little each frame, if any; see update(). */
+  private building: { readonly key: string; readonly steps: Generator<void, void, void> } | null = null;
   private drainT = 0;
   private readonly sources: WildSources;
   readonly monsters: WildMonsterCamps;
@@ -70,21 +74,32 @@ export class WildScene implements GameScene {
     const p = this.ctx.player.position;
     const pcx = Math.floor(p.x / W.chunkSize);
     const pcz = Math.floor(p.z / W.chunkSize);
-    // nearest missing chunk first, one per frame
+    // keep building the chunk under way, a couple of milliseconds a frame
+    if (this.building) {
+      const until = performance.now() + BUILD_MS;
+      while (performance.now() < until)
+        if (this.building.steps.next().done) {
+          this.building = null;
+          break;
+        }
+    }
+    // then start on the nearest missing chunk
     let best: [number, number] | null = null;
     let bestD = Infinity;
     for (let dx = -W.loadRadius; dx <= W.loadRadius; dx++)
       for (let dz = -W.loadRadius; dz <= W.loadRadius; dz++) {
         const cx = pcx + dx;
         const cz = pcz + dz;
-        if (this.loaded.has(chunkKey(cx, cz))) continue;
+        const k = chunkKey(cx, cz);
+        if (this.loaded.has(k) || this.building?.key === k) continue;
         const d = dx * dx + dz * dz;
         if (d < bestD) {
           bestD = d;
           best = [cx, cz];
         }
       }
-    if (best) this.load(best[0], best[1]);
+    if (best && !this.building)
+      this.building = { key: chunkKey(best[0], best[1]), steps: this.loadSteps(best[0], best[1]) };
     for (const [key, item] of this.loaded) {
       const [cx, cz] = key.split(',').map(Number) as [number, number];
       if (Math.max(Math.abs(cx - pcx), Math.abs(cz - pcz)) > W.unloadRadius) this.unload(key, item);
@@ -113,18 +128,34 @@ export class WildScene implements GameScene {
     shared.uSceneSat.value = 1;
   }
 
+  /** Load a chunk now, all of it (the player is about to stand there). */
   private load(cx: number, cz: number): void {
     const key = chunkKey(cx, cz);
     if (this.loaded.has(key)) return;
+    // already under way: finish that one rather than build the chunk twice
+    const steps = this.building?.key === key ? this.building.steps : this.loadSteps(cx, cz);
+    if (this.building?.key === key) this.building = null;
+    while (!steps.next().done);
+  }
+
+  /** Loading a chunk as a sequence of steps, each a millisecond or two. */
+  private *loadSteps(cx: number, cz: number): Generator<void, void, void> {
+    const key = chunkKey(cx, cz);
     const chunk = generateWildChunk(this.ctx.wilderness, cx, cz);
-    const g = buildChunkGeometry(chunk, this.ctx.wilderness, new GeometryBuilder());
+    yield;
+    const g = new GeometryBuilder();
+    yield* buildChunkSteps(chunk, this.ctx.wilderness, g);
+    if (this.loaded.has(key)) return;
     const group = `chunk:${key}`;
     addChunkColliders(chunk, this.physics, group);
     const release: (() => void)[] = [];
     if (chunk.entrance) {
       const e = chunk.entrance;
+      // its tower is in view: work the city out in the background before anyone walks in
+      this.ctx.cities.prefetch(e);
       const lm = buildLandmark(e, g, this.physics, group);
-      const cityName = (): string => this.ctx.cities.layout(e).name;
+      // the name arrives with the layout from the city worker; never stall a frame for it
+      const cityName = (): string => this.ctx.cities.nameOf(e) ?? '这座城';
       release.push(
         this.ctx.interactions.add({
           scene: 'wild',
@@ -138,9 +169,11 @@ export class WildScene implements GameScene {
       );
     }
     for (const r of chunk.ruins) buildRuin(r, g, this.physics, group);
+    yield;
     release.push(this.ruins.add(chunk.ruins));
     release.push(this.sources.add(chunk.sources));
     release.push(this.monsters.add(chunk));
+    yield;
     const mesh = new THREE.Mesh(g.build(), this.material);
     mesh.name = group;
     this.root.add(mesh);
@@ -164,6 +197,9 @@ export class WildScene implements GameScene {
   }
 
   dispose(): void {
+    // a chunk half built has already registered things; finish it so it unloads cleanly
+    if (this.building) while (!this.building.steps.next().done);
+    this.building = null;
     for (const [key, item] of [...this.loaded]) this.unload(key, item);
     this.monsters.dispose();
     this.marks.dispose();

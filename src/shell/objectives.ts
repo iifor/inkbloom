@@ -96,6 +96,8 @@ export class ObjectiveSystem implements System {
       .filter((e) => !state.cities.get(e.cityId)?.completed)
       .sort((a, b) => Math.hypot(a.x - p.x, a.z - p.z) - Math.hypot(b.x - p.x, b.z - p.z));
     const e = entrances[0];
-    return { ...base, scene: 'wild', nextCity: e ? { x: e.x, z: e.z, name: cities.layout(e).name } : null };
+    // the name comes with the city's layout, worked out in the background; until then, generic
+    const name = e ? (cities.nameOf(e) ?? '一座城') : '';
+    return { ...base, scene: 'wild', nextCity: e ? { x: e.x, z: e.z, name } : null };
   }
 }

@@ -93,15 +93,34 @@ export function buildChunkGeometry(
   w: Wilderness,
   g = new GeometryBuilder(),
 ): GeometryBuilder {
+  const steps = buildChunkSteps(chunk, w, g);
+  while (!steps.next().done);
+  return g;
+}
+
+/** Rows of terrain (or trees) built between pauses when a chunk is built a little per frame. */
+const ROWS_PER_STEP = 12;
+
+/**
+ * The same work as buildChunkGeometry, pausing (yield) every few rows, so a chunk streamed in
+ * while walking can be built over several frames instead of stalling one.
+ */
+export function* buildChunkSteps(
+  chunk: WildChunk,
+  w: Wilderness,
+  g: GeometryBuilder,
+): Generator<void, void, void> {
   const { n, cell, biomes, x0, z0 } = chunk;
   const size = n * cell;
   const steps = Math.round(size / MESH_STEP);
   // heights at the grid corners, one ring wider so edge normals match the next chunk's
   const side = steps + 3;
   const hs = new Float32Array(side * side);
-  for (let k = 0; k < side; k++)
+  for (let k = 0; k < side; k++) {
     for (let i = 0; i < side; i++)
       hs[k * side + i] = w.heightAt(x0 + (i - 1) * MESH_STEP, z0 + (k - 1) * MESH_STEP);
+    if (k % ROWS_PER_STEP === ROWS_PER_STEP - 1) yield;
+  }
   const H = (i: number, k: number): number => hs[(k + 1) * side + (i + 1)]!;
   const normalAt = (i: number, k: number): THREE.Vector3 =>
     new THREE.Vector3(H(i - 1, k) - H(i + 1, k), 2 * MESH_STEP, H(i, k - 1) - H(i, k + 1)).normalize();
@@ -113,7 +132,9 @@ export function buildChunkGeometry(
     y: H(i, k),
     z: z0 + k * MESH_STEP,
   });
-  for (let k = 0; k < steps; k++)
+  yield;
+  for (let k = 0; k < steps; k++) {
+    if (k % ROWS_PER_STEP === ROWS_PER_STEP - 1) yield;
     for (let i = 0; i < steps; i++) {
       const cx = Math.min(n - 1, Math.floor(((i + 0.5) * MESH_STEP) / cell));
       const cz = Math.min(n - 1, Math.floor(((k + 0.5) * MESH_STEP) / cell));
@@ -132,6 +153,7 @@ export function buildChunkGeometry(
         colour,
       );
     }
+  }
 
   if (chunk.hasWater) {
     const s = n * cell;
@@ -148,7 +170,9 @@ export function buildChunkGeometry(
 
   const m = new THREE.Matrix4();
   const bark = color('bark');
+  let built = 0;
   for (const t of chunk.trees) {
+    if (++built % (ROWS_PER_STEP * 2) === 0) yield;
     const roll = treeRoll(t.x, t.z);
     const isCedar = roll < (t.color === color('canopy') ? CEDAR_SHARE.forest : CEDAR_SHARE.other);
     const trunk = isCedar ? 0.3 : 0.25;
@@ -179,7 +203,6 @@ export function buildChunkGeometry(
       g.meshSmooth(broadleaf, m, t.color);
     }
   }
-  return g;
 }
 
 export function addChunkColliders(chunk: WildChunk, physics: PhysicsWorld, group: string): void {

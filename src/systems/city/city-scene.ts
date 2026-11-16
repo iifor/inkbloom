@@ -66,8 +66,18 @@ export class CityScene implements GameScene {
     });
     this.texture = new SurfaceStateTexture(this.states);
     this.material = makeInkMaterial({ state: this.texture });
-    const g = buildCity(layout, this.physics);
-    this.root.add(new THREE.Mesh(g.build(), this.material));
+    // geometry and colliders worked out ahead of time in the city worker, when they are ready
+    const built = ctx.cities.takeBuilt(layout.id);
+    let geometry: THREE.BufferGeometry;
+    if (built) {
+      geometry = new THREE.BufferGeometry();
+      for (const [name, a] of Object.entries(built.attributes))
+        geometry.setAttribute(name, new THREE.BufferAttribute(a.array, a.itemSize));
+      geometry.computeBoundingSphere();
+      geometry.computeBoundingBox();
+      for (const b of built.boxes) this.physics.addBox(b.group, b.min, b.max, b.data);
+    } else geometry = buildCity(layout, this.physics).build();
+    this.root.add(new THREE.Mesh(geometry, this.material));
     this.stains = new InkStains(ctx, layout, stains, this.material, this.root);
     this.studios = new Studios(ctx, layout, states, (c) => this.progress(c), this.material, this.root);
     this.erosion = new Erosion(ctx, layout, states, this);

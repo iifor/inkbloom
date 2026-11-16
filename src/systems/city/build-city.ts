@@ -3,7 +3,7 @@
 import { color } from '@/content/palette';
 import { BUILDINGS } from '@/content/templates';
 import { TUNING } from '@/content/tuning';
-import type { Decal, PhysicsWorld } from '@/engine/physics/world';
+import type { ColliderData, Decal, Vec3Like } from '@/engine/physics/world';
 import { GeometryBuilder, type BoxFace } from '@/engine/render/geometry-builder';
 import { ROAD_NONE, type Building, type CityLayout } from '@/world/city/layout';
 
@@ -165,7 +165,12 @@ function addPitchedRoof(
   }
 }
 
-export function buildCity(city: CityLayout, physics: PhysicsWorld): GeometryBuilder {
+/** Where buildCity puts colliders: a PhysicsWorld, or a recorder in the city worker. */
+export interface ColliderSink {
+  addBox(group: string, min: Vec3Like, max: Vec3Like, data?: ColliderData): unknown;
+}
+
+export function buildCity(city: CityLayout, physics: ColliderSink): GeometryBuilder {
   const g = new GeometryBuilder();
   const { n, cell, size, roads, buildingOf, blockOf, blocks } = city;
   const stone = color('stone');

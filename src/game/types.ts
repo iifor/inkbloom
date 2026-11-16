@@ -2,7 +2,7 @@
 import type * as THREE from 'three';
 import type { InkRenderer } from '@/engine/render/renderer';
 import type { Input } from '@/engine/input/input';
-import type { PhysicsWorld } from '@/engine/physics/world';
+import type { ColliderData, PhysicsWorld, Vec3Like } from '@/engine/physics/world';
 import type { CityLayout } from '@/world/city/layout';
 import type { Patch, PatchResult } from '@/world/patch';
 import type { SceneRef, WorldState } from '@/world/state';
@@ -80,8 +80,28 @@ export interface SceneApi {
   enterCity(entrance: Entrance): void;
 }
 
+/** A city's geometry and colliders, built ahead of time (off the main thread). */
+export interface BuiltCity {
+  /** Vertex attributes by name (position, normal, aColor, aSurface), as GeometryBuilder makes. */
+  readonly attributes: Readonly<Record<string, { readonly array: Float32Array; readonly itemSize: number }>>;
+  /** addBox calls to replay into the city's physics world. */
+  readonly boxes: readonly {
+    readonly group: string;
+    readonly min: Vec3Like;
+    readonly max: Vec3Like;
+    readonly data: ColliderData;
+  }[];
+}
+
 export interface CityApi {
   layout(entrance: Entrance): CityLayout;
+  /** Start working out a city in the background (layout, geometry, colliders) so entering it
+   * does not stall. Cheap to call again. */
+  prefetch(entrance: Entrance): void;
+  /** The city's name if its layout is ready; otherwise null (and it is prefetched). */
+  nameOf(entrance: Entrance): string | null;
+  /** The city's prebuilt geometry and colliders, if ready; each is handed out once. */
+  takeBuilt(id: string): BuiltCity | undefined;
   /** Layout by id, if it has been generated this session. */
   byId(id: string): CityLayout | undefined;
   entranceOf(id: string): Entrance | undefined;
