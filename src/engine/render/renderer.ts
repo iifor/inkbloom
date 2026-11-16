@@ -38,6 +38,7 @@ uniform vec3 uZenith;
 uniform vec3 uHorizon;
 uniform float uNight;
 uniform int uGlass;
+uniform int uWater;
 uniform float uSkySat;
 uniform float uGloom;
 uniform float uTime;
@@ -69,6 +70,27 @@ float textureOf(float code) {
   int i = indexOf(code); float s = 0.25;
   for (int k = 0; k < ${MAX_COLORS}; k++) if (k == i) s = uTexture[k];
   return s;
+}
+vec2 hash22(vec2 p) { return vec2(hash21(p), hash21(p + 17.31)); }
+/**
+ * Brush dabs: a cellular pattern where each cell is one stroke of paint with its own random
+ * value (-0.5..0.5). Neighbouring strokes blend softly where they meet, like wet paint.
+ */
+float dabs(vec2 p) {
+  vec2 ci = floor(p);
+  vec2 cf = fract(p);
+  float best = 9.0, second = 9.0, id = 0.0, id2 = 0.0;
+  for (int j = -1; j <= 1; j++)
+    for (int i = -1; i <= 1; i++) {
+      vec2 o = vec2(float(i), float(j));
+      vec2 r = o + hash22(ci + o) * 0.85 - cf;
+      float dd = dot(r, r);
+      float v = hash21(ci + o + 3.7);
+      if (dd < best) { second = best; id2 = id; best = dd; id = v; }
+      else if (dd < second) { second = dd; id2 = v; }
+    }
+  float blend = 0.5 * (1.0 - smoothstep(0.0, 0.3, sqrt(second) - sqrt(best)));
+  return mix(id, id2, blend) - 0.5;
 }
 float satOf(float code) { return clamp(fract(code + 0.0005) / 0.9, 0.0, 1.0); }
 vec3 greyOf(vec3 c) { return vec3(dot(c, vec3(0.3, 0.59, 0.11))) * vec3(0.97, 0.98, 1.0); }
@@ -143,12 +165,25 @@ void main() {
     float stroke = vnoise(vec2(bp.x * 2.5, bp.y * 0.6));
     float mott = ((big - 0.5) * 0.3 + (leaf - 0.5) * 0.35) * tex + (stroke - 0.5) * 0.06;
     base *= 1.0 + mott * near;
+    // leaves and grass are painted in dabs: each clump its own stroke, blending into the next;
+    // they blur into plain mottling far away where single dabs would only flicker
+    float dabFade = near * (1.0 - smoothstep(35.0, 90.0, d)) * smoothstep(0.35, 0.8, tex);
+    // strongest on leafy crowns, gentle on flat ground
+    dabFade *= mix(1.0, 0.4, smoothstep(0.85, 0.98, wn.y));
+    float dab = dabs(bp * 1.7);
+    base *= 1.0 + dab * 0.16 * dabFade;
+    // big fields of colour across meadows and hills: warm yellow-green here, cool blue-green there
+    float field = fbm(wpos.xz * 0.011 + 3.0);
+    vec3 warm = base * vec3(1.12, 1.07, 0.8);
+    vec3 cool = base * vec3(0.88, 0.99, 1.06);
+    base = mix(base, mix(cool, warm, smoothstep(0.32, 0.68, field)), tex * near);
     // sunlit dapples in foliage turn yellow-green
     base = mix(base, base * vec3(1.18, 1.14, 0.78), tex * smoothstep(0.55, 0.75, leaf) * 0.55 * near);
 
     // light: sun with a soft, slightly broken terminator; shadow takes the sky's cool blue
     float ndl = s.r * 2.0 - 1.0;
-    float lit = smoothstep(-0.12, 0.38, ndl + (leaf - 0.5) * 0.35 * tex);
+    // each dab catches the light a little differently, so a crown reads as many clumps
+    float lit = smoothstep(-0.12, 0.38, ndl + (leaf - 0.5) * 0.25 * tex + dab * 0.55 * dabFade);
     vec3 shadowTint = uShade * mix(0.9, 1.08, 0.5 + 0.5 * wn.y);
     // leaves and grass go deeper and bluer in shade
     shadowTint = mix(shadowTint, uShade * vec3(0.76, 0.88, 0.8), tex * 0.6);
@@ -170,6 +205,19 @@ void main() {
     // sunlit leaves catch bright yellow-green highlights
     painted += tex * lit * smoothstep(0.52, 0.75, leaf) * vec3(0.1, 0.11, 0.01) * near;
     col = mix(drainedOf(painted), painted, sat);
+    if (indexOf(s.g) == uWater) {
+      // water mirrors the painted sky, more so at a glancing angle; slow ripple bands drift
+      // across it and the sun glints off their crests
+      vec2 rp = wpos.xz;
+      float rip = vnoise(vec2(rp.x * 0.35 + uTime * 0.25, rp.y * 1.6)) * 0.6 + vnoise(rp * 2.3 - uTime * 0.4) * 0.4;
+      vec3 rdir = reflect(rd, normalize(vec3((rip - 0.5) * 0.12, 1.0, (rip - 0.5) * 0.06)));
+      float fres = 0.2 + 0.7 * pow(1.0 - clamp(-rd.y, 0.0, 1.0), 4.0);
+      vec3 water = mix(paletteColor(s.g) * light, skyPaint(rdir), fres);
+      water += vec3(0.92, 0.96, 1.0) * smoothstep(0.76, 0.8, rip) * 0.22 * lit * (1.0 - uNight);
+      float glint = pow(max(0.0, dot(rdir, uSun)), 120.0) * step(0.55, vnoise(rp * 5.0 + uTime * 1.3));
+      water += uSunColor * glint * 1.4 * (1.0 - uNight);
+      col = mix(drainedOf(water), water, sat);
+    }
     // the ink: no paint, a wet sheen where the light catches it
     float solid = solidOf(s.g) * sat;
     vec3 wet = mix(paletteColor(s.g), vec3(0.36, 0.37, 0.44), pow(clamp(ndl, 0.0, 1.0), 6.0) * 0.55);
@@ -331,6 +379,7 @@ export class InkRenderer {
         uHorizon: { value: this.day.horizon },
         uNight: { value: 0 },
         uGlass: { value: color('glass') },
+        uWater: { value: color('water') },
         uSkySat: { value: 1 },
         uGloom: { value: 0 },
         uTime: { value: 0 },

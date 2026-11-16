@@ -15,23 +15,39 @@ import { WATER_LEVEL, type Wilderness } from '@/world/wilderness/generator';
 const MESH_STEP = 2;
 /** Ground steeper than this (rise over run) shows the biome's slope colour. */
 const STEEP = 0.75;
-const crownShape = makeCrown();
+type Lump = [x: number, y: number, z: number, radius: number, detail: number];
+
+/** A broad leafy crown: a heap of clumps, wider than tall, a little flat underneath. */
+const BROADLEAF: readonly Lump[] = [
+  [0, 0, 0, 1, 1],
+  [0.62, 0.12, 0.3, 0.74, 1],
+  [-0.58, 0.1, -0.28, 0.72, 0],
+  [0.1, 0.62, -0.15, 0.66, 0],
+  [-0.28, -0.22, 0.58, 0.62, 0],
+  [0.35, -0.18, -0.6, 0.6, 0],
+  [-0.4, 0.5, 0.35, 0.55, 0],
+];
+
+/** A tall cedar: clumps stacked up the trunk, narrowing to a point. */
+const CEDAR: readonly Lump[] = [
+  [0, 0, 0, 1, 1],
+  [0.12, 0.85, -0.08, 0.84, 1],
+  [-0.08, 1.6, 0.06, 0.68, 0],
+  [0.06, 2.25, 0, 0.5, 0],
+  [0, 2.75, 0.04, 0.32, 0],
+];
+
+const broadleaf = makeCrown(BROADLEAF);
+const cedar = makeCrown(CEDAR);
 
 /**
- * A tree crown like a painted one: a few overlapping lumps of leaves shaded as one soft mass.
- * Each lump is a smooth sphere, but its normals lean out from the crown's centre, so light
- * falls across the whole crown (bright top, cool underside) instead of lump by lump.
+ * A tree crown like a painted one: overlapping clumps of leaves shaded as one soft mass. Each
+ * clump is a smooth sphere, but its normals lean out from the crown's own axis, so light falls
+ * across the whole crown (bright top, cool underside) instead of clump by clump.
  */
-function makeCrown(): THREE.BufferGeometry {
-  const lumps: [number, number, number, number, number][] = [
-    // x, y, z, radius, detail
-    [0, 0, 0, 1, 1],
-    [0.55, 0.22, 0.25, 0.72, 0],
-    [-0.5, 0.18, -0.3, 0.7, 0],
-    [0.05, 0.62, -0.12, 0.62, 0],
-    [-0.2, -0.28, 0.52, 0.6, 0],
-  ];
-  const parts: { pos: number[]; nor: number[] } = { pos: [], nor: [] };
+function makeCrown(lumps: readonly Lump[]): THREE.BufferGeometry {
+  const pos: number[] = [];
+  const nor: number[] = [];
   const c = new THREE.Vector3();
   const v = new THREE.Vector3();
   const n = new THREE.Vector3();
@@ -46,22 +62,31 @@ function makeCrown(): THREE.BufferGeometry {
     for (let i = 0; i < fp.count; i++) {
       v.fromBufferAttribute(fp, i);
       n.fromBufferAttribute(fn, i);
-      // a little lumpiness so the outline is not perfectly round
-      const k = 1 + 0.08 * Math.sin(v.x * 7.1 + v.y * 5.3 + v.z * 3.7 + x * 11);
+      // lumpy, so the outline is not a row of perfect balls
+      const k = 1 + 0.1 * Math.sin(v.x * 7.1 + v.y * 5.3 + v.z * 3.7 + x * 11 + y * 5);
       v.multiplyScalar(k).add(c);
-      out.copy(v).normalize();
+      // out from the crown's axis at this clump's height (one mass, also for a tall cedar)
+      out.set(v.x, v.y - y * 0.85, v.z).normalize();
       n.lerp(out, 0.65).normalize();
-      parts.pos.push(v.x, v.y, v.z);
-      parts.nor.push(n.x, n.y, n.z);
+      pos.push(v.x, v.y, v.z);
+      nor.push(n.x, n.y, n.z);
     }
     flat.dispose();
     g.dispose();
   }
   const crown = new THREE.BufferGeometry();
-  crown.setAttribute('position', new THREE.Float32BufferAttribute(parts.pos, 3));
-  crown.setAttribute('normal', new THREE.Float32BufferAttribute(parts.nor, 3));
+  crown.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  crown.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
   return crown;
 }
+
+/** 0..1 from a tree's position: picks its species without touching generation or saves. */
+const treeRoll = (x: number, z: number): number => {
+  const h = Math.sin(x * 12.9898 + z * 78.233) * 43758.5453;
+  return h - Math.floor(h);
+};
+/** Share of cedars among the trees of the dark forest colour, and among the rest. */
+const CEDAR_SHARE = { forest: 0.4, other: 0.12 };
 
 export function buildChunkGeometry(
   chunk: WildChunk,
@@ -122,18 +147,34 @@ export function buildChunkGeometry(
   const m = new THREE.Matrix4();
   const bark = color('bark');
   for (const t of chunk.trees) {
-    const trunk = 0.25;
+    const roll = treeRoll(t.x, t.z);
+    const isCedar = roll < (t.color === color('forest') ? CEDAR_SHARE.forest : CEDAR_SHARE.other);
+    const trunk = isCedar ? 0.3 : 0.25;
+    const trunkTop = t.height * (isCedar ? 0.45 : 0.6);
     g.box(
       { x: t.x - trunk, y: t.y, z: t.z - trunk },
-      { x: t.x + trunk, y: t.y + t.height * 0.6, z: t.z + trunk },
+      { x: t.x + trunk, y: t.y + trunkTop, z: t.z + trunk },
       { px: bark, nx: bark, pz: bark, nz: bark },
     );
-    m.compose(
-      new THREE.Vector3(t.x, t.y + t.height * 0.62 + t.crown * 0.6, t.z),
-      new THREE.Quaternion().setFromEuler(new THREE.Euler(0, t.x * 0.37, 0)),
-      new THREE.Vector3(t.crown, t.crown * 1.25, t.crown),
-    );
-    g.meshSmooth(crownShape, m, t.color);
+    const spin = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, roll * Math.PI * 2, 0));
+    if (isCedar) {
+      const r = t.crown * 0.8;
+      m.compose(
+        new THREE.Vector3(t.x, t.y + trunkTop + r * 0.5, t.z),
+        spin,
+        new THREE.Vector3(r, r * 1.35, r),
+      );
+      g.meshSmooth(cedar, m, t.color);
+    } else {
+      // some crowns spread wide, some stand rounder
+      const wide = 0.9 + 0.35 * treeRoll(t.z, t.x);
+      m.compose(
+        new THREE.Vector3(t.x, t.y + trunkTop + t.crown * 0.55, t.z),
+        spin,
+        new THREE.Vector3(t.crown * wide, t.crown * 1.05, t.crown * wide),
+      );
+      g.meshSmooth(broadleaf, m, t.color);
+    }
   }
   return g;
 }

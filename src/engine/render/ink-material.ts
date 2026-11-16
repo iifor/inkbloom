@@ -46,6 +46,7 @@ uniform float uTime;
 varying vec3 vNormalV;
 varying float vCode;
 varying vec4 vShadow;
+varying float vTip;
 
 float derivedSat(vec3 wp) {
   float drain = 0.0;
@@ -72,6 +73,9 @@ void main() {
     float sway = sin(uTime * 1.6 + world.x * 0.31 + world.z * 0.23) * 0.6
                + sin(uTime * 0.7 + world.x * 0.05 - world.z * 0.07) * 0.5;
     world.xz += vec2(0.8, 0.5) * sway * 0.16 * max(position.y, 0.0);
+    vTip = clamp(position.y / 0.4, 0.0, 1.0);
+  #else
+    vTip = 1.0;
   #endif
   float idx = aColor;
   #ifdef USE_INSTANCING_COLOR
@@ -108,6 +112,7 @@ uniform float uShadowOn;
 varying vec3 vNormalV;
 varying float vCode;
 varying vec4 vShadow;
+varying float vTip;
 
 /**
  * 1 in sunlight, 0 in shadow, fading out at the map's edge. Eight taps on a ring turned by a
@@ -137,6 +142,10 @@ void main() {
   float shade = clamp(dot(n, uLightDir) * 0.5 + 0.5 + uShadeBias, 0.0, 1.0);
   // in the shadow of something: as dark as a face turned away from the sun
   if (uShadowOn > 0.5) shade = mix(min(shade, 0.4), shade, sunlight());
+  #ifdef WIND
+    // a tuft is dark down among the stems and catches the light at the tips
+    shade = clamp(shade * mix(0.62, 1.12, vTip), 0.0, 1.0);
+  #endif
   gl_FragColor = vec4(shade, vCode, n.x, n.y);
 }`;
 

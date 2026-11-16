@@ -38,7 +38,7 @@ function tuftGeometry(): THREE.BufferGeometry {
     const h = 0.45 + (0.18 * ((i * 37) % 5)) / 4;
     const cx = Math.cos(a) * 0.06;
     const cz = Math.sin(a) * 0.06;
-    const w = 0.022;
+    const w = 0.03;
     const px = -Math.sin(a) * w;
     const pz = Math.cos(a) * w;
     pos.push(cx - px, 0, cz - pz, cx + px, 0, cz + pz, cx + Math.cos(a) * lean, h, cz + Math.sin(a) * lean);
@@ -123,9 +123,9 @@ export class GrassField {
         if (y <= WATER_LEVEL + 0.1) continue;
         // thin out towards the rim so the field has no hard edge
         const fade = THREE.MathUtils.smoothstep(RADIUS - d, 0, RADIUS * 0.3);
-        const size = (0.75 + 0.6 * r(3)) * (0.35 + 0.65 * fade);
+        const size = (0.6 + 0.45 * r(3)) * (0.35 + 0.65 * fade);
         this.q.setFromAxisAngle(this.up, r(4) * Math.PI * 2);
-        this.s.set(size, size * (0.8 + 0.5 * r(5)), size);
+        this.s.set(size * 1.2, size * (0.75 + 0.4 * r(5)), size * 1.2);
         this.m.compose(this.p.set(x, y, z), this.q, this.s);
         this.tufts.setMatrixAt(nt, this.m);
         const blade = cover.blades[Math.floor(r(6) * cover.blades.length)]!;
