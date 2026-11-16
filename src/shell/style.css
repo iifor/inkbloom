@@ -477,6 +477,17 @@ body {
   border-radius: 6px;
   pointer-events: none;
 }
+/* the default F3 state: one quiet line in the corner, no card */
+.debug-panel.compact {
+  padding: 2px 4px;
+  background: none;
+  border: none;
+  color: var(--ink-soft);
+  opacity: 0.75;
+  text-shadow:
+    0 0 3px var(--paper),
+    0 0 6px var(--paper);
+}
 
 /* ---- menus: a storybook page over a soft sky ---- */
 #overlay {
