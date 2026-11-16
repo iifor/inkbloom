@@ -1,0 +1,207 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 840" font-family="PingFang SC, Microsoft YaHei, sans-serif">
+  <!-- Concept sheet for the ink monsters redone for the painted style (docs/game-design.md 8.6).
+       Ink is a living liquid: slumped at rest, stretched when it moves, arms only when it
+       strikes. The stolen colour glows inside it and is the attack tell. 200 px = 1 m, ground at
+       y = 600. A faint player outline stands beside the first figure for scale. -->
+  <defs>
+    <filter id="soft"><feGaussianBlur stdDeviation="6"/></filter>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="7"/></filter>
+    <filter id="sheen"><feGaussianBlur stdDeviation="3"/></filter>
+
+    <linearGradient id="street" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#d9d6cf"/>
+      <stop offset="1" stop-color="#bdb9b1"/>
+    </linearGradient>
+    <!-- ink: deep blue-black, a touch lighter where the light falls -->
+    <linearGradient id="ink" x1="0.1" y1="0" x2="0.9" y2="1">
+      <stop offset="0" stop-color="#363b55"/>
+      <stop offset="0.45" stop-color="#1a1c2b"/>
+      <stop offset="1" stop-color="#0c0d16"/>
+    </linearGradient>
+    <radialGradient id="red"><stop offset="0" stop-color="#fff0e6"/><stop offset="0.35" stop-color="#ff8e86"/><stop offset="1" stop-color="#d4595c" stop-opacity="0"/></radialGradient>
+    <radialGradient id="redStrong"><stop offset="0" stop-color="#ffffff"/><stop offset="0.3" stop-color="#ffa59c"/><stop offset="1" stop-color="#e0605f" stop-opacity="0"/></radialGradient>
+    <radialGradient id="yel"><stop offset="0" stop-color="#fffbe8"/><stop offset="0.35" stop-color="#f8de78"/><stop offset="1" stop-color="#e8b84c" stop-opacity="0"/></radialGradient>
+    <radialGradient id="yelStrong"><stop offset="0" stop-color="#ffffff"/><stop offset="0.3" stop-color="#ffe98f"/><stop offset="1" stop-color="#f0c050" stop-opacity="0"/></radialGradient>
+
+    <style>
+      .label { font-size: 22px; fill: #2b2a33; text-anchor: middle; font-weight: 700; }
+      .note { font-size: 13px; fill: #4a4a52; text-anchor: middle; }
+      .gloss { fill: #8e98bb; opacity: 0.55; }
+      .panel { fill: url(#street); }
+    </style>
+  </defs>
+
+  <rect width="1280" height="840" fill="#f3ecdc"/>
+  <text x="40" y="52" font-size="28" font-weight="700" fill="#2b2a33">墨怪 · 手绘画风重做</text>
+  <text x="40" y="80" font-size="15" fill="#3d3d47">墨是活的液体，不是黑色的人：平时塌成一堆，动起来拉长，要出手才长出手臂。抢来的颜色在身体里发亮，蓄力时变大变亮，这就是攻击预警。</text>
+  <text x="40" y="102" font-size="15" fill="#3d3d47">背景是抽色后的灰色街道。墨怪暗、湿、带高光；玩家亮、哑光、全彩，明暗正好相反。</text>
+
+  <!-- four panels: drained street, pale wall behind -->
+  <g>
+    <rect class="panel" x="30" y="130" width="290" height="500" rx="10"/>
+    <rect class="panel" x="340" y="130" width="290" height="500" rx="10"/>
+    <rect class="panel" x="650" y="130" width="290" height="500" rx="10"/>
+    <rect class="panel" x="960" y="130" width="290" height="500" rx="10"/>
+    <g fill="#e7e4dd" opacity="0.9">
+      <rect x="30" y="130" width="290" height="300" rx="10"/>
+      <rect x="340" y="130" width="290" height="300" rx="10"/>
+      <rect x="650" y="130" width="290" height="300" rx="10"/>
+      <rect x="960" y="130" width="290" height="300" rx="10"/>
+    </g>
+    <g fill="#cfcbc3" opacity="0.8">
+      <rect x="60" y="170" width="40" height="56" rx="3"/><rect x="250" y="170" width="40" height="56" rx="3"/>
+      <rect x="370" y="170" width="40" height="56" rx="3"/><rect x="560" y="170" width="40" height="56" rx="3"/>
+      <rect x="680" y="170" width="40" height="56" rx="3"/><rect x="870" y="170" width="40" height="56" rx="3"/>
+      <rect x="990" y="170" width="40" height="56" rx="3"/><rect x="1180" y="170" width="40" height="56" rx="3"/>
+    </g>
+  </g>
+
+  <!-- ============ 墨团 at rest · cx 200 ============ -->
+  <g transform="translate(200 0)">
+    <!-- player outline for scale (1.8 m) -->
+    <g fill="none" stroke="#9a968e" stroke-width="2" stroke-dasharray="5 5" opacity="0.8">
+      <ellipse cx="-110" cy="274" rx="30" ry="34"/>
+      <path d="M -150 318 Q -156 400 -150 456 L -134 456 L -134 598 M -86 598 L -86 456 L -70 456 Q -64 400 -70 318 Z"/>
+    </g>
+    <text x="-110" y="232" font-size="12" fill="#8a867e" text-anchor="middle">玩家 1.8 m</text>
+    <!-- puddle and drips -->
+    <ellipse cx="0" cy="600" rx="96" ry="13" fill="#141522" opacity="0.75"/>
+    <!-- slumped body: a sack of ink, 1.2 m -->
+    <path d="M -94 596 Q -112 520 -78 458 Q -46 362 4 360 Q 60 362 88 452 Q 112 520 96 596 Q 0 610 -94 596 Z" fill="url(#ink)"/>
+    <!-- stubby feet -->
+    <ellipse cx="-42" cy="598" rx="26" ry="10" fill="#0c0d16"/>
+    <ellipse cx="44" cy="598" rx="26" ry="10" fill="#0c0d16"/>
+    <!-- wet sheen -->
+    <ellipse class="gloss" cx="-34" cy="410" rx="26" ry="40" transform="rotate(24 -34 410)" filter="url(#sheen)"/>
+    <ellipse cx="-42" cy="396" rx="6" ry="9" fill="#d8def0" opacity="0.8" transform="rotate(24 -42 396)"/>
+    <!-- stolen colour turning in the belly -->
+    <ellipse cx="6" cy="510" rx="46" ry="40" fill="url(#red)" filter="url(#glow)" opacity="0.85"/>
+    <path d="M -20 508 Q 0 480 26 498 Q 40 516 18 530 Q 0 540 -10 524" fill="none" stroke="#ffb3a8" stroke-width="4" stroke-linecap="round" opacity="0.6"/>
+    <!-- eyes -->
+    <ellipse cx="-18" cy="420" rx="11" ry="13" fill="url(#red)"/>
+    <ellipse cx="22" cy="420" rx="11" ry="13" fill="url(#red)"/>
+    <!-- drips -->
+    <path d="M -70 596 Q -66 612 -70 618 Q -76 612 -70 596 Z" fill="#141522"/>
+    <path d="M 76 592 Q 82 610 77 616 Q 71 610 76 592 Z" fill="#141522"/>
+  </g>
+  <text class="label" x="175" y="664">墨团 · 平时</text>
+  <text class="note" x="175" y="688">1.2 米的一袋墨，两只短脚；往下坍，走路左右晃</text>
+  <text class="note" x="175" y="708">抢来的颜色在肚子里慢慢转，眼睛发亮</text>
+
+  <!-- ============ 墨团 winding up · cx 485 ============ -->
+  <g transform="translate(485 0)">
+    <ellipse cx="0" cy="600" rx="78" ry="12" fill="#141522" opacity="0.75"/>
+    <!-- arms grown out of the sides, raised overhead -->
+    <path d="M -50 470 Q -104 400 -92 296 L -62 292 Q -66 386 -24 448 Z" fill="url(#ink)"/>
+    <path d="M 50 470 Q 104 400 92 296 L 62 292 Q 66 386 24 448 Z" fill="url(#ink)"/>
+    <!-- fists stained with the stolen colour -->
+    <circle cx="-78" cy="286" r="26" fill="url(#ink)"/>
+    <circle cx="78" cy="286" r="26" fill="url(#ink)"/>
+    <circle cx="-78" cy="286" r="22" fill="url(#red)" opacity="0.9"/>
+    <circle cx="78" cy="286" r="22" fill="url(#red)" opacity="0.9"/>
+    <!-- body stretched up to about 1.6 m -->
+    <path d="M -74 596 Q -86 500 -58 420 Q -36 290 2 284 Q 42 290 60 420 Q 86 500 76 596 Q 0 608 -74 596 Z" fill="url(#ink)"/>
+    <ellipse cx="-36" cy="598" rx="22" ry="9" fill="#0c0d16"/>
+    <ellipse cx="38" cy="598" rx="22" ry="9" fill="#0c0d16"/>
+    <ellipse class="gloss" cx="-26" cy="350" rx="18" ry="44" transform="rotate(14 -26 350)" filter="url(#sheen)"/>
+    <ellipse cx="-30" cy="336" rx="5" ry="9" fill="#d8def0" opacity="0.85" transform="rotate(14 -30 336)"/>
+    <!-- colour flares: the tell -->
+    <ellipse cx="4" cy="470" rx="60" ry="70" fill="url(#redStrong)" filter="url(#glow)"/>
+    <ellipse cx="-16" cy="350" rx="12" ry="15" fill="url(#redStrong)"/>
+    <ellipse cx="20" cy="350" rx="12" ry="15" fill="url(#redStrong)"/>
+    <!-- flung drips -->
+    <circle cx="-110" cy="250" r="5" fill="#141522"/>
+    <circle cx="112" cy="244" r="4" fill="#141522"/>
+    <circle cx="-120" cy="320" r="3.5" fill="#141522"/>
+  </g>
+  <text class="label" x="485" y="664">墨团 · 蓄力 0.25 秒</text>
+  <text class="note" x="485" y="688">身体拉长到约 1.6 米，两侧长出粗手臂举过头</text>
+  <text class="note" x="485" y="708">肚子和眼睛一下子变亮：这时打它就是破招</text>
+
+  <!-- ============ 墨吐 at rest · cx 800 (facing left) ============ -->
+  <g transform="translate(800 0)">
+    <ellipse cx="0" cy="600" rx="62" ry="11" fill="#141522" opacity="0.75"/>
+    <!-- tall teardrop body, leaning forward -->
+    <path d="M -54 596 Q -70 500 -36 430 Q -10 380 8 360 Q 30 390 46 440 Q 64 520 56 596 Q 0 606 -54 596 Z" fill="url(#ink)"/>
+    <!-- long neck reaching forward -->
+    <path d="M -6 384 Q -24 330 -44 300 L -22 290 Q 0 324 18 376 Z" fill="url(#ink)"/>
+    <!-- throat sack with a little colour in it -->
+    <ellipse cx="-14" cy="354" rx="18" ry="22" fill="url(#ink)"/>
+    <ellipse cx="-14" cy="356" rx="16" ry="18" fill="url(#yel)" opacity="0.6"/>
+    <!-- small round head -->
+    <ellipse cx="-40" cy="278" rx="30" ry="26" fill="url(#ink)"/>
+    <ellipse cx="-52" cy="272" rx="8" ry="10" fill="url(#yel)"/>
+    <ellipse cx="-28" cy="272" rx="8" ry="10" fill="url(#yel)"/>
+    <!-- two short legs mid-stride -->
+    <path d="M -30 560 Q -40 584 -52 598 L -26 600 Q -16 584 -10 562 Z" fill="#0c0d16"/>
+    <path d="M 20 560 Q 30 582 38 598 L 62 598 Q 48 580 40 558 Z" fill="#0c0d16"/>
+    <!-- sheen and tail drip -->
+    <ellipse class="gloss" cx="-20" cy="450" rx="14" ry="44" transform="rotate(16 -20 450)" filter="url(#sheen)"/>
+    <ellipse cx="-50" cy="266" rx="10" ry="5" fill="#8e98bb" opacity="0.55" filter="url(#sheen)"/>
+    <path d="M 52 560 Q 74 574 70 600 Q 62 590 50 584 Z" fill="#141522"/>
+  </g>
+  <text class="label" x="795" y="664">墨吐 · 平时</text>
+  <text class="note" x="795" y="688">1.7 米的细长水滴，长脖子往前伸，弓着背</text>
+  <text class="note" x="795" y="708">抢来的颜色积在喉囊里，眼睛发亮</text>
+
+  <!-- ============ 墨吐 winding up · cx 1110 ============ -->
+  <g transform="translate(1110 0)">
+    <ellipse cx="0" cy="600" rx="62" ry="11" fill="#141522" opacity="0.75"/>
+    <!-- body leaning back -->
+    <path d="M -52 596 Q -60 500 -30 430 Q -6 372 18 352 Q 42 384 52 440 Q 66 520 58 596 Q 0 606 -52 596 Z" fill="url(#ink)"/>
+    <!-- neck pulled back -->
+    <path d="M 4 380 Q 12 320 30 286 L 54 296 Q 36 330 28 384 Z" fill="url(#ink)"/>
+    <!-- swollen, glowing throat sack: the tell -->
+    <ellipse cx="0" cy="352" rx="34" ry="38" fill="url(#ink)"/>
+    <ellipse cx="0" cy="352" rx="44" ry="48" fill="url(#yelStrong)" filter="url(#glow)"/>
+    <ellipse cx="0" cy="352" rx="22" ry="26" fill="url(#yelStrong)"/>
+    <!-- head tipped back -->
+    <ellipse cx="44" cy="270" rx="30" ry="26" fill="url(#ink)" transform="rotate(-20 44 270)"/>
+    <ellipse cx="34" cy="262" rx="8" ry="10" fill="url(#yelStrong)"/>
+    <ellipse cx="56" cy="256" rx="8" ry="10" fill="url(#yelStrong)"/>
+    <!-- legs planted -->
+    <path d="M -30 560 Q -36 586 -44 598 L -18 600 Q -12 584 -10 562 Z" fill="#0c0d16"/>
+    <path d="M 20 560 Q 24 584 26 598 L 52 598 Q 44 580 40 558 Z" fill="#0c0d16"/>
+    <ellipse class="gloss" cx="-14" cy="460" rx="14" ry="44" transform="rotate(10 -14 460)" filter="url(#sheen)"/>
+  </g>
+  <text class="label" x="1105" y="664">墨吐 · 蓄力 0.25 秒</text>
+  <text class="note" x="1105" y="688">喉囊鼓起来，越来越亮，脖子往后仰</text>
+  <text class="note" x="1105" y="708">然后头往前一甩，吐出一团带颜色的墨</text>
+
+  <!-- ============ readability strip: about 30 m away ============ -->
+  <text x="40" y="752" font-size="16" font-weight="700" fill="#2b2a33">30 米外看剪影</text>
+  <text x="40" y="774" font-size="13" fill="#4a4a52">左：抽色的灰色街道；右：恢复颜色的草地。玩家亮，墨怪暗，蓄力的墨怪多一团亮色。</text>
+  <rect x="560" y="730" width="330" height="96" rx="8" fill="#c9c6bf"/>
+  <rect x="900" y="730" width="350" height="96" rx="8" fill="#93b874"/>
+  <g transform="translate(0 0)">
+    <!-- grey street -->
+    <g transform="translate(610 818) scale(0.22)">
+      <ellipse cx="0" cy="-270" rx="34" ry="38" fill="#f6dcc4"/><ellipse cx="0" cy="-322" rx="42" ry="15" fill="#e17d76"/>
+      <rect x="-46" y="-236" width="92" height="140" rx="30" fill="#f8f1de"/><rect x="-36" y="-110" width="72" height="110" rx="14" fill="#5d606c"/>
+    </g>
+    <g transform="translate(700 818) scale(0.22)">
+      <path d="M -94 0 Q -112 -80 -78 -142 Q -46 -238 4 -240 Q 60 -238 88 -148 Q 112 -80 96 0 Z" fill="#1a1c2b"/>
+      <ellipse cx="2" cy="-120" rx="30" ry="28" fill="#ff8e86" opacity="0.6"/>
+    </g>
+    <g transform="translate(800 818) scale(0.22)">
+      <path d="M -74 0 Q -86 -100 -58 -180 Q -36 -310 2 -316 Q 42 -310 60 -180 Q 86 -100 76 0 Z" fill="#1a1c2b"/>
+      <path d="M -50 -130 Q -104 -200 -92 -304 L -62 -308 Q -66 -214 -24 -152 Z" fill="#1a1c2b"/><path d="M 50 -130 Q 104 -200 92 -304 L 62 -308 Q 66 -214 24 -152 Z" fill="#1a1c2b"/>
+      <ellipse cx="4" cy="-130" rx="56" ry="64" fill="#ffc0b6"/>
+    </g>
+    <!-- meadow -->
+    <g transform="translate(960 818) scale(0.22)">
+      <ellipse cx="0" cy="-270" rx="34" ry="38" fill="#f6dcc4"/><path d="M -44 -280 Q -52 -330 -14 -360 Q 6 -390 26 -404 Q 30 -366 46 -330 Q 54 -296 44 -280 Z" fill="#a68dcb"/>
+      <path d="M -40 -236 Q -60 -110 -64 -40 L 64 -40 Q 60 -110 40 -236 Z" fill="#f8f1de"/><rect x="-26" y="-40" width="52" height="40" rx="10" fill="#5d606c"/>
+    </g>
+    <g transform="translate(1060 818) scale(0.22)">
+      <path d="M -54 0 Q -70 -100 -36 -170 Q -10 -220 8 -240 Q 30 -210 46 -160 Q 64 -80 56 0 Z" fill="#1a1c2b"/>
+      <ellipse cx="-40" cy="-322" rx="30" ry="26" fill="#1a1c2b"/><path d="M -6 -216 Q -24 -270 -44 -300 L -22 -310 Q 0 -276 18 -224 Z" fill="#1a1c2b"/>
+      <ellipse cx="-30" cy="-244" rx="16" ry="18" fill="#f8de78" opacity="0.6"/>
+    </g>
+    <g transform="translate(1160 818) scale(0.22)">
+      <path d="M -50 -230 Q -76 -160 -68 -100 Q 0 -80 68 -100 Q 76 -160 50 -230 Z" fill="#55aaa6"/>
+      <ellipse cx="0" cy="-272" rx="32" ry="36" fill="#f6dcc4"/><path d="M 16 -306 Q 60 -322 82 -288 Q 94 -248 78 -214 Q 70 -252 50 -276 Z" fill="#e6cf98"/>
+      <rect x="-40" y="-236" width="80" height="128" rx="24" fill="#4b8a57"/><rect x="-32" y="-112" width="64" height="112" rx="12" fill="#e2d2a8"/>
+    </g>
+  </g>
+</svg>

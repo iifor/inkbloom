@@ -1,0 +1,232 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 780" font-family="PingFang SC, Microsoft YaHei, sans-serif">
+  <!-- Concept sheet for the four default player figures in the painted style (docs/game-design.md
+       section 8). No outlines: forms read by value and colour blocks, warm light from the upper
+       left, sky-blue shade. Scale 200 px = 1 m, ground at y = 600. Faint dashed boxes are the
+       shared hit boxes. -->
+  <defs>
+    <filter id="paint" x="-10%" y="-10%" width="120%" height="120%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.035" numOctaves="2" seed="4" result="n"/>
+      <feDisplacementMap in="SourceGraphic" in2="n" scale="4"/>
+    </filter>
+    <filter id="soft"><feGaussianBlur stdDeviation="6"/></filter>
+    <filter id="glow"><feGaussianBlur stdDeviation="4"/></filter>
+
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#9cc9df"/>
+      <stop offset="0.75" stop-color="#e3ecdf"/>
+    </linearGradient>
+    <linearGradient id="meadow" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#a9c77e"/>
+      <stop offset="1" stop-color="#6f9a57"/>
+    </linearGradient>
+
+    <!-- light upper-left (warm), shade lower-right (cool) -->
+    <linearGradient id="cream" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fdf6e2"/><stop offset="1" stop-color="#c5c3cb"/></linearGradient>
+    <linearGradient id="skinL" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f8dcc2"/><stop offset="1" stop-color="#d6a497"/></linearGradient>
+    <linearGradient id="skinW" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#eebf97"/><stop offset="1" stop-color="#bb8574"/></linearGradient>
+    <linearGradient id="skinD" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#b98260"/><stop offset="1" stop-color="#7c5149"/></linearGradient>
+    <linearGradient id="brown" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ab7a52"/><stop offset="1" stop-color="#634350"/></linearGradient>
+    <linearGradient id="char" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#6d707c"/><stop offset="1" stop-color="#3b3d50"/></linearGradient>
+    <linearGradient id="hairDark" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#4d4955"/><stop offset="1" stop-color="#24222f"/></linearGradient>
+    <linearGradient id="hairBrown" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#8f6040"/><stop offset="1" stop-color="#4b3139"/></linearGradient>
+    <linearGradient id="hairSand" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#e6cf98"/><stop offset="1" stop-color="#a98d6e"/></linearGradient>
+    <linearGradient id="skyCloth" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#93c6e2"/><stop offset="1" stop-color="#557fa8"/></linearGradient>
+    <linearGradient id="forest" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#4b8a57"/><stop offset="1" stop-color="#26473f"/></linearGradient>
+    <linearGradient id="sand" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#e2d2a8"/><stop offset="1" stop-color="#a99a86"/></linearGradient>
+    <linearGradient id="yellow" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fae58c"/><stop offset="1" stop-color="#c9a160"/></linearGradient>
+    <!-- example accent colours (player-chosen in game) -->
+    <linearGradient id="accRed" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#e9827a"/><stop offset="1" stop-color="#a24c64"/></linearGradient>
+    <linearGradient id="accOrange" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f6b064"/><stop offset="1" stop-color="#b86f50"/></linearGradient>
+    <linearGradient id="accPurple" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#a68dcb"/><stop offset="1" stop-color="#5b4d88"/></linearGradient>
+    <linearGradient id="accTeal" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#55aaa6"/><stop offset="1" stop-color="#28596a"/></linearGradient>
+    <radialGradient id="lamp"><stop offset="0" stop-color="#fffbe0"/><stop offset="0.5" stop-color="#ffe9a0" stop-opacity="0.8"/><stop offset="1" stop-color="#ffe9a0" stop-opacity="0"/></radialGradient>
+
+    <style>
+      .hit { fill: none; stroke: #ffffff; stroke-width: 1.5; stroke-dasharray: 6 6; opacity: 0.55; }
+      .eye { fill: #2b2733; }
+      .blush { fill: #ec9a98; opacity: 0.55; }
+      .label { font-size: 26px; fill: #2b2a33; text-anchor: middle; font-weight: 700; }
+      .note { font-size: 13px; fill: #4a4a52; text-anchor: middle; }
+    </style>
+  </defs>
+
+  <!-- painted backdrop: sky, distant hills, meadow -->
+  <rect width="1280" height="780" fill="#f3ecdc"/>
+  <rect width="1280" height="560" fill="url(#sky)"/>
+  <ellipse cx="300" cy="140" rx="160" ry="38" fill="#ffffff" opacity="0.7" filter="url(#soft)"/>
+  <ellipse cx="980" cy="110" rx="200" ry="44" fill="#ffffff" opacity="0.65" filter="url(#soft)"/>
+  <path d="M 0 470 Q 200 400 420 450 Q 640 390 860 440 Q 1080 395 1280 445 L 1280 560 L 0 560 Z" fill="#a9c2c7" opacity="0.7" filter="url(#soft)"/>
+  <rect y="520" width="1280" height="120" fill="url(#meadow)" filter="url(#paint)"/>
+  <rect y="640" width="1280" height="140" fill="#f3ecdc"/>
+
+  <text x="40" y="52" font-size="28" font-weight="700" fill="#2b2a33">默认玩家角色 · 手绘画风</text>
+  <text x="40" y="80" font-size="15" fill="#3d3d47">没有描边：靠剪影、明暗和色块来读。暖光从左上来，阴影偏天空蓝。强调色是玩家从已解锁的蜡笔里选的（图中是示例），在抽色区也保持全彩。</text>
+  <text x="40" y="102" font-size="15" fill="#3d3d47">四人肤色、发色各取了一种示例。白色虚线框是共用的命中盒。</text>
+
+  <!-- ================= 信使 Courier · cx 190 ================= -->
+  <g transform="translate(190 0)">
+    <ellipse cx="0" cy="600" rx="62" ry="10" fill="#4f6e4a" opacity="0.4"/>
+    <g filter="url(#paint)">
+      <!-- paper plane folded on the back -->
+      <path d="M -6 300 L 58 238 L 40 318 Z" fill="url(#cream)"/>
+      <!-- legs and boots -->
+      <rect x="-34" y="430" width="28" height="160" rx="13" fill="url(#char)"/>
+      <rect x="6" y="430" width="28" height="160" rx="13" fill="url(#char)"/>
+      <ellipse cx="-22" cy="592" rx="24" ry="12" fill="url(#brown)"/>
+      <ellipse cx="22" cy="592" rx="24" ry="12" fill="url(#brown)"/>
+      <!-- short coat -->
+      <path d="M -46 320 Q -54 390 -48 456 L 48 456 Q 54 390 46 320 Q 0 304 -46 320 Z" fill="url(#cream)"/>
+      <!-- satchel strap and bag -->
+      <path d="M 40 322 L -36 426" stroke="url(#brown)" stroke-width="11" stroke-linecap="round"/>
+      <rect x="-78" y="408" width="54" height="48" rx="12" fill="url(#brown)"/>
+      <path d="M -78 420 Q -51 436 -24 420 L -24 414 Q -51 406 -78 414 Z" fill="#7d5847"/>
+      <!-- arms -->
+      <rect x="-66" y="322" width="24" height="122" rx="12" fill="url(#cream)" transform="rotate(6 -54 322)"/>
+      <rect x="42" y="322" width="24" height="122" rx="12" fill="url(#cream)" transform="rotate(-6 54 322)"/>
+      <circle cx="-64" cy="452" r="13" fill="url(#skinL)"/>
+      <circle cx="64" cy="452" r="13" fill="url(#skinL)"/>
+      <!-- scarf: a wrap and a long tail blowing back -->
+      <path d="M -34 306 Q 0 324 34 306 L 36 326 Q 0 344 -36 326 Z" fill="url(#accRed)"/>
+      <path d="M 24 318 Q 70 332 112 310 Q 124 324 114 340 Q 70 360 22 340 Z" fill="url(#accRed)"/>
+      <!-- head, hair, beret -->
+      <ellipse cx="0" cy="272" rx="33" ry="37" fill="url(#skinL)"/>
+      <path d="M -35 270 Q -38 234 0 230 Q 38 234 35 270 Q 30 252 0 250 Q -28 252 -35 270 Z" fill="url(#hairBrown)"/>
+      <ellipse cx="-4" cy="238" rx="42" ry="15" fill="url(#accRed)" transform="rotate(-9 -4 238)"/>
+      <circle cx="2" cy="224" r="5" fill="url(#accRed)"/>
+    </g>
+    <ellipse class="eye" cx="-11" cy="280" rx="4" ry="5.5"/>
+    <ellipse class="eye" cx="11" cy="280" rx="4" ry="5.5"/>
+    <ellipse class="blush" cx="-19" cy="292" rx="7" ry="4"/>
+    <ellipse class="blush" cx="19" cy="292" rx="7" ry="4"/>
+    <rect class="hit" x="-70" y="316" width="140" height="284"/>
+    <rect class="hit" x="-36" y="240" width="72" height="72"/>
+  </g>
+  <text class="label" x="190" y="682">信使</text>
+  <text class="note" x="190" y="708">贝雷帽 · 长围巾 · 斜挎邮包 · 背后纸飞机</text>
+  <text class="note" x="190" y="730">强调色：贝雷帽、围巾 · 摆动：围巾</text>
+
+  <!-- ================= 石匠 Mason · cx 490 ================= -->
+  <g transform="translate(490 0)">
+    <ellipse cx="0" cy="600" rx="74" ry="11" fill="#4f6e4a" opacity="0.4"/>
+    <g filter="url(#paint)">
+      <!-- legs (overall trousers) and boots -->
+      <rect x="-40" y="440" width="34" height="150" rx="15" fill="url(#skyCloth)"/>
+      <rect x="6" y="440" width="34" height="150" rx="15" fill="url(#skyCloth)"/>
+      <rect x="-50" y="568" width="44" height="30" rx="12" fill="url(#brown)"/>
+      <rect x="6" y="568" width="44" height="30" rx="12" fill="url(#brown)"/>
+      <!-- shirt: broad shoulders, round belly -->
+      <path d="M -62 322 Q -74 400 -54 460 L 54 460 Q 74 400 62 322 Q 0 300 -62 322 Z" fill="url(#cream)"/>
+      <!-- overall bib and straps -->
+      <path d="M -40 372 L 40 372 Q 56 420 50 462 L -50 462 Q -56 420 -40 372 Z" fill="url(#skyCloth)"/>
+      <rect x="-40" y="322" width="13" height="56" rx="6" fill="url(#skyCloth)"/>
+      <rect x="27" y="322" width="13" height="56" rx="6" fill="url(#skyCloth)"/>
+      <!-- tool pouch -->
+      <rect x="36" y="430" width="34" height="38" rx="9" fill="url(#brown)"/>
+      <!-- arms: rolled sleeves, bare forearms -->
+      <rect x="-90" y="324" width="32" height="58" rx="15" fill="url(#cream)" transform="rotate(8 -74 324)"/>
+      <rect x="58" y="324" width="32" height="58" rx="15" fill="url(#cream)" transform="rotate(-8 74 324)"/>
+      <rect x="-92" y="370" width="26" height="70" rx="13" fill="url(#skinD)" transform="rotate(6 -79 370)"/>
+      <rect x="66" y="370" width="26" height="70" rx="13" fill="url(#skinD)" transform="rotate(-6 79 370)"/>
+      <!-- big gloves -->
+      <ellipse cx="-86" cy="452" rx="21" ry="19" fill="url(#accOrange)"/>
+      <ellipse cx="86" cy="452" rx="21" ry="19" fill="url(#accOrange)"/>
+      <!-- head and hard hat with lamp -->
+      <ellipse cx="0" cy="276" rx="35" ry="36" fill="url(#skinD)"/>
+      <path d="M -36 262 Q -34 222 0 220 Q 34 222 36 262 Z" fill="url(#accOrange)"/>
+      <ellipse cx="0" cy="262" rx="50" ry="9" fill="url(#accOrange)"/>
+    </g>
+    <circle cx="0" cy="240" r="22" fill="url(#lamp)" filter="url(#glow)"/>
+    <circle cx="0" cy="240" r="8" fill="url(#yellow)"/>
+    <ellipse class="eye" cx="-11" cy="284" rx="4" ry="5.5"/>
+    <ellipse class="eye" cx="11" cy="284" rx="4" ry="5.5"/>
+    <ellipse class="blush" cx="-20" cy="296" rx="7" ry="4" opacity="0.35"/>
+    <ellipse class="blush" cx="20" cy="296" rx="7" ry="4" opacity="0.35"/>
+    <rect class="hit" x="-70" y="316" width="140" height="284"/>
+    <rect class="hit" x="-36" y="240" width="72" height="72"/>
+  </g>
+  <text class="label" x="490" y="682">石匠</text>
+  <text class="note" x="490" y="708">矿灯安全帽 · 宽肩圆肚 · 背带工装 · 粗手套</text>
+  <text class="note" x="490" y="730">强调色：安全帽、手套 · 摆动：工具袋</text>
+
+  <!-- ================= 学徒 Apprentice · cx 790 ================= -->
+  <g transform="translate(790 0)">
+    <ellipse cx="0" cy="600" rx="62" ry="10" fill="#4f6e4a" opacity="0.4"/>
+    <g filter="url(#paint)">
+      <!-- big brush across the back -->
+      <path d="M -54 488 L 52 222" stroke="url(#brown)" stroke-width="12" stroke-linecap="round"/>
+      <rect x="44" y="214" width="20" height="18" rx="4" fill="url(#yellow)" transform="rotate(22 54 222)"/>
+      <path d="M 50 214 Q 54 176 76 156 Q 86 186 66 220 Z" fill="url(#accPurple)"/>
+      <!-- legs and shoes under the robe -->
+      <rect x="-26" y="500" width="20" height="88" rx="10" fill="url(#char)"/>
+      <rect x="6" y="500" width="20" height="88" rx="10" fill="url(#char)"/>
+      <ellipse cx="-18" cy="592" rx="18" ry="10" fill="url(#brown)"/>
+      <ellipse cx="18" cy="592" rx="18" ry="10" fill="url(#brown)"/>
+      <!-- knee-length robe, belt -->
+      <path d="M -40 318 Q -58 440 -64 530 Q 0 546 64 530 Q 58 440 40 318 Q 0 304 -40 318 Z" fill="url(#cream)"/>
+      <path d="M -50 418 Q 0 430 50 418 L 52 434 Q 0 446 -52 434 Z" fill="url(#brown)"/>
+      <!-- wide sleeves -->
+      <path d="M -40 324 Q -70 380 -84 444 L -46 450 Q -44 392 -32 352 Z" fill="url(#cream)"/>
+      <path d="M 40 324 Q 70 380 84 444 L 46 450 Q 44 392 32 352 Z" fill="url(#cream)"/>
+      <circle cx="-64" cy="458" r="12" fill="url(#skinW)"/>
+      <circle cx="64" cy="458" r="12" fill="url(#skinW)"/>
+      <!-- pointed hood around the face -->
+      <path d="M -44 312 Q -52 252 -14 222 Q 6 196 26 178 Q 30 218 46 254 Q 54 290 44 312 Q 0 326 -44 312 Z" fill="url(#accPurple)"/>
+      <ellipse cx="0" cy="278" rx="27" ry="30" fill="url(#skinW)"/>
+      <path d="M -27 268 Q -22 248 0 248 Q 22 248 27 268 Q 12 258 0 262 Q -14 258 -27 268 Z" fill="url(#hairDark)"/>
+    </g>
+    <ellipse class="eye" cx="-9" cy="282" rx="3.6" ry="5"/>
+    <ellipse class="eye" cx="9" cy="282" rx="3.6" ry="5"/>
+    <ellipse class="blush" cx="-16" cy="293" rx="6" ry="3.5"/>
+    <ellipse class="blush" cx="16" cy="293" rx="6" ry="3.5"/>
+    <rect class="hit" x="-70" y="316" width="140" height="284"/>
+    <rect class="hit" x="-36" y="240" width="72" height="72"/>
+  </g>
+  <text class="label" x="790" y="682">学徒</text>
+  <text class="note" x="790" y="708">尖兜帽 · 及膝长袍 · 宽袖 · 背后大画笔</text>
+  <text class="note" x="790" y="730">强调色：兜帽、笔头 · 摆动：长袍下摆、兜帽尖</text>
+
+  <!-- ================= 巡林人 Ranger · cx 1090 ================= -->
+  <g transform="translate(1090 0)">
+    <ellipse cx="0" cy="600" rx="62" ry="10" fill="#4f6e4a" opacity="0.4"/>
+    <g filter="url(#paint)">
+      <!-- short cape behind -->
+      <path d="M -50 316 Q -76 390 -68 448 Q 0 470 68 448 Q 76 390 50 316 Z" fill="url(#accTeal)"/>
+      <!-- legs, tall boots -->
+      <rect x="-32" y="430" width="26" height="130" rx="12" fill="url(#sand)"/>
+      <rect x="6" y="430" width="26" height="130" rx="12" fill="url(#sand)"/>
+      <path d="M -36 520 L -6 520 L -4 598 L -44 598 Q -44 566 -36 520 Z" fill="url(#brown)"/>
+      <path d="M 6 520 L 36 520 Q 44 566 44 598 L 4 598 Z" fill="url(#brown)"/>
+      <!-- shirt and vest -->
+      <path d="M -40 320 Q -46 386 -38 446 L 38 446 Q 46 386 40 320 Q 0 306 -40 320 Z" fill="url(#forest)"/>
+      <path d="M -36 336 L -12 336 L -8 446 L -38 446 Q -42 390 -36 336 Z" fill="url(#brown)"/>
+      <path d="M 36 336 L 12 336 L 8 446 L 38 446 Q 42 390 36 336 Z" fill="url(#brown)"/>
+      <!-- arms with bracers -->
+      <rect x="-62" y="324" width="22" height="120" rx="11" fill="url(#forest)" transform="rotate(5 -51 324)"/>
+      <rect x="40" y="324" width="22" height="120" rx="11" fill="url(#forest)" transform="rotate(-5 51 324)"/>
+      <rect x="-64" y="404" width="24" height="30" rx="8" fill="url(#brown)" transform="rotate(5 -52 404)"/>
+      <rect x="40" y="404" width="24" height="30" rx="8" fill="url(#brown)" transform="rotate(-5 52 404)"/>
+      <circle cx="-58" cy="452" r="12" fill="url(#skinL)"/>
+      <circle cx="58" cy="452" r="12" fill="url(#skinL)"/>
+      <!-- high ponytail swinging out -->
+      <path d="M 16 238 Q 60 222 82 256 Q 94 296 78 330 Q 70 292 50 268 Q 36 254 20 256 Z" fill="url(#hairSand)"/>
+      <!-- head and hair -->
+      <ellipse cx="0" cy="274" rx="32" ry="36" fill="url(#skinL)"/>
+      <path d="M -33 268 Q -30 232 0 232 Q 32 232 33 262 Q 12 250 -33 268 Z" fill="url(#hairSand)"/>
+      <!-- goggles pushed up on the forehead -->
+      <rect x="-34" y="246" width="68" height="8" rx="4" fill="url(#brown)"/>
+      <circle cx="-13" cy="248" r="11" fill="url(#skyCloth)"/>
+      <circle cx="13" cy="248" r="11" fill="url(#skyCloth)"/>
+    </g>
+    <ellipse class="eye" cx="-11" cy="284" rx="4" ry="5.5"/>
+    <ellipse class="eye" cx="11" cy="284" rx="4" ry="5.5"/>
+    <ellipse class="blush" cx="-19" cy="296" rx="7" ry="4"/>
+    <ellipse class="blush" cx="19" cy="296" rx="7" ry="4"/>
+    <rect class="hit" x="-70" y="316" width="140" height="284"/>
+    <rect class="hit" x="-36" y="240" width="72" height="72"/>
+  </g>
+  <text class="label" x="1090" y="682">巡林人</text>
+  <text class="note" x="1090" y="708">高马尾 · 额头护目镜 · 短披风 · 长靴</text>
+  <text class="note" x="1090" y="730">强调色：披风 · 摆动：马尾、披风</text>
+
+  <text x="40" y="766" font-size="13" fill="#6a6a72">可选：肤色 3 种（浅 / 暖 / 深）· 发色 4 种（炭灰 / 栗棕 / 沙土 / 米白）· 强调色 = 已解锁的蜡笔。形体和命中盒不变。</text>
+</svg>

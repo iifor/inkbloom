@@ -15,7 +15,7 @@ import { type Body, type PhysicsWorld, makeBody } from '@/engine/physics/world';
 import { ALWAYS_COLOR, GeometryBuilder } from '@/engine/render/geometry-builder';
 import type { GameContext, TargetHit, TargetSource } from '@/game/types';
 import { findPath, type NavGrid, type Waypoint } from '@/world/nav/path';
-import { FigureRenderer } from './monster-figure';
+import { MonsterFigures } from './monster-figure';
 
 const GRAVITY = 22;
 const ACCEL = 18;
@@ -108,7 +108,7 @@ export class MonsterGroup implements TargetSource {
   private readonly spits: Spit[] = [];
   private readonly release: () => void;
   private plans = 0;
-  private readonly figures: FigureRenderer;
+  private readonly figures: MonsterFigures;
   /** Walkability of the scene; null falls back to sidestepping along walls. */
   nav: NavGrid | null = null;
 
@@ -119,7 +119,7 @@ export class MonsterGroup implements TargetSource {
     private readonly material: THREE.Material,
   ) {
     this.release = ctx.combat.addTargets(this);
-    this.figures = new FigureRenderer(root, material);
+    this.figures = new MonsterFigures(root, material);
   }
 
   spawn(type: number, pos: THREE.Vector3, opts: SpawnOptions): void {

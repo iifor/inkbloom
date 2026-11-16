@@ -3,6 +3,7 @@
 import * as THREE from 'three';
 import type { OpenWorld } from '@/modes/open-world';
 import { CityScene } from '@/systems/city/city-scene';
+import { FigureLineup, type LineupAct } from '@/systems/figures/lineup';
 import type { Brush } from '@/systems/tools/brush';
 
 export function installDevTools(game: OpenWorld): void {
@@ -76,6 +77,29 @@ export function installDevTools(game: OpenWorld): void {
     report() {
       return game.playtest.report();
     },
+    /** Stand the player characters and monsters in a row in front of the camera, acting out
+     * their poses (or holding one act); `lineup(false)` takes them away. */
+    lineup(on: boolean | LineupAct = true) {
+      if (on === false) {
+        lineup?.dispose();
+        lineup = null;
+        return;
+      }
+      if (!lineup) {
+        const l = (lineup = new FigureLineup(ctx));
+        let last = performance.now();
+        const tick = (now: number): void => {
+          if (lineup !== l) return;
+          l.update(Math.min(0.1, (now - last) / 1000));
+          last = now;
+          requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+      }
+      lineup.place();
+      lineup.act = on === true ? 'cycle' : on;
+    },
   };
+  let lineup: FigureLineup | null = null;
   (window as unknown as { inkbloom: typeof api }).inkbloom = api;
 }

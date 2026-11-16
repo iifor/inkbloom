@@ -47,6 +47,10 @@ export const PALETTE = [
   { key: 'canopy', name: '林冠', rgb: [0.2, 0.45, 0.26], paintable: false, texture: 1, season: 'leaf' },
   { key: 'cedar', name: '杉', rgb: [0.18, 0.42, 0.29], paintable: false, texture: 1 },
   { key: 'sprout', name: '嫩草', rgb: [0.36, 0.64, 0.37], paintable: false, texture: 0.4, season: 'meadow' },
+  // player characters' skin, smooth: content/characters.ts
+  { key: 'skinLight', name: '浅肤', rgb: [0.96, 0.82, 0.71], paintable: false, texture: 0.1 },
+  { key: 'skinWarm', name: '暖肤', rgb: [0.87, 0.67, 0.51], paintable: false, texture: 0.1 },
+  { key: 'skinDeep', name: '深肤', rgb: [0.55, 0.36, 0.27], paintable: false, texture: 0.1 },
 ] as const satisfies readonly ColorDef[];
 
 export type ColorKey = (typeof PALETTE)[number]['key'];

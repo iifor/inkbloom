@@ -1,15 +1,15 @@
-// Ink monsters drawn as doodle figures, after doodle-game's enemies: a squat long-armed brute
-// (墨团) and a tall stick figure (墨吐), with bowed limbs, mitten hands and round heads. The body
-// is solid ink; the colours the monster stole show in its eyes, its hands and a blot in its
-// chest. Every monster of a group shares two instanced meshes (round parts and limbs), so a
-// city full of monsters is two draw calls. A rig per enemy type is posed for one monster at a
-// time and its part matrices copied out.
+// Ink monsters as living ink, not black people: a sack of ink that slumps at rest, stretches
+// when it moves and grows arms only to strike (墨团), and a tall teardrop with a long neck and a
+// throat sack (墨吐). The body is the palette's solid ink, which the renderer gives a wet sheen;
+// the colours a monster stole glow inside it, in its eyes, belly or throat. They swell during
+// the wind-up, which is the tell to read from 20–30 m away. design: docs/game-design.md 8.6
 //
-// Figures stand on y = 0 and face -z, like the rest of the game's models.
+// The drawing stretches and squashes, but the monster's collision box (content/enemies.ts) does
+// not: what the player has to hit stays the same through a wind-up.
 import * as THREE from 'three';
 import { color } from '@/content/palette';
 import type { EnemyDef } from '@/content/enemies';
-import { ALWAYS_COLOR, GeometryBuilder } from '@/engine/render/geometry-builder';
+import { FigureRenderer, type Part, RigBuilder, rigTop } from '@/systems/figures/figure';
 
 /** What a monster is doing this frame, for posing. */
 export interface Pose {
@@ -34,378 +34,341 @@ export interface Pose {
   readonly colors: readonly number[];
 }
 
-type Shape = 'blob' | 'limb';
 /** ink = the body; a = first stolen colour; b = second (or the first again). */
 type Paint = 'ink' | 'a' | 'b';
-
-interface Part {
-  readonly node: THREE.Object3D;
-  readonly shape: Shape;
-  readonly paint: Paint;
-}
 
 interface Rig {
   readonly root: THREE.Object3D;
   readonly hips: THREE.Object3D;
-  readonly torso: THREE.Object3D;
-  readonly head: THREE.Object3D;
-  readonly armL: THREE.Object3D;
-  readonly armR: THREE.Object3D;
-  readonly foreL: THREE.Object3D;
-  readonly foreR: THREE.Object3D;
+  /** The ink body; stretched and squashed as a whole. */
+  readonly body: THREE.Object3D;
+  /** Rides on top of the body without being squashed (eyes, arms, neck). */
+  readonly top: THREE.Object3D;
   readonly legL: THREE.Object3D;
   readonly legR: THREE.Object3D;
   readonly shinL: THREE.Object3D;
   readonly shinR: THREE.Object3D;
+  /** Where the colour glows; swells during the wind-up. */
+  readonly glow: THREE.Object3D;
+  readonly eyes: readonly THREE.Object3D[];
+  readonly drips: readonly THREE.Object3D[];
   readonly hipsY: number;
+  /** How high `top` sits above the hips at rest. */
+  readonly topY: number;
   readonly parts: Part[];
-  /** Brute (long heavy arms, slams) or stick figure (thin, spits). */
-  readonly brute: boolean;
+  readonly kind: Brute | Spitter;
+  /** Scale from the drawing to the enemy's collision height. */
+  fit: number;
 }
 
-class RigBuilder {
-  readonly parts: Part[] = [];
+interface Brute {
+  readonly type: 'brute';
+  readonly armL: THREE.Object3D;
+  readonly armR: THREE.Object3D;
+  readonly foreL: THREE.Object3D;
+  readonly foreR: THREE.Object3D;
+}
 
-  joint(parent: THREE.Object3D, x: number, y: number, z: number): THREE.Object3D {
-    const j = new THREE.Object3D();
-    j.position.set(x, y, z);
-    parent.add(j);
+interface Spitter {
+  readonly type: 'spitter';
+  readonly neck: THREE.Object3D;
+  readonly head: THREE.Object3D;
+}
+
+/** Neck angle at rest: leaning forward and up. Rotating a hanging limb by this about x points it
+ * up (cos < 0) and forward (sin > 0 sends it to -z). */
+const NECK = 2.55;
+
+function legs(b: RigBuilder, hips: THREE.Object3D, apart: number, thigh: number, shin: number, r: number) {
+  const leg = (sx: number): [THREE.Object3D, THREE.Object3D] => {
+    const t = b.limb(hips, sx * apart, 0, 0, thigh, r, 'ink');
+    const s = b.limb(t.joint, 0, t.end, 0, shin, r * 0.95, 'ink');
+    b.blob(s.joint, 0, s.end + r * 0.6, -0.04, r * 1.25, r * 0.75, r * 1.7, 'ink');
+    return [t.joint, s.joint];
+  };
+  const [legL, shinL] = leg(-1);
+  const [legR, shinR] = leg(1);
+  return { legL, legR, shinL, shinR };
+}
+
+/** Drops of ink hanging under the body; they fall and grow back. */
+function drips(b: RigBuilder, body: THREE.Object3D, spots: readonly [number, number, number][]) {
+  return spots.map(([x, y, z]) => {
+    const j = b.joint(body, x, y, z);
+    b.blob(j, 0, 0, 0, 0.045, 0.07, 0.045, 'ink');
+    j.userData.base = y;
     return j;
-  }
-
-  blob(
-    parent: THREE.Object3D,
-    x: number,
-    y: number,
-    z: number,
-    rx: number,
-    ry: number,
-    rz: number,
-    paint: Paint = 'ink',
-  ): void {
-    const n = new THREE.Object3D();
-    n.position.set(x, y, z);
-    n.scale.set(rx, ry, rz);
-    parent.add(n);
-    this.parts.push({ node: n, shape: 'blob', paint });
-  }
-
-  /** A limb hanging down from a new joint; returns the joint and where its far end is. */
-  limb(
-    parent: THREE.Object3D,
-    x: number,
-    y: number,
-    z: number,
-    len: number,
-    r: number,
-    paint: Paint = 'ink',
-  ): { joint: THREE.Object3D; end: number } {
-    const j = this.joint(parent, x, y, z);
-    const n = new THREE.Object3D();
-    n.scale.set(r, len, r);
-    j.add(n);
-    this.parts.push({ node: n, shape: 'limb', paint });
-    return { joint: j, end: -len };
-  }
-
-  /** A limb standing up from its joint (the stick figure's spine). */
-  post(parent: THREE.Object3D, x: number, y: number, z: number, len: number, r: number): void {
-    const n = new THREE.Object3D();
-    n.position.set(x, y + len, z);
-    n.scale.set(r, len, r);
-    parent.add(n);
-    this.parts.push({ node: n, shape: 'limb', paint: 'ink' });
-  }
+  });
 }
 
-/** 墨团: a hunched brute with a big body, short legs, long arms and colour-stained hands. */
+/** 墨团: a sack of ink on two stubby feet; arms grow out of its sides only to slam. */
 function buildBrute(): Rig {
   const b = new RigBuilder();
   const root = new THREE.Object3D();
-  const hipsY = 0.5;
+  const hipsY = 0.2;
   const hips = b.joint(root, 0, hipsY, 0);
-  const torso = b.joint(hips, 0, 0, 0);
-  b.blob(torso, 0, 0.27, 0, 0.42, 0.33, 0.34);
-  // the stolen colour sloshing in its belly
-  b.blob(torso, 0, 0.24, -0.27, 0.2, 0.16, 0.09, 'a');
-  const head = b.joint(torso, 0, 0.47, -0.08);
-  b.blob(head, 0, 0.09, 0, 0.23, 0.19, 0.21);
-  for (const sx of [-1, 1]) b.blob(head, sx * 0.1, 0.12, -0.18, 0.06, 0.075, 0.04, 'a');
+  const { legL, legR, shinL, shinR } = legs(b, hips, 0.2, 0.12, 0.08, 0.1);
+  const body = b.joint(hips, 0, 0, 0);
+  b.blob(body, 0, 0.38, 0, 0.5, 0.42, 0.45, 'ink');
+  b.blob(body, 0, 0.72, 0.02, 0.38, 0.34, 0.36, 'ink');
+  // the stolen colour turning in its belly
+  const glow = b.blob(body, 0, 0.38, -0.36, 0.22, 0.2, 0.11, 'a');
+  const topY = 0.72;
+  const top = b.joint(hips, 0, topY, 0);
+  const eyes = [-1, 1].map((sx) => b.blob(top, sx * 0.13, 0.08, -0.31, 0.07, 0.09, 0.05, 'a'));
   const arm = (sx: number): [THREE.Object3D, THREE.Object3D] => {
-    const up = b.limb(torso, sx * 0.4, 0.46, 0, 0.34, 0.075);
-    const fore = b.limb(up.joint, 0, up.end, 0, 0.34, 0.065);
-    // hands that grabbed the colour are stained with it
-    b.blob(fore.joint, 0, fore.end - 0.04, 0, 0.13, 0.14, 0.12, 'b');
+    const up = b.limb(top, sx * 0.36, -0.1, 0, 0.36, 0.1, 'ink');
+    const fore = b.limb(up.joint, 0, up.end, 0, 0.34, 0.09, 'ink');
+    // fists stained with the colour they grabbed
+    b.blob(fore.joint, 0, fore.end - 0.06, 0, 0.15, 0.16, 0.14, 'b');
     return [up.joint, fore.joint];
   };
   const [armL, foreL] = arm(-1);
   const [armR, foreR] = arm(1);
-  const leg = (sx: number): [THREE.Object3D, THREE.Object3D] => {
-    const thigh = b.limb(hips, sx * 0.17, 0, 0, 0.25, 0.09);
-    const shin = b.limb(thigh.joint, 0, thigh.end, 0, 0.23, 0.08);
-    b.blob(shin.joint, 0, shin.end, -0.06, 0.1, 0.06, 0.16);
-    return [thigh.joint, shin.joint];
-  };
-  const [legL, shinL] = leg(-1);
-  const [legR, shinR] = leg(1);
+  const d = drips(b, body, [
+    [-0.36, 0.06, -0.12],
+    [0.3, 0.05, 0.2],
+    [0.08, 0.02, -0.34],
+  ]);
   return {
     root,
     hips,
-    torso,
-    head,
-    armL,
-    armR,
-    foreL,
-    foreR,
+    body,
+    top,
     legL,
     legR,
     shinL,
     shinR,
+    glow,
+    eyes,
+    drips: d,
     hipsY,
+    topY,
     parts: b.parts,
-    brute: true,
+    kind: { type: 'brute', armL, armR, foreL, foreR },
+    fit: 1,
   };
 }
 
-/** 墨吐: a tall stick figure with a round head, a colour heart and a colour-stained mouth. */
-function buildStick(): Rig {
+/** 墨吐: a tall teardrop of ink with a long neck; the colour pools in its throat. */
+function buildSpitter(): Rig {
   const b = new RigBuilder();
   const root = new THREE.Object3D();
-  const hipsY = 0.86;
+  const hipsY = 0.46;
   const hips = b.joint(root, 0, hipsY, 0);
-  const torso = b.joint(hips, 0, 0, 0);
-  b.post(torso, 0, 0, 0, 0.5, 0.05);
-  // the stolen colour caught in its chest, seen between the strokes
-  b.blob(torso, 0, 0.32, -0.05, 0.09, 0.1, 0.07, 'a');
-  const head = b.joint(torso, 0, 0.5, 0);
-  b.blob(head, 0, 0.2, 0, 0.23, 0.24, 0.22);
-  for (const sx of [-1, 1]) b.blob(head, sx * 0.09, 0.25, -0.19, 0.055, 0.07, 0.04, 'a');
-  b.blob(head, 0, 0.1, -0.2, 0.07, 0.055, 0.04, 'b');
-  const arm = (sx: number): [THREE.Object3D, THREE.Object3D] => {
-    const up = b.limb(torso, sx * 0.06, 0.45, 0, 0.32, 0.04);
-    const fore = b.limb(up.joint, 0, up.end, 0, 0.3, 0.035);
-    b.blob(fore.joint, 0, fore.end - 0.03, 0, 0.06, 0.07, 0.06, 'b');
-    return [up.joint, fore.joint];
-  };
-  const [armL, foreL] = arm(-1);
-  const [armR, foreR] = arm(1);
-  const leg = (sx: number): [THREE.Object3D, THREE.Object3D] => {
-    const thigh = b.limb(hips, sx * 0.08, 0, 0, 0.43, 0.045);
-    const shin = b.limb(thigh.joint, 0, thigh.end, 0, 0.41, 0.04);
-    b.blob(shin.joint, 0, shin.end, -0.05, 0.07, 0.045, 0.12);
-    return [thigh.joint, shin.joint];
-  };
-  const [legL, shinL] = leg(-1);
-  const [legR, shinR] = leg(1);
+  const { legL, legR, shinL, shinR } = legs(b, hips, 0.12, 0.25, 0.19, 0.072);
+  const body = b.joint(hips, 0, 0, 0);
+  b.blob(body, 0, 0.32, 0, 0.3, 0.42, 0.28, 'ink');
+  b.blob(body, 0, 0.72, 0.03, 0.2, 0.28, 0.19, 'ink');
+  // a drip of a tail behind
+  const tail = b.joint(body, 0, 0.05, 0.25);
+  tail.rotation.x = 0.6;
+  b.blob(tail, 0, -0.06, 0, 0.07, 0.13, 0.07, 'ink');
+  const topY = 0.86;
+  const top = b.joint(hips, 0, topY, -0.02);
+  const neckLimb = b.limb(top, 0, 0, 0, 0.36, 0.075, 'ink');
+  const neck = neckLimb.joint;
+  neck.rotation.x = NECK;
+  // the throat sack hangs under the neck (local +z is its underside at this angle)
+  const glow = b.blob(neck, 0, -0.16, 0.06, 0.11, 0.12, 0.11, 'a');
+  const head = b.joint(neck, 0, neckLimb.end, 0);
+  b.blob(head, 0, 0.04, -0.05, 0.17, 0.15, 0.18, 'ink');
+  const eyes = [-1, 1].map((sx) => b.blob(head, sx * 0.075, 0.08, -0.2, 0.045, 0.06, 0.03, 'a'));
+  // a colour-stained mouth
+  b.blob(head, 0, -0.03, -0.21, 0.055, 0.03, 0.03, 'b');
+  const d = drips(b, body, [
+    [-0.2, -0.04, -0.08],
+    [0.18, -0.03, 0.12],
+  ]);
   return {
     root,
     hips,
-    torso,
-    head,
-    armL,
-    armR,
-    foreL,
-    foreR,
+    body,
+    top,
     legL,
     legR,
     shinL,
     shinR,
+    glow,
+    eyes,
+    drips: d,
     hipsY,
+    topY,
     parts: b.parts,
-    brute: false,
+    kind: { type: 'spitter', neck, head },
+    fit: 1,
   };
 }
 
-const JOINTS = [
-  'hips',
-  'torso',
-  'head',
-  'armL',
-  'armR',
-  'foreL',
-  'foreR',
-  'legL',
-  'legR',
-  'shinL',
-  'shinR',
-] as const;
+/** Eases 0..1 in and out. */
+const ease = (x: number): number => {
+  const c = Math.min(1, Math.max(0, x));
+  return c * c * (3 - 2 * c);
+};
 
 function pose(r: Rig, p: Pose): void {
-  for (const k of JOINTS) r[k].rotation.set(0, 0, 0);
-  r.hips.position.y = r.hipsY;
-  r.torso.scale.set(1, 1, 1);
-  r.head.scale.setScalar(1);
   const s = Math.sin(p.walk);
   const w = p.stride;
-  const heavy = r.brute ? 1.15 : 0.9;
-  // walking: legs and arms swing opposite, knees bend on the back swing, a bob each step
-  r.legL.rotation.x = s * 0.75 * w;
-  r.legR.rotation.x = -s * 0.75 * w;
-  r.shinL.rotation.x = -(0.1 + 0.8 * Math.max(0, -s)) * w;
-  r.shinR.rotation.x = -(0.1 + 0.8 * Math.max(0, s)) * w;
-  r.armL.rotation.x = -s * 0.7 * w * heavy;
-  r.armR.rotation.x = s * 0.7 * w * heavy;
-  r.foreL.rotation.x = r.foreR.rotation.x = (r.brute ? 0.5 : 0.3) * w + 0.15;
-  r.armL.rotation.z = r.brute ? -0.25 : -0.12;
-  r.armR.rotation.z = r.brute ? 0.25 : 0.12;
-  r.hips.position.y += Math.abs(Math.cos(p.walk)) * 0.05 * w;
-  r.torso.rotation.x = -(r.brute ? 0.25 : 0.08) * w;
-  // idle: breathe
-  r.torso.scale.y = 1 + 0.03 * Math.sin(p.t * 2.2 + p.x);
-  r.head.rotation.z = Math.sin(p.t * 1.3 + p.z) * 0.06;
+  const brute = r.kind.type === 'brute';
+  for (const j of [r.legL, r.legR, r.shinL, r.shinR, r.body, r.top]) j.rotation.set(0, 0, 0);
+  // walking: stubby legs swing, the body rolls side to side and bobs each step
+  r.legL.rotation.x = s * (brute ? 0.6 : 0.75) * w;
+  r.legR.rotation.x = -s * (brute ? 0.6 : 0.75) * w;
+  r.shinL.rotation.x = -(0.1 + 0.7 * Math.max(0, -s)) * w;
+  r.shinR.rotation.x = -(0.1 + 0.7 * Math.max(0, s)) * w;
+  r.hips.position.y = r.hipsY + Math.abs(Math.cos(p.walk)) * 0.04 * w;
+  r.body.rotation.z = s * (brute ? 0.12 : 0.08) * w;
+  r.body.rotation.x = -(brute ? 0.08 : 0.14) * w;
+  // at rest it slumps and breathes
+  const breath = Math.sin(p.t * 2.2 + p.x);
+  let sy = (brute ? 0.96 : 1) + 0.035 * breath;
+  let sxz = (brute ? 1.03 : 1) - 0.02 * breath;
+  let glow = 1;
+  let eyes = 1;
 
-  if (p.attack >= 0) {
-    const a = p.attack;
-    if (r.brute) {
-      // wind up overhead, slam down at 0.55, recover
-      const up = a < 0.55 ? a / 0.55 : Math.max(0, 1 - (a - 0.55) / 0.15);
-      const slam = a < 0.55 ? 0 : Math.max(0, 1 - (a - 0.7) / 0.3);
-      const arms = up * 2.7 + slam * 0.9;
-      r.armL.rotation.x = r.armR.rotation.x = arms;
-      r.foreL.rotation.x = r.foreR.rotation.x = up * 0.6;
-      r.torso.rotation.x = up * 0.25 - slam * 0.55;
-      r.head.rotation.x = -slam * 0.3;
-    } else {
-      // rear back, then throw the head forward to spit at 0.45
-      const back = a < 0.45 ? a / 0.45 : Math.max(0, 1 - (a - 0.45) / 0.12);
-      const fling = a < 0.45 ? 0 : Math.max(0, 1 - (a - 0.55) / 0.45);
-      r.torso.rotation.x = back * 0.4 - fling * 0.45;
-      r.head.rotation.x = back * 0.45 - fling * 0.5;
-      r.armL.rotation.x = r.armR.rotation.x = back * 0.6 + fling * 1.4;
-      r.armL.rotation.z = -0.12 - back * 0.9;
-      r.armR.rotation.z = 0.12 + back * 0.9;
-      // cheeks puff before the spit
-      r.head.scale.setScalar(1 + back * 0.12);
+  if (r.kind.type === 'brute') {
+    const k = r.kind;
+    // arms only exist to strike: they grow out of the sides, go up, slam down and sink back
+    let up = 0;
+    let slam = 0;
+    if (p.attack >= 0) {
+      const a = p.attack;
+      up = a < 0.55 ? ease(a / 0.55) : Math.max(0, 1 - (a - 0.55) / 0.15);
+      slam = a < 0.55 ? 0 : Math.max(0, 1 - (a - 0.7) / 0.3);
     }
+    const grow = p.air ? 0.5 : Math.max(up, slam);
+    sy *= 1 + 0.32 * up - 0.15 * slam;
+    sxz *= 1 - 0.13 * up + 0.12 * slam;
+    glow = 1 + 0.6 * up;
+    eyes = 1 + 0.4 * up;
+    for (const [arm, fore, side] of [
+      [k.armL, k.foreL, -1],
+      [k.armR, k.foreR, 1],
+    ] as const) {
+      arm.scale.setScalar(Math.max(0.001, grow));
+      arm.rotation.set(up * 2.8 + slam * 1.1 + (p.air ? 2.2 : 0), 0, side * (0.3 + 0.2 * up));
+      fore.rotation.set(up * 0.5 - slam * 0.2, 0, 0);
+    }
+    r.body.rotation.x += -slam * 0.3;
+  } else {
+    const k = r.kind;
+    // rear back, the throat swelling and brightening, then throw the head forward to spit
+    let back = 0;
+    let fling = 0;
+    if (p.attack >= 0) {
+      const a = p.attack;
+      back = a < 0.45 ? ease(a / 0.45) : Math.max(0, 1 - (a - 0.45) / 0.12);
+      fling = a < 0.45 ? 0 : Math.max(0, 1 - (a - 0.55) / 0.45);
+    }
+    const neck = NECK + 0.05 * Math.sin(p.t * 1.7 + p.z) + back * 0.55 - fling * 0.6;
+    k.neck.rotation.set(neck, 0, 0);
+    // keep the head upright on the neck, tipped back while it winds up
+    k.head.rotation.set(-neck + back * 0.5 - fling * 0.35, 0, 0);
+    r.body.rotation.x += back * 0.22 - fling * 0.28;
+    glow = 1 + 0.9 * back + 0.3 * fling;
+    eyes = 1 + 0.3 * back;
   }
+
   if (p.hurt > 0) {
-    r.torso.rotation.x += p.hurt * 0.45;
-    r.head.rotation.x += p.hurt * 0.35;
-    r.head.rotation.z += p.hurt * 0.2;
+    // the side that was hit dents in and springs back
+    r.body.rotation.x += p.hurt * 0.3;
+    r.body.rotation.z += p.hurt * (brute ? 0.1 : 0.3);
+    sy *= 1 - 0.1 * p.hurt;
+    sxz *= 1 + 0.08 * p.hurt;
   }
   if (p.air) {
     r.legL.rotation.x = r.legR.rotation.x = 0.9;
-    r.shinL.rotation.x = r.shinR.rotation.x = -1.4;
-    r.armL.rotation.x = r.armR.rotation.x = 2.3;
-    r.armL.rotation.z = -0.5;
-    r.armR.rotation.z = 0.5;
+    r.shinL.rotation.x = r.shinR.rotation.x = -1.3;
+    sy *= 1.08;
+    sxz *= 0.94;
   }
+
+  r.body.scale.set(sxz, sy, sxz);
+  // what rides on top follows the body's height and roll without being squashed
+  r.top.position.y = r.topY * sy;
+  r.top.rotation.copy(r.body.rotation);
+  // the colour swells; eyes stay on the surface as the body narrows (sizes as built, first call)
+  r.glow.userData.base ??= r.glow.scale.clone();
+  r.glow.scale.copy(r.glow.userData.base as THREE.Vector3).multiplyScalar(glow);
+  for (const e of r.eyes) {
+    e.userData.base ??= e.scale.clone();
+    e.userData.z ??= e.position.z;
+    e.scale.copy(e.userData.base as THREE.Vector3).multiplyScalar(eyes);
+    if (brute) e.position.z = (e.userData.z as number) * sxz;
+  }
+  // drips slide down, fall away and grow back
+  r.drips.forEach((d, i) => {
+    const f = (p.t * 0.7 + i * 0.37 + p.x * 0.1) % 1;
+    d.position.y = (d.userData.base as number) - f * 0.14;
+    d.scale.setScalar(f < 0.85 ? 0.6 + 0.5 * f : Math.max(0.001, (1 - f) * 6));
+  });
 
   r.root.position.set(p.x, p.y, p.z);
   r.root.rotation.set(0, p.yaw, 0);
   if (p.dying >= 0) {
-    // melt into a puddle: sink and spread, limbs splayed
+    // melt into a puddle: sink and spread
     const d = Math.min(1, p.dying);
-    r.root.scale.set(1 + 0.7 * d, Math.max(0.05, 1 - 0.95 * d), 1 + 0.7 * d);
-    r.armL.rotation.z = -0.3 - 1.2 * d;
-    r.armR.rotation.z = 0.3 + 1.2 * d;
-    r.legL.rotation.z = -0.8 * d;
-    r.legR.rotation.z = 0.8 * d;
+    r.root.scale.set(1 + 0.8 * d, Math.max(0.05, 1 - 0.95 * d), 1 + 0.8 * d);
   } else r.root.scale.set(1, 1, 1);
-}
-
-function unitGeometry(shape: Shape): THREE.BufferGeometry {
-  const g = new GeometryBuilder();
-  const ink = color('ink');
-  if (shape === 'blob') g.mesh(new THREE.IcosahedronGeometry(1, 1), new THREE.Matrix4(), ink, ALWAYS_COLOR);
-  // a slightly tapered stroke hanging from its joint (y 0 to -1)
-  else
-    g.mesh(
-      new THREE.CylinderGeometry(1, 0.8, 1, 6),
-      new THREE.Matrix4().makeTranslation(0, -0.5, 0),
-      ink,
-      ALWAYS_COLOR,
-    );
-  return g.build();
+  r.root.scale.multiplyScalar(r.fit);
 }
 
 const INK = color('ink');
 
-export class FigureRenderer {
+/** Every monster of a group, drawn as two instanced meshes. */
+export class MonsterFigures {
   private readonly rigs = new Map<string, Rig>();
-  private readonly meshes: Record<Shape, THREE.InstancedMesh>;
-  private readonly used: Record<Shape, number> = { blob: 0, limb: 0 };
-  private readonly c = new THREE.Color();
+  private readonly figures: FigureRenderer;
 
-  constructor(
-    private readonly parent: THREE.Object3D,
-    private readonly material: THREE.Material,
-  ) {
-    this.meshes = { blob: this.make('blob', 256), limb: this.make('limb', 256) };
-  }
-
-  private make(shape: Shape, capacity: number): THREE.InstancedMesh {
-    const m = new THREE.InstancedMesh(unitGeometry(shape), this.material, capacity);
-    m.frustumCulled = false;
-    m.count = 0;
-    // instance colours carry the palette index of each part
-    m.setColorAt(0, this.c.setRGB(INK, 0, 0));
-    this.parent.add(m);
-    return m;
-  }
-
-  /** Double a mesh's capacity, keeping what has been written this frame. */
-  private grow(shape: Shape): void {
-    const old = this.meshes[shape];
-    const m = this.make(shape, old.instanceMatrix.count * 2);
-    const n = this.used[shape];
-    m.instanceMatrix.array.set(old.instanceMatrix.array.subarray(0, n * 16));
-    m.instanceColor!.array.set(old.instanceColor!.array.subarray(0, n * 3));
-    old.geometry.dispose();
-    old.removeFromParent();
-    old.dispose();
-    this.meshes[shape] = m;
+  constructor(parent: THREE.Object3D, material: THREE.Material) {
+    this.figures = new FigureRenderer(parent, material);
   }
 
   private rig(def: EnemyDef): Rig {
     let r = this.rigs.get(def.key);
     if (!r) {
-      r = def.attack.kind === 'melee' ? buildBrute() : buildStick();
-      // fit the drawing to the enemy's collision height
-      const top = r.brute ? 1.24 : 1.79;
-      r.root.userData.fit = def.height / top;
+      r = monsterRig(def);
       this.rigs.set(def.key, r);
     }
     return r;
   }
 
   begin(): void {
-    this.used.blob = 0;
-    this.used.limb = 0;
+    this.figures.begin();
   }
 
   draw(def: EnemyDef, p: Pose): void {
     const r = this.rig(def);
     pose(r, p);
-    const fit = r.root.userData.fit as number;
-    r.root.scale.multiplyScalar(fit);
     r.root.updateMatrixWorld(true);
     const a = p.colors[0] ?? INK;
     const b = p.colors[1] ?? a;
-    for (const part of r.parts) {
-      const shape = part.shape;
-      if (this.used[shape] >= this.meshes[shape].instanceMatrix.count) this.grow(shape);
-      const m = this.meshes[shape];
-      const i = this.used[shape]++;
-      m.setMatrixAt(i, part.node.matrixWorld);
-      m.setColorAt(i, this.c.setRGB(part.paint === 'ink' ? INK : part.paint === 'a' ? a : b, 0, 0));
-    }
+    this.figures.add(r.parts, (part) => {
+      const paint = part.paint as Paint;
+      return paint === 'ink' ? INK : paint === 'a' ? a : b;
+    });
   }
 
   end(): void {
-    for (const shape of ['blob', 'limb'] as const) {
-      const m = this.meshes[shape];
-      m.count = this.used[shape];
-      m.instanceMatrix.needsUpdate = true;
-      if (m.instanceColor) m.instanceColor.needsUpdate = true;
-    }
+    this.figures.end();
   }
 
   dispose(): void {
-    for (const m of Object.values(this.meshes)) {
-      m.geometry.dispose();
-      m.removeFromParent();
-      m.dispose();
-    }
+    this.figures.dispose();
   }
+}
+
+/** A monster's rig, fitted to its collision height. Exported for tests. */
+export function monsterRig(def: EnemyDef): Rig {
+  const r = def.attack.kind === 'melee' ? buildBrute() : buildSpitter();
+  r.fit = def.height / rigTop(r.root, r.parts);
+  return r;
+}
+
+/** Pose a rig and measure its top, for tests: how tall the drawing stands in this pose. */
+export function posedTop(r: Rig, p: Pose): number {
+  pose(r, p);
+  const fit = r.fit;
+  r.root.position.set(0, 0, 0);
+  return rigTop(r.root, r.parts) * fit;
 }
