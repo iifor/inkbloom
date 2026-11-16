@@ -8,8 +8,6 @@ export const TUNING = {
     chunkSize: 128,
     /** Terrain cell size in metres; a chunk is chunkSize / cellSize cells across. */
     cellSize: 4,
-    /** Terrace step height. Must stay below player.stepHeight so gentle slopes are walkable. */
-    terraceStep: 0.5,
     /** Chunks loaded around the player (Chebyshev radius). */
     loadRadius: 2,
     /** Chunks beyond this radius are unloaded. */
@@ -192,6 +190,14 @@ export const TUNING = {
   release: {
     monster: { radius: 14, max: 10 },
     request: { radius: 18, max: 24 },
+  },
+  /** The day cycle (presentation only: light, sky, lit windows). The hour follows the world
+   * clock, so it is saved with the world. */
+  day: {
+    /** Seconds of play for a full 24 hours. */
+    length: 1440,
+    /** Hour of day when a new world starts. */
+    startHour: 9,
   },
   save: {
     debounceMs: 1500,

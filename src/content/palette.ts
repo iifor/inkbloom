@@ -7,16 +7,19 @@ export interface ColorDef {
   readonly name: string;
   readonly rgb: readonly [number, number, number];
   readonly paintable: boolean;
-  /** Drawn as solid wet ink instead of a watercolour wash (the ink tide). */
+  /** Drawn as solid wet ink instead of paint (the ink tide). */
   readonly solid?: boolean;
+  /** How strongly brush texture shows in it, 0..1: leaves and grass are dappled and uneven,
+   * plaster walls are smooth. Default 0.25. */
+  readonly texture?: number;
 }
 
 export const PALETTE = [
   { key: 'blue', name: '宝蓝', rgb: [0.27, 0.43, 0.74], paintable: true },
-  { key: 'red', name: '朱红', rgb: [0.85, 0.33, 0.27], paintable: true },
+  { key: 'red', name: '朱红', rgb: [0.84, 0.34, 0.33], paintable: true },
   { key: 'orange', name: '橙', rgb: [0.94, 0.6, 0.27], paintable: true },
   { key: 'yellow', name: '鹅黄', rgb: [0.96, 0.84, 0.43], paintable: true },
-  { key: 'green', name: '翠绿', rgb: [0.36, 0.64, 0.37], paintable: true },
+  { key: 'green', name: '翠绿', rgb: [0.36, 0.64, 0.37], paintable: true, texture: 0.4 },
   { key: 'teal', name: '青', rgb: [0.2, 0.55, 0.54], paintable: true },
   { key: 'sky', name: '天蓝', rgb: [0.48, 0.73, 0.88], paintable: true },
   { key: 'purple', name: '紫罗兰', rgb: [0.56, 0.44, 0.71], paintable: true },
@@ -25,16 +28,18 @@ export const PALETTE = [
   { key: 'cream', name: '米白', rgb: [0.97, 0.93, 0.81], paintable: true },
   { key: 'charcoal', name: '炭灰', rgb: [0.34, 0.35, 0.39], paintable: true },
   // natural colours, not offered by the brush
-  { key: 'grass', name: '草地', rgb: [0.5, 0.74, 0.34], paintable: false },
-  { key: 'forest', name: '林地', rgb: [0.24, 0.48, 0.29], paintable: false },
-  { key: 'rock', name: '岩石', rgb: [0.62, 0.58, 0.52], paintable: false },
-  { key: 'water', name: '水面', rgb: [0.32, 0.62, 0.8], paintable: false },
-  { key: 'sand', name: '沙土', rgb: [0.88, 0.8, 0.6], paintable: false },
-  { key: 'stone', name: '石板路', rgb: [0.72, 0.7, 0.66], paintable: false },
-  { key: 'bark', name: '树皮', rgb: [0.45, 0.32, 0.22], paintable: false },
-  { key: 'snow', name: '雪', rgb: [0.96, 0.97, 1.0], paintable: false },
+  { key: 'grass', name: '草地', rgb: [0.47, 0.74, 0.3], paintable: false, texture: 1 },
+  { key: 'forest', name: '林地', rgb: [0.2, 0.45, 0.26], paintable: false, texture: 1 },
+  { key: 'rock', name: '岩石', rgb: [0.62, 0.58, 0.52], paintable: false, texture: 0.7 },
+  { key: 'water', name: '水面', rgb: [0.36, 0.7, 0.78], paintable: false, texture: 0.35 },
+  { key: 'sand', name: '沙土', rgb: [0.86, 0.78, 0.6], paintable: false, texture: 0.5 },
+  { key: 'stone', name: '石板路', rgb: [0.77, 0.75, 0.71], paintable: false, texture: 0.45 },
+  { key: 'bark', name: '树皮', rgb: [0.4, 0.3, 0.22], paintable: false, texture: 0.6 },
+  { key: 'snow', name: '雪', rgb: [0.96, 0.97, 1.0], paintable: false, texture: 0.3 },
   // the ink tide's own black, darker than any paint
   { key: 'ink', name: '墨', rgb: [0.06, 0.06, 0.09], paintable: false, solid: true },
+  // window glass: blue-grey with the sky in it
+  { key: 'glass', name: '玻璃', rgb: [0.33, 0.46, 0.56], paintable: false, texture: 0.05 },
 ] as const satisfies readonly ColorDef[];
 
 export type ColorKey = (typeof PALETTE)[number]['key'];

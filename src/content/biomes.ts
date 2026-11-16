@@ -7,7 +7,7 @@ export interface BiomeDef {
   readonly name: string;
   /** Top surface colour. */
   readonly ground: number;
-  /** Colour of terrace sides. */
+  /** Colour of steep slopes. */
   readonly cliff: number;
   /** Trees per terrain cell (0..1). */
   readonly treeDensity: number;
@@ -29,7 +29,8 @@ export const BIOMES = [
   {
     key: 'mountain',
     name: '山地',
-    ground: color('rock'),
+    // green hills; bare rock only where it is steep
+    ground: color('forest'),
     cliff: color('rock'),
     treeDensity: 0.012,
     treeColor: color('forest'),
@@ -38,8 +39,9 @@ export const BIOMES = [
   {
     key: 'forest',
     name: '森林',
-    ground: color('forest'),
-    cliff: color('bark'),
+    // a sunny floor under dark crowns
+    ground: color('grass'),
+    cliff: color('rock'),
     treeDensity: 0.12,
     treeColor: color('forest'),
     treeMaxSlope: 1.5,
@@ -48,7 +50,7 @@ export const BIOMES = [
     key: 'grassland',
     name: '草原',
     ground: color('grass'),
-    cliff: color('sand'),
+    cliff: color('rock'),
     treeDensity: 0.008,
     treeColor: color('green'),
     treeMaxSlope: 1.5,

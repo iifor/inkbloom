@@ -1,5 +1,6 @@
-// The one material every world mesh uses. It writes a G-buffer the post pass turns into a pen
-// drawing on paper: R = light shade, G = colour code, BA = view normal.
+// The one material every world mesh uses. It writes a G-buffer the post pass turns into a
+// painting: R = light shade (sun facing, darkened where the sun's shadow map says something is
+// in the way), G = colour code, BA = view normal.
 //
 // Colour code = paletteIndex + 0.9 * saturation. Saturation comes from:
 //   aSurface >= 0  per-surface state texture (0 drained, 1 original, 2+n graffiti colour n)
@@ -18,7 +19,17 @@ export const shared = {
   uDrainInner: { value: TUNING.drain.innerRadius as number },
   uDrainOuter: { value: TUNING.drain.outerRadius as number },
   uSceneSat: { value: 1 },
+  /** Sun shadow map around the player; see InkRenderer. */
+  uShadowMap: { value: null as THREE.Texture | null },
+  uShadowMatrix: { value: new THREE.Matrix4() },
+  uShadowTexel: { value: 1 / 2048 },
+  uShadowOn: { value: 0 },
+  /** Seconds, for wind. */
+  uTime: { value: 0 },
 };
+
+/** Layer for things drawn but never shadow-casting (grass: it would speckle the ground). */
+export const NO_SHADOW_LAYER = 2;
 
 const vert = /* glsl */ `
 attribute float aColor;
@@ -30,8 +41,11 @@ uniform int uCityCount;
 uniform float uDrainInner;
 uniform float uDrainOuter;
 uniform float uSceneSat;
+uniform mat4 uShadowMatrix;
+uniform float uTime;
 varying vec3 vNormalV;
 varying float vCode;
+varying vec4 vShadow;
 
 float derivedSat(vec3 wp) {
   float drain = 0.0;
@@ -53,6 +67,12 @@ void main() {
     objectNormal = mat3(instanceMatrix) * objectNormal;
   #endif
   vec4 world = modelMatrix * vec4(transformed, 1.0);
+  #ifdef WIND
+    // plants sway: the higher up the blade, the further; slow waves roll across the field
+    float sway = sin(uTime * 1.6 + world.x * 0.31 + world.z * 0.23) * 0.6
+               + sin(uTime * 0.7 + world.x * 0.05 - world.z * 0.07) * 0.5;
+    world.xz += vec2(0.8, 0.5) * sway * 0.16 * max(position.y, 0.0);
+  #endif
   float idx = aColor;
   #ifdef USE_INSTANCING_COLOR
     // instanced particles carry their palette index in the red channel
@@ -72,6 +92,9 @@ void main() {
   }
   vCode = idx + 0.9 * clamp(sat, 0.0, 1.0);
   vNormalV = normalize(normalMatrix * objectNormal);
+  // pushed out along the normal a little, so surfaces do not shadow themselves
+  vec3 wn = normalize(mat3(modelMatrix) * objectNormal);
+  vShadow = uShadowMatrix * vec4(world.xyz + wn * 0.12, 1.0);
   gl_Position = projectionMatrix * viewMatrix * world;
 }`;
 
@@ -79,12 +102,41 @@ const frag = /* glsl */ `
 precision highp float;
 uniform vec3 uLightDir;
 uniform float uShadeBias;
+uniform sampler2D uShadowMap;
+uniform float uShadowTexel;
+uniform float uShadowOn;
 varying vec3 vNormalV;
 varying float vCode;
+varying vec4 vShadow;
+
+/**
+ * 1 in sunlight, 0 in shadow, fading out at the map's edge. Eight taps on a ring turned by a
+ * per-pixel random angle: the edge comes out soft and slightly grainy, like a brushed shadow,
+ * instead of in square steps.
+ */
+float sunlight() {
+  vec3 p = vShadow.xyz / vShadow.w;
+  if (p.x <= 0.0 || p.x >= 1.0 || p.y <= 0.0 || p.y >= 1.0 || p.z >= 1.0) return 1.0;
+  float turn = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453) * 6.2832;
+  float sum = step(p.z - 0.0008, texture2D(uShadowMap, p.xy).r);
+  for (int i = 0; i < 8; i++) {
+    float a = turn + float(i) * 0.7854;
+    float r = (i < 4 ? 1.4 : 2.8) * uShadowTexel;
+    sum += step(p.z - 0.0008, texture2D(uShadowMap, p.xy + vec2(cos(a), sin(a)) * r).r);
+  }
+  vec2 e = min(p.xy, 1.0 - p.xy);
+  return mix(1.0, sum / 9.0, smoothstep(0.0, 0.08, min(e.x, e.y)));
+}
+
 void main() {
   vec3 n = normalize(vNormalV);
-  if (!gl_FrontFacing) n = -n;
+  #ifndef WIND
+    // plants keep their upward normal on both sides; everything else shows its back face dark
+    if (!gl_FrontFacing) n = -n;
+  #endif
   float shade = clamp(dot(n, uLightDir) * 0.5 + 0.5 + uShadeBias, 0.0, 1.0);
+  // in the shadow of something: as dark as a face turned away from the sun
+  if (uShadowOn > 0.5) shade = mix(min(shade, 0.4), shade, sunlight());
   gl_FragColor = vec4(shade, vCode, n.x, n.y);
 }`;
 
@@ -102,6 +154,8 @@ export interface InkMaterialOptions {
   state?: SurfaceStateTexture;
   side?: THREE.Side;
   shadeBias?: number;
+  /** Sway in the wind by local height (grass, flowers). */
+  wind?: boolean;
 }
 
 export function makeInkMaterial(opts: InkMaterialOptions = {}): THREE.ShaderMaterial {
@@ -113,12 +167,18 @@ export function makeInkMaterial(opts: InkMaterialOptions = {}): THREE.ShaderMate
       uDrainInner: shared.uDrainInner,
       uDrainOuter: shared.uDrainOuter,
       uSceneSat: shared.uSceneSat,
+      uShadowMap: shared.uShadowMap,
+      uShadowMatrix: shared.uShadowMatrix,
+      uShadowTexel: shared.uShadowTexel,
+      uShadowOn: shared.uShadowOn,
+      uTime: shared.uTime,
       uState: { value: opts.state?.texture ?? empty() },
       uStateWidth: { value: opts.state?.width ?? 1 },
       uShadeBias: { value: opts.shadeBias ?? 0 },
     },
     vertexShader: vert,
     fragmentShader: frag,
+    defines: opts.wind ? { WIND: '' } : {},
     side: opts.side ?? THREE.FrontSide,
   });
 }

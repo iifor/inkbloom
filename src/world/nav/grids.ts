@@ -17,7 +17,7 @@ export function cityNav(l: CityLayout): NavGrid {
 }
 
 /**
- * Wilderness: dry terrace cells. A monster can step or jump up to `combat.monsterJump` and drop
+ * Wilderness: dry ground cells (heights sampled at cell centres). A monster can step or jump up to `combat.monsterJump` and drop
  * down up to `combat.monsterDrop`, so a path may go down a cliff it cannot come back up.
  * `blocked` marks trees and towers.
  */

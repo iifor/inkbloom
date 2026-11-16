@@ -2,9 +2,23 @@
 // step-up, and raycasts. Ported from doodle-game's physics.js; adds collider groups so
 // streamed chunks can be added and removed without rebuilding everything, and walks the
 // hash grid for raycasts instead of testing every box.
+//
+// A world may also have smooth `ground`: a height function (rolling hills). Bodies stand on it
+// and follow it downhill, slopes steeper than MAX_SLOPE stop them like a wall, and rays stop at
+// it. Boxes (trees, towers, ruins) sit on top of it as usual.
 import * as THREE from 'three';
 
 const EPS = 1e-4;
+/** Steepest ground a body can walk up (rise over run). */
+export const MAX_SLOPE = 1;
+/** Stand-in box for ray hits on the ground; it has no faces, so no surface either. */
+const GROUND_BOX: Box = {
+  min: { x: 0, y: 0, z: 0 },
+  max: { x: 0, y: 0, z: 0 },
+  data: {},
+  group: 'ground',
+  q: -1,
+};
 const AXES = ['x', 'y', 'z'] as const;
 type Axis = (typeof AXES)[number];
 
@@ -90,6 +104,8 @@ export class PhysicsWorld {
   private readonly grid = new Map<number, Box[]>();
   private readonly groups = new Map<string, Box[]>();
   private qid = 0;
+  /** Smooth ground height at (x, z), or null for a world of boxes only. */
+  ground: ((x: number, z: number) => number) | null = null;
 
   constructor(readonly cell = 8) {
     if (!Number.isFinite(cell) || cell <= 0) throw new RangeError('Physics cell must be positive');
@@ -266,6 +282,26 @@ export class PhysicsWorld {
     }
   }
 
+  /** Undo a horizontal move that would climb ground steeper than MAX_SLOPE. */
+  private slopeLimit(body: Body, ox: number, oz: number): void {
+    const g = this.ground;
+    if (!g) return;
+    const p = body.pos;
+    const run = Math.hypot(p.x - ox, p.z - oz);
+    if (run < 1e-6) return;
+    const to = g(p.x, p.z);
+    // only climbing counts, and only when the body is down at the ground
+    if (to - p.y <= 0.05 || to - g(ox, oz) <= MAX_SLOPE * run) return;
+    const nx = (ox - p.x) / run;
+    const nz = (oz - p.z) / run;
+    p.x = ox;
+    p.z = oz;
+    body.hitWall = true;
+    body.wallNormal.set(nx, 0, nz);
+    if (Math.abs(nx) > 0.3) body.bx = Math.sign(nx);
+    if (Math.abs(nz) > 0.3) body.bz = Math.sign(nz);
+  }
+
   /** Integrate a body; sub-steps fast movement so it never tunnels. */
   moveBody(body: Body, dt: number): void {
     if (!Number.isFinite(dt) || dt < 0 || dt > 0.05) throw new RangeError(`Invalid physics timestep: ${dt}`);
@@ -302,7 +338,10 @@ export class PhysicsWorld {
     body.wallNormal.set(0, 0, 0);
     body.landVel = 0;
     const wasGround = body.onGround;
+    const ox = p.x;
+    const oz = p.z;
     this.moveHoriz(body, v.x * dt, v.z * dt, wasGround);
+    this.slopeLimit(body, ox, oz);
     if (body.bx !== 0) v.x = 0;
     if (body.bz !== 0) v.z = 0;
     const dy = v.y * dt;
@@ -325,6 +364,51 @@ export class PhysicsWorld {
         v.y = 0;
       } else p.y += probe;
     }
+    const g = this.ground;
+    if (g) {
+      const gy = g(p.x, p.z);
+      if (p.y <= gy) {
+        // landed on (or walked into rising) ground
+        if (!body.onGround && v.y < 0) body.landVel = v.y;
+        p.y = gy;
+        body.onGround = true;
+        if (v.y < 0) v.y = 0;
+      } else if (!body.onGround && wasGround && v.y <= 0 && !body.noSnap && p.y - gy <= body.stepHeight) {
+        // walking downhill: keep the feet on the ground instead of skipping off it
+        p.y = gy;
+        body.onGround = true;
+        v.y = 0;
+      }
+    }
+  }
+
+  /** Where a ray first meets the ground, by marching then bisecting; Infinity if it does not. */
+  private groundHit(o: Vec3Like, d: Vec3Like, maxDist: number): number {
+    const g = this.ground;
+    if (!g) return Infinity;
+    const above = (t: number): number => o.y + d.y * t - g(o.x + d.x * t, o.z + d.z * t);
+    let t0 = 0;
+    let a0 = above(0);
+    if (a0 <= 0) return 0;
+    for (let guard = 0; guard < 4000 && t0 < maxDist; guard++) {
+      // step by a share of the clearance: big strides high up, small ones skimming the ground
+      const t1 = Math.min(maxDist, t0 + Math.min(4, Math.max(0.25, a0 * 0.5)));
+      const a1 = above(t1);
+      if (a1 <= 0) {
+        let lo = t0;
+        let hi = t1;
+        for (let i = 0; i < 8; i++) {
+          const mid = (lo + hi) / 2;
+          if (above(mid) > 0) lo = mid;
+          else hi = mid;
+        }
+        return hi;
+      }
+      if (t1 >= maxDist) break;
+      t0 = t1;
+      a0 = a1;
+    }
+    return Infinity;
   }
 
   /** Ray against boxes, walking the hash grid cell by cell (2D DDA on xz). */
@@ -405,6 +489,18 @@ export class PhysicsWorld {
         iz += stepZ;
       }
       if (exit > bestT || exit > maxDist) break;
+    }
+    const gt = this.groundHit(o, d, best ? bestT : maxDist);
+    if (gt < (best ? bestT : Infinity) || (!best && gt <= maxDist)) {
+      const point = new THREE.Vector3(o.x + d.x * gt, o.y + d.y * gt, o.z + d.z * gt);
+      const g = this.ground!;
+      const e = 0.3;
+      const normal = new THREE.Vector3(
+        g(point.x - e, point.z) - g(point.x + e, point.z),
+        2 * e,
+        g(point.x, point.z - e) - g(point.x, point.z + e),
+      ).normalize();
+      return { dist: gt, point, normal, box: GROUND_BOX };
     }
     if (!best) return null;
     const point = new THREE.Vector3(o.x + d.x * bestT, o.y + d.y * bestT, o.z + d.z * bestT);

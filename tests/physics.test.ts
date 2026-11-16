@@ -61,3 +61,70 @@ describe('physics', () => {
     expect(body.onGround).toBe(true);
   });
 });
+
+describe('smooth ground', () => {
+  /** A ramp rising along +x at `slope`, flat below x = 0. */
+  const ramp =
+    (slope: number) =>
+    (x: number): number =>
+      Math.max(0, x) * slope;
+
+  function world(slope: number): PhysicsWorld {
+    const w = new PhysicsWorld(8);
+    const r = ramp(slope);
+    w.ground = (x) => r(x);
+    return w;
+  }
+
+  const run = (w: PhysicsWorld, b: ReturnType<typeof makeBody>, seconds: number, vx: number): void => {
+    for (let t = 0; t < seconds; t += 1 / 60) {
+      b.vel.x = vx;
+      b.vel.y -= 22 / 60;
+      w.moveBody(b, 1 / 60);
+    }
+  };
+
+  it('lands a falling body on the ground and keeps it there', () => {
+    const w = world(0.3);
+    const b = makeBody(new THREE.Vector3(5, 10, 0), 0.4, 1.8);
+    run(w, b, 2, 0);
+    expect(b.onGround).toBe(true);
+    expect(b.pos.y).toBeCloseTo(1.5, 2);
+  });
+
+  it('walks up a gentle hill and back down it without leaving the ground', () => {
+    const w = world(0.5);
+    const b = makeBody(new THREE.Vector3(-2, 0, 0), 0.4, 1.8);
+    run(w, b, 3, 4);
+    expect(b.pos.x).toBeGreaterThan(8);
+    expect(b.pos.y).toBeCloseTo(b.pos.x * 0.5, 1);
+    let airborne = 0;
+    for (let t = 0; t < 2; t += 1 / 60) {
+      run(w, b, 1 / 60, -6);
+      if (!b.onGround) airborne++;
+    }
+    expect(airborne).toBe(0);
+  });
+
+  it('stops at ground too steep to climb, like a wall', () => {
+    const w = world(2.5);
+    const b = makeBody(new THREE.Vector3(-3, 0, 0), 0.4, 1.8);
+    run(w, b, 2, 4);
+    expect(b.pos.x).toBeLessThan(0.5);
+    expect(b.pos.y).toBeLessThan(1);
+  });
+
+  it('stops rays at the ground, with an upward normal and no surface', () => {
+    const w = world(0.5);
+    const hit = w.raycast({ x: -10, y: 5, z: 0 }, { x: 1, y: 0, z: 0 }, 100)!;
+    expect(hit.point.x).toBeCloseTo(10, 1);
+    expect(hit.normal.y).toBeGreaterThan(0.8);
+    expect(hit.normal.x).toBeLessThan(0);
+    expect(surfaceAt(hit)).toBeNull();
+    // a box in front of the hill still wins
+    w.addBox('a', { x: 2, y: 0, z: -1 }, { x: 3, y: 8, z: 1 }, { faces: { nx: 4 } });
+    const box = w.raycast({ x: -10, y: 5, z: 0 }, { x: 1, y: 0, z: 0 }, 100)!;
+    expect(surfaceAt(box)).toBe(4);
+    expect(w.groundBelow(20, 50, 0)).toBeCloseTo(10, 1);
+  });
+});

@@ -19,13 +19,14 @@ describe('wilderness', () => {
     expect(ca.trees).toEqual(cb.trees);
   });
 
-  it('terraces every height to the step size', () => {
+  it('rolls smoothly: nearby points never jump in height', () => {
     const w = createWilderness(SEED);
-    const c = generateWildChunk(w, -2, 4);
-    for (const h of c.heights)
-      expect(Math.abs(h / TUNING.world.terraceStep - Math.round(h / TUNING.world.terraceStep))).toBeLessThan(
-        1e-6,
-      );
+    let worst = 0;
+    for (let x = -600; x < 600; x += 7.3)
+      for (let z = -600; z < 600; z += 9.1)
+        worst = Math.max(worst, Math.abs(w.heightAt(x + 0.25, z) - w.heightAt(x, z)) / 0.25);
+    // a slope, not a step: rise over run stays in walkable-to-steep-hill range
+    expect(worst).toBeLessThan(2.5);
   });
 
   it('keeps neighbouring chunks continuous along their shared edge', () => {

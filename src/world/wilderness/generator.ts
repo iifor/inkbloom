@@ -110,7 +110,7 @@ export function createWilderness(seed: number): Wilderness {
         chunk: [cx, cz],
         x,
         z,
-        y: Math.round(Math.max(base, 0.5) / W.terraceStep) * W.terraceStep,
+        y: Math.max(base, 0.5),
         landmark: h % LANDMARKS.length,
         seed: h,
         chunks: first ? TUNING.city.firstCityChunks : TUNING.city.chunks,
@@ -140,7 +140,7 @@ export function createWilderness(seed: number): Wilderness {
       const f = smoothstep(S.entranceFlatRadius, S.entranceFlatRadius * 0.55, d);
       if (f > 0) h = lerp(h, e.y, f);
     }
-    return Math.round(h / W.terraceStep) * W.terraceStep;
+    return h;
   };
 
   return { seed, climate, biomeAt, heightAt, rawHeightAt, entranceInCell, entrancesNear };

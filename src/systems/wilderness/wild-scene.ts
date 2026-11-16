@@ -15,6 +15,7 @@ import { WildSources } from './pigment-sources';
 import { WildMonsterCamps } from './wild-monster-camps';
 import { WildRuins, buildRuin } from './ruins';
 import { WildMarks } from './marks';
+import { GrassField } from './grass';
 
 interface Loaded {
   readonly mesh: THREE.Mesh;
@@ -35,13 +36,17 @@ export class WildScene implements GameScene {
   readonly monsters: WildMonsterCamps;
   private readonly ruins: WildRuins;
   private readonly marks: WildMarks;
+  private readonly grass: GrassField;
 
   constructor(private readonly ctx: GameContext) {
     this.root.name = 'wild';
+    // rolling hills: bodies stand on the height function itself, not on colliders
+    this.physics.ground = (x, z) => ctx.wilderness.heightAt(x, z);
     this.sources = new WildSources(ctx, this.material, this.root);
     this.monsters = new WildMonsterCamps(ctx, this.physics, this.root, this.material);
     this.ruins = new WildRuins(ctx, this.material, this.root);
     this.marks = new WildMarks(ctx, this.material, this.root);
+    this.grass = new GrassField(ctx.wilderness, this.root);
   }
 
   spawn(): { pos: THREE.Vector3; yaw: number } {
@@ -82,6 +87,7 @@ export class WildScene implements GameScene {
       const [cx, cz] = key.split(',').map(Number) as [number, number];
       if (Math.max(Math.abs(cx - pcx), Math.abs(cz - pcz)) > W.unloadRadius) this.unload(key, item);
     }
+    this.grass.update(p);
     this.sources.update(dt);
     this.monsters.update(dt);
     this.ruins.update(dt);
@@ -158,6 +164,7 @@ export class WildScene implements GameScene {
     for (const [key, item] of [...this.loaded]) this.unload(key, item);
     this.monsters.dispose();
     this.marks.dispose();
+    this.grass.dispose();
     this.material.dispose();
     disposeTree(this.root);
   }

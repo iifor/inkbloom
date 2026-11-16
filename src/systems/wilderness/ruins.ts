@@ -17,8 +17,13 @@ export function buildRuin(r: Ruin, g: GeometryBuilder, physics: PhysicsWorld, gr
   const tpl = RUINS[r.template]!;
   const rng = new Rng(r.seed);
   const stone = (x: number, z: number, w: number, d: number, h: number): void => {
-    const min = { x: r.x + x - w / 2, y: r.y - 0.5, z: r.z + z - d / 2 };
-    const max = { x: r.x + x + w / 2, y: r.y + h, z: r.z + z + d / 2 };
+    const x0 = r.x + x - w / 2;
+    const z0 = r.z + z - d / 2;
+    // on a hillside each stone stands on the lowest ground under it, so none hangs in the air
+    const g0 = physics.ground;
+    const base = g0 ? Math.min(g0(x0, z0), g0(x0 + w, z0), g0(x0, z0 + d), g0(x0 + w, z0 + d)) : r.y;
+    const min = { x: x0, y: base - 0.5, z: z0 };
+    const max = { x: x0 + w, y: base + h, z: z0 + d };
     g.box(min, max, solid(tpl.stone));
     physics.addBox(group, min, max);
   };

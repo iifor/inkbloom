@@ -2,6 +2,7 @@
 // (the sky turns from a pencil sketch to a painted blue sky with it) and how far the ink tide
 // has drained the world (black and white, ink closing in from the edges). A listener like
 // audio and effects: gameplay never reads it.
+import { TUNING } from '@/content/tuning';
 import type { GameContext, System } from '@/game/types';
 import { saturationAt } from '@/world/wilderness/drain';
 
@@ -52,12 +53,13 @@ export class AtmosphereSystem implements System {
       this.colourTarget = this.sample();
     }
     // colour comes back slowly; the tide's gloom rolls in faster than it lifts
-    this.colour += (this.colourTarget - this.colour) * Math.min(1, dt * 0.8);
+    this.colour += (this.colourTarget - this.colour) * Math.min(1, dt * 1.5);
     const rate = this.gloomTarget > this.gloom ? 1.2 : 0.5;
     this.gloom += (this.gloomTarget - this.gloom) * Math.min(1, dt * rate);
     const a = this.ctx.renderer.atmosphere;
     a.colour = this.colour;
     a.gloom = this.gloom;
+    a.hour = (TUNING.day.startHour + (this.ctx.state.clock / TUNING.day.length) * 24) % 24;
   }
 
   dispose(): void {

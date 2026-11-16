@@ -86,7 +86,8 @@ export function generateWildChunk(w: Wilderness, cx: number, cz: number): WildCh
       trees.push({
         x,
         z,
-        y,
+        // rooted a little into the slope where it actually stands
+        y: w.heightAt(x, z) - 0.2,
         height: 4 + 5 * unit(h >>> 5),
         crown: 1.6 + 1.4 * unit(h >>> 17),
         color: biome.treeColor,

@@ -51,6 +51,24 @@ export class GeometryBuilder {
       this.vertex(p.x, p.y, p.z, normal.x, normal.y, normal.z, color, surface);
   }
 
+  /** Quad with a normal per corner (smooth surfaces such as rolling ground). */
+  quadSmooth(
+    a: THREE.Vector3Like,
+    b: THREE.Vector3Like,
+    c: THREE.Vector3Like,
+    d: THREE.Vector3Like,
+    normals: readonly [THREE.Vector3Like, THREE.Vector3Like, THREE.Vector3Like, THREE.Vector3Like],
+    color: number,
+    surface = NO_SURFACE,
+  ): void {
+    const pts = [a, b, c, d];
+    for (const k of [0, 1, 2, 0, 2, 3]) {
+      const p = pts[k]!;
+      const n = normals[k]!;
+      this.vertex(p.x, p.y, p.z, n.x, n.y, n.z, color, surface);
+    }
+  }
+
   /** Axis-aligned box. Faces missing from `colors` are skipped. */
   box(
     min: THREE.Vector3Like,
@@ -94,6 +112,27 @@ export class GeometryBuilder {
       c.fromBufferAttribute(p, i + 2).applyMatrix4(matrix);
       n.subVectors(c, b).cross(new THREE.Vector3().subVectors(a, b)).normalize();
       for (const v of [a, b, c]) this.vertex(v.x, v.y, v.z, n.x, n.y, n.z, color, surface);
+    }
+    if (g !== geometry) g.dispose();
+  }
+
+  /** Append another geometry keeping its own (smooth) normals, transformed, in one colour. */
+  meshSmooth(
+    geometry: THREE.BufferGeometry,
+    matrix: THREE.Matrix4,
+    color: number,
+    surface = NO_SURFACE,
+  ): void {
+    const g = geometry.index ? geometry.toNonIndexed() : geometry;
+    const p = g.getAttribute('position');
+    const nm = g.getAttribute('normal');
+    const normalMatrix = new THREE.Matrix3().getNormalMatrix(matrix);
+    const v = new THREE.Vector3();
+    const n = new THREE.Vector3();
+    for (let i = 0; i < p.count; i++) {
+      v.fromBufferAttribute(p, i).applyMatrix4(matrix);
+      n.fromBufferAttribute(nm, i).applyMatrix3(normalMatrix).normalize();
+      this.vertex(v.x, v.y, v.z, n.x, n.y, n.z, color, surface);
     }
     if (g !== geometry) g.dispose();
   }
