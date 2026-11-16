@@ -7,15 +7,21 @@
 // per frame at most). A monster dragged too far from its post gives up and paths home.
 // Without a NavGrid it falls back to sidestepping along walls. A monster that runs into a ledge
 // no higher than `combat.monsterJump`, with room on top, jumps up onto it.
+//
+// Hits: a big enough hit during the wind-up breaks the attack (破招) and leaves it reeling;
+// blades and shells shove it back; a heavy hit freezes its drawn pose for a moment.
+// design: docs/game-design.md section 8
 import * as THREE from 'three';
 import { ENEMIES, type EnemyDef } from '@/content/enemies';
 import { color } from '@/content/palette';
 import { TUNING } from '@/content/tuning';
 import { type Body, type PhysicsWorld, makeBody } from '@/engine/physics/world';
 import { ALWAYS_COLOR, GeometryBuilder } from '@/engine/render/geometry-builder';
-import type { GameContext, TargetHit, TargetSource } from '@/game/types';
+import type { GameContext, HitOptions, TargetHit, TargetSource } from '@/game/types';
 import { findPath, type NavGrid, type Waypoint } from '@/world/nav/path';
-import { MonsterFigures } from './monster-figure';
+import { MonsterFigures, type Pose } from './monster-figure';
+
+const FEEL = TUNING.combat.feel;
 
 const GRAVITY = 22;
 const ACCEL = 18;
@@ -65,6 +71,11 @@ interface Monster {
   sidestepDir: number;
   strafe: number;
   hurtT: number;
+  /** Seconds left reeling from a broken attack: it neither moves nor attacks. */
+  stunT: number;
+  /** Seconds its drawn pose holds still after a heavy hit, and the pose held. */
+  freezeT: number;
+  pose: Pose | null;
   dead: boolean;
   canSee: boolean;
   seeT: number;
@@ -144,6 +155,9 @@ export class MonsterGroup implements TargetSource {
       jumpT: 0,
       strafe: Math.random() < 0.5 ? 1 : -1,
       hurtT: 0,
+      stunT: 0,
+      freezeT: 0,
+      pose: null,
       dead: false,
       canSee: false,
       seeT: Math.random() * SIGHT_INTERVAL,
@@ -182,13 +196,32 @@ export class MonsterGroup implements TargetSource {
   private hitOn(m: Monster, dist: number): TargetHit {
     return {
       dist,
-      damage: (amount) => {
+      damage: (amount, from, opts: HitOptions = {}) => {
         if (m.dead) return false;
+        // caught winding up (the blow has not landed, the ink not left): the attack breaks
+        const broke = m.act !== null && !m.act.done && amount >= FEEL.interruptMin;
+        if (broke) {
+          m.act = null;
+          m.stunT = FEEL.interruptStun;
+          amount *= FEEL.interruptBonus;
+        }
         const dealt = Math.min(amount, m.hp);
         m.hp -= amount;
         m.aggro = true;
         m.hurtT = 0.12;
+        if (opts.heavy) m.freezeT = FEEL.hitstop;
+        if (opts.knock) {
+          const b = m.body;
+          _to.set(b.pos.x - from.x, 0, b.pos.z - from.z);
+          if (_to.lengthSq() > 1e-6) {
+            _to.normalize();
+            b.vel.x += _to.x * opts.knock;
+            b.vel.z += _to.z * opts.knock;
+            b.vel.y = Math.max(b.vel.y, 2);
+          }
+        }
         const at = { x: m.body.pos.x, y: m.body.pos.y + m.def.height * 0.5, z: m.body.pos.z };
+        if (broke && m.hp > 0) this.ctx.events.emit('monster:interrupted', { at, id: m.id });
         if (m.hp > 0) {
           this.ctx.events.emit('monster:hit', {
             at,
@@ -311,6 +344,8 @@ export class MonsterGroup implements TargetSource {
       m.attackT -= dt;
       m.sidestepT -= dt;
       m.hurtT -= dt;
+      m.stunT -= dt;
+      m.freezeT -= dt;
       m.repathT -= dt;
       m.seeT -= dt;
       m.jumpT -= dt;
@@ -332,7 +367,9 @@ export class MonsterGroup implements TargetSource {
       // where it wants to go, as a unit vector times a speed factor
       _dir.set(0, 0, 0);
       let speed = def.speed;
-      if (m.aggro) {
+      const reeling = m.stunT > 0;
+      if (reeling) speed = 0;
+      if (m.aggro && !reeling) {
         const a = def.attack;
         if (!m.canSee) this.follow(m, pp);
         else m.path = null;
@@ -346,7 +383,7 @@ export class MonsterGroup implements TargetSource {
           if (m.act?.kind === 'melee' && !m.act.done && m.act.t >= MELEE_LANDS) {
             m.act.done = true;
             if (dist < a.range * 1.25 && Math.abs(pp.y - b.pos.y) < 2) {
-              combat.damagePlayer(a.damage, b.pos);
+              combat.damagePlayer(a.damage, b.pos, { melee: true });
               this.ctx.events.emit('monster:bite', { at: b.pos });
             }
           }
@@ -364,7 +401,7 @@ export class MonsterGroup implements TargetSource {
             m.attackT = a.cooldown;
           }
         }
-      } else {
+      } else if (!reeling) {
         const h = Math.hypot(m.home.x - b.pos.x, m.home.z - b.pos.z);
         if (h > 6) this.follow(m, m.home);
         else if (h > 2) _dir.set(m.home.x - b.pos.x, 0, m.home.z - b.pos.z).divideScalar(h);
@@ -437,7 +474,14 @@ export class MonsterGroup implements TargetSource {
     this.figures.begin();
     for (const m of this.monsters) {
       const b = m.body;
-      this.figures.draw(m.def, {
+      // a heavy hit holds the drawn pose still for a moment (the body still moves underneath)
+      if (m.freezeT > 0 && m.pose && !m.dead) {
+        this.figures.draw(m.def, m.pose);
+        continue;
+      }
+      // reeling from a broken attack: it rocks back and forth
+      const reel = m.stunT > 0 ? 0.55 + 0.35 * Math.sin(t * 30) : 0;
+      m.pose = {
         x: b.pos.x,
         y: b.pos.y,
         z: b.pos.z,
@@ -445,12 +489,13 @@ export class MonsterGroup implements TargetSource {
         walk: m.walk,
         stride: m.dead ? 0 : Math.min(1, Math.hypot(b.vel.x, b.vel.z) / m.def.speed),
         attack: m.act ? Math.min(1, m.act.t) : -1,
-        hurt: Math.max(0, m.hurtT) / 0.12,
+        hurt: Math.max(Math.max(0, m.hurtT) / 0.12, reel),
         air: !m.dead && !b.onGround,
         dying: m.dead ? m.melt : -1,
         t,
         colors: m.colors,
-      });
+      };
+      this.figures.draw(m.def, m.pose);
     }
     this.figures.end();
   }

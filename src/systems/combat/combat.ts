@@ -6,6 +6,7 @@ import type { CombatApi, GameContext, ShotResult, System, TargetSource } from '@
 import { afterArmor, stats } from '@/world/progression';
 
 const C = TUNING.combat;
+const F = C.feel;
 const DEATH_PAUSE = 1.2;
 
 export class CombatSystem implements System, CombatApi {
@@ -44,7 +45,7 @@ export class CombatSystem implements System, CombatApi {
     }
     if (best) {
       const killed = best.damage(damage, origin);
-      this.ctx.events.emit('shot:hit', { killed });
+      this.ctx.events.emit('shot:hit', { killed, heavy: false });
       return {
         point: origin.clone().addScaledVector(dir, best.dist),
         hitTarget: true,
@@ -72,21 +73,26 @@ export class CombatSystem implements System, CombatApi {
     for (const s of this.sources)
       for (const hit of s.inArc(origin, dir, range, halfAngle)) {
         n++;
-        if (hit.damage(damage, origin)) killed = true;
+        if (hit.damage(damage, origin, { knock: F.knockMelee, heavy: true })) killed = true;
       }
-    if (n) this.ctx.events.emit('shot:hit', { killed });
+    if (n) this.ctx.events.emit('shot:hit', { killed, heavy: true });
     return n;
   }
 
-  blast(point: THREE.Vector3, radius: number, damage: number): number {
+  blast(point: THREE.Vector3, radius: number, damage: number, knock = 0): number {
     let n = 0;
     let killed = false;
+    let direct = false;
     for (const s of this.sources)
       for (const hit of s.inSphere(point, radius)) {
         n++;
-        if (hit.damage(damage * (1 - 0.6 * Math.min(1, hit.dist / radius)), point)) killed = true;
+        const near = 1 - Math.min(1, hit.dist / radius);
+        // a shell bursting on (or right by) a target is a direct hit
+        const heavy = knock > 0 && hit.dist < 1;
+        direct ||= heavy;
+        if (hit.damage(damage * (0.4 + 0.6 * near), point, { knock: knock * near, heavy })) killed = true;
       }
-    if (n) this.ctx.events.emit('shot:hit', { killed });
+    if (n) this.ctx.events.emit('shot:hit', { killed, heavy: direct });
     return n;
   }
 
@@ -100,8 +106,17 @@ export class CombatSystem implements System, CombatApi {
     this.shieldT = seconds;
   }
 
-  damagePlayer(amount: number, from?: THREE.Vector3): void {
+  damagePlayer(amount: number, from?: THREE.Vector3, opts: { readonly melee?: boolean } = {}): void {
     if (!this.alive || this.grace > 0 || this.ctx.player.flying) return;
+    const melee = opts.melee === true;
+    if (melee && from) {
+      // a blow shoves the player away from it and checks their stride for a moment
+      const p = this.ctx.player.position;
+      const away = new THREE.Vector3(p.x - from.x, 0, p.z - from.z);
+      if (away.lengthSq() < 1e-6) away.copy(this.ctx.player.forward).negate().setY(0);
+      this.ctx.player.knock(away.normalize(), F.knockPlayer);
+      this.ctx.player.slow(F.slowFactor, F.slowSeconds);
+    }
     let dmg = afterArmor(amount, stats(this.ctx.state.growth));
     const absorbed = Math.min(this.shieldLeft, dmg);
     this.shieldLeft -= absorbed;
@@ -112,6 +127,7 @@ export class CombatSystem implements System, CombatApi {
       amount: dmg,
       absorbed,
       from: from ? { x: from.x, y: from.y, z: from.z } : null,
+      melee,
     });
     if (this.hp <= 0) this.die();
   }

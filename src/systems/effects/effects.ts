@@ -2,6 +2,7 @@
 // the audio system, so effects can be removed or restyled without touching gameplay.
 import * as THREE from 'three';
 import { PAINTABLE, color } from '@/content/palette';
+import { TUNING } from '@/content/tuning';
 import { ALWAYS_COLOR, GeometryBuilder } from '@/engine/render/geometry-builder';
 import { makeInkMaterial } from '@/engine/render/ink-material';
 import type { Point3 } from '@/game/events';
@@ -103,7 +104,11 @@ export class EffectsSystem implements System {
       on('monster:spit', ({ at }) =>
         this.burst(at, { count: 4, color: blot, speed: 1.5, size: 0.07, lift: -9 }),
       ),
-      on('player:hurt', () => ctx.player.shake(0.45)),
+      on('player:hurt', ({ melee }) => {
+        ctx.player.shake(0.45);
+        // a blow up close tips the view up for a moment
+        if (melee) ctx.player.punch(TUNING.combat.feel.aimPunch);
+      }),
       on('player:land', ({ impact }) => {
         if (impact > 0.5) ctx.player.shake(impact * 0.5);
       }),

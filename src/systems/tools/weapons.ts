@@ -4,6 +4,7 @@
 // Weapon numbers live in content/weapons.ts; damage scales with 武器强度, skills with 技能强度.
 import * as THREE from 'three';
 import { color } from '@/content/palette';
+import { TUNING } from '@/content/tuning';
 import { WEAPONS, type WeaponDef } from '@/content/weapons';
 import { ALWAYS_COLOR, GeometryBuilder } from '@/engine/render/geometry-builder';
 import { makeInkMaterial } from '@/engine/render/ink-material';
@@ -21,6 +22,7 @@ const SHELL_GRAVITY = 9;
 const FIELD = { radius: 4, seconds: 4, tick: 0.5, damage: 18 };
 const SHIELD = { amount: 40, seconds: 4 };
 const FOCUS = { seconds: 4, multiplier: 1.5 };
+const FEEL = TUNING.combat.feel;
 
 interface Held {
   readonly def: WeaponDef;
@@ -115,6 +117,8 @@ export class WeaponSlot implements Tool {
   private kick = 0;
   private kickSide = 0;
   private focusT = 0;
+  /** Hitstop: the held weapon holds its pose for a moment after a heavy hit. */
+  private stopT = 0;
   private readonly shells: Shell[] = [];
   private readonly fields: Field[] = [];
   private readonly bursts: Burst[] = [];
@@ -134,6 +138,9 @@ export class WeaponSlot implements Tool {
     const f = new GeometryBuilder();
     f.mesh(new THREE.CylinderGeometry(1, 1, 0.06, 16), new THREE.Matrix4(), color('purple'), ALWAYS_COLOR);
     this.fieldGeo = f.build();
+    ctx.events.on('shot:hit', ({ heavy }) => {
+      if (heavy) this.stopT = FEEL.hitstop;
+    });
   }
 
   get name(): string {
@@ -196,6 +203,7 @@ export class WeaponSlot implements Tool {
       }
     }
     this.focusT = Math.max(0, this.focusT - dt);
+    this.stopT -= dt;
     const settle = Math.exp(-RECOIL_RETURN * dt);
     this.kick *= settle;
     this.kickSide *= settle;
@@ -213,7 +221,7 @@ export class WeaponSlot implements Tool {
     if (owned > 1 && (input.pressed('prevColor') || wheel < 0)) this.switch(-1);
     const h = this.current;
     if (!h) return;
-    this.pose(h);
+    if (this.stopT <= 0) this.pose(h);
     const zoom =
       h.def.key === 'sniper' && input.held('alt') ? 32 : this.focusT > 0 ? 55 : this.ctx.renderer.baseFov;
     this.setFov(zoom);
@@ -367,7 +375,7 @@ export class WeaponSlot implements Tool {
       const next = wall ? wall.point : s.pos.clone().addScaledVector(s.vel, dt);
       // passing within a metre of a target counts as a hit too
       if (wall || this.ctx.combat.probe(next, 1) || s.life <= 0) {
-        this.ctx.combat.blast(next, s.radius, s.damage);
+        this.ctx.combat.blast(next, s.radius, s.damage, FEEL.knockBlast);
         this.burst(next, s.radius);
         s.mesh.removeFromParent();
         this.shells.splice(i, 1);

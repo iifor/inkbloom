@@ -162,3 +162,96 @@ describe('weapon balance at level 1', () => {
     expect(toKill).toBeLessThan(toDie);
   });
 });
+
+describe('hit feel', () => {
+  const FEEL = TUNING.combat.feel;
+  /** The group's private monster list, to catch one mid wind-up. */
+  type Inner = {
+    act: { kind: string; done: boolean } | null;
+    stunT: number;
+    hp: number;
+    body: { pos: THREE.Vector3 };
+  };
+  const inner = (group: MonsterGroup): Inner => (group as unknown as { monsters: Inner[] }).monsters[0]!;
+
+  /** A blot right in front of the player, run until it starts winding up a bite. */
+  function windingBlot(): { h: Headless; group: MonsterGroup; m: Inner } {
+    const { h, group } = arena();
+    h.place(0, 0, 0);
+    group.spawn(BLOT, new THREE.Vector3(0, 0, -1.4), { tag: 'test' });
+    const m = inner(group);
+    for (let i = 0; i < 120 && !m.act; i++) step(h, group)(1 / 60);
+    expect(m.act?.kind).toBe('melee');
+    return { h, group, m };
+  }
+
+  it('a heavy hit during the wind-up breaks the attack: bonus damage, no bite while it reels', () => {
+    const { h, group, m } = windingBlot();
+    h.combat.strike(h.ctx.player.eye, h.ctx.player.forward, 3, 1, FEEL.interruptMin);
+    expect(m.act).toBeNull();
+    expect(h.count('monster:interrupted')).toBe(1);
+    expect(m.hp).toBeCloseTo(BLOT_DEF.hp - FEEL.interruptMin * FEEL.interruptBonus);
+    h.run(FEEL.interruptStun - 0.05, step(h, group), 1 / 60);
+    expect(h.count('monster:bite')).toBe(0);
+  });
+
+  it('a rifle-sized hit does not break the wind-up', () => {
+    const { h, group, m } = windingBlot();
+    h.combat.shoot(h.ctx.player.eye, h.ctx.player.forward, 10, FEEL.interruptMin - 10);
+    expect(m.act).not.toBeNull();
+    expect(h.count('monster:interrupted')).toBe(0);
+    h.run(0.5, step(h, group), 1 / 60);
+    expect(h.count('monster:bite')).toBe(1);
+  });
+
+  it('a blade hit shoves the monster back; a shot does not', () => {
+    const shoved = (hit: (h: Headless) => void): number => {
+      const { h, group } = arena();
+      h.place(0, 0, 0);
+      // a blot closes in on its own (towards +z); a shove sends it back the other way
+      group.spawn(BLOT, new THREE.Vector3(0, 0, -2.5), { tag: 'test' });
+      h.run(0.2, step(h, group), 1 / 60);
+      const before = group.living()[0]!.z;
+      hit(h);
+      h.run(0.25, step(h, group), 1 / 60);
+      return before - group.living()[0]!.z;
+    };
+    const blade = shoved((h) => h.combat.strike(h.ctx.player.eye, h.ctx.player.forward, 3, 1, 5));
+    const shot = shoved((h) => h.combat.shoot(h.ctx.player.eye, h.ctx.player.forward, 10, 5));
+    expect(blade).toBeGreaterThan(0.3);
+    expect(shot).toBeLessThan(0);
+  });
+
+  it("a shell's blast shoves; the staff's lingering field does not", () => {
+    const moved = (knock: number): number => {
+      const { h, group } = arena();
+      h.place(0, 0, 20);
+      group.spawn(BLOT, new THREE.Vector3(0, 0, 0), { tag: 'test' });
+      h.combat.blast(new THREE.Vector3(0.5, 0.6, 0), 4, 5, knock);
+      h.run(0.25, (dt) => group.update(dt), 1 / 60);
+      return Math.abs(group.living()[0]!.x);
+    };
+    expect(moved(FEEL.knockBlast)).toBeGreaterThan(0.5);
+    expect(moved(0)).toBeLessThan(0.1);
+  });
+
+  it("a blot's bite shoves and slows the player; a spit from range does neither", () => {
+    const { h, group } = arena();
+    h.place(0, 0, 0);
+    group.spawn(BLOT, new THREE.Vector3(0, 0, -1.4), { tag: 'test' });
+    h.run(3, step(h, group), 1 / 60);
+    const bites = h.log.filter((e) => e.type === 'player:hurt').map((e) => e.payload as { melee: boolean });
+    expect(bites.length).toBeGreaterThan(0);
+    expect(bites.every((b) => b.melee)).toBe(true);
+    expect(h.slowed[0]).toBe(FEEL.slowFactor);
+    // the stub moves at once when shoved: pushed away from the blot (towards +z)
+    expect(h.ctx.player.position.z).toBeGreaterThan(0.3);
+
+    const ranged = arena();
+    ranged.h.place(0, 0, 0);
+    ranged.group.spawn(SPITTER, new THREE.Vector3(0, 0, -20), { tag: 'test' });
+    ranged.h.run(10, step(ranged.h, ranged.group));
+    expect(ranged.h.count('player:hurt')).toBeGreaterThan(0);
+    expect(ranged.h.slowed).toHaveLength(0);
+  });
+});

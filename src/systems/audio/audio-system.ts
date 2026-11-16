@@ -44,9 +44,17 @@ export class AudioSystem implements System {
         s.noise({ dur: 0.7, gain: 0.9, freq: 900, freqEnd: 90, pos: at });
         s.tone({ freq: 90, freqEnd: 35 * (radius > 5 ? 0.8 : 1), dur: 0.6, gain: 0.5, pos: at });
       }),
-      on('shot:hit', ({ killed }) =>
-        s.tone({ freq: killed ? 1400 : 2200, dur: killed ? 0.12 : 0.05, gain: 0.08, type: 'square' }),
-      ),
+      on('shot:hit', ({ killed, heavy }) => {
+        s.tone({ freq: killed ? 1400 : 2200, dur: killed ? 0.12 : 0.05, gain: 0.08, type: 'square' });
+        // a kill lands with a low thump; a heavy blow with a dull knock
+        if (killed) s.tone({ freq: 110, freqEnd: 45, dur: 0.22, gain: 0.35, type: 'sine' });
+        else if (heavy) s.noise({ dur: 0.06, gain: 0.3, type: 'lowpass', freq: 500 });
+      }),
+      on('monster:interrupted', ({ at }) => {
+        // a sharp crack: the attack breaks
+        s.noise({ dur: 0.05, gain: 0.5, type: 'highpass', freq: 2400, pos: at });
+        s.tone({ freq: 880, freqEnd: 330, dur: 0.15, gain: 0.18, type: 'triangle', pos: at });
+      }),
       on('shot:impact', ({ at }) =>
         s.noise({ dur: 0.05, gain: 0.12, type: 'bandpass', freq: 2600, q: 1.4, pos: at }),
       ),

@@ -18,6 +18,8 @@ export interface Headless {
   readonly physics: PhysicsWorld;
   /** Actions the stub input reports as held. */
   readonly held: Set<string>;
+  /** Every slow-down the player was given (the factor), in order. */
+  readonly slowed: number[];
   /** Every event emitted, in order. */
   readonly log: { type: keyof GameEvents; payload: unknown }[];
   /** Put the player's feet at a point, looking along `look` (default -z). */
@@ -28,11 +30,14 @@ export interface Headless {
 }
 
 const EYE_HEIGHT = 1.6;
+/** The stub player has no physics: a shove of 1 m/s moves it this far at once. */
+const KNOCK_DISTANCE_PER_SPEED = 0.18;
 
 export function headless(opts: { cities?: Record<string, CitySkeleton> } = {}): Headless {
   const ctx = {} as Mutable<GameContext>;
   const log: Headless['log'] = [];
   const held = new Set<string>();
+  const slowed: number[] = [];
   ctx.state = createWorldState('test', 1);
   const events = new EventBus<GameEvents>();
   const emit = events.emit.bind(events);
@@ -70,6 +75,15 @@ export function headless(opts: { cities?: Record<string, CitySkeleton> } = {}): 
     speed: 0,
     dash: () => {},
     shake: () => {},
+    punch: () => {},
+    // a shove moves the stub straight away, so tests can measure it
+    knock: (dir, speed) => {
+      position.addScaledVector(dir, speed * KNOCK_DISTANCE_PER_SPEED);
+      eye.set(position.x, position.y + EYE_HEIGHT, position.z);
+    },
+    slow: (factor) => {
+      slowed.push(factor);
+    },
     teleport: (pos) => place(pos.x, pos.y, pos.z),
   };
   ctx.player = player;
@@ -106,6 +120,7 @@ export function headless(opts: { cities?: Record<string, CitySkeleton> } = {}): 
     combat,
     physics,
     held,
+    slowed,
     log,
     place,
     run(seconds, update, dt = 1 / 30) {

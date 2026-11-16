@@ -160,16 +160,49 @@ body {
     inset 0 0 0 1px var(--ink);
   opacity: 0.85;
 }
-.hud-cross.hit {
-  border-color: var(--red);
-  transform: scale(1.4);
+/* hit marker: four short strokes of a cross round the crosshair, gap in the middle */
+.hud-cross::before,
+.hud-cross::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 28px;
+  height: 2px;
+  margin: -1px 0 0 -14px;
+  background: linear-gradient(to right, var(--paper) 0 32%, transparent 32% 68%, var(--paper) 68% 100%);
+  filter: drop-shadow(0 0 1px var(--ink));
+  opacity: 0;
+  transform: rotate(45deg);
+}
+.hud-cross::after {
+  transform: rotate(-45deg);
+}
+.hud-cross.hit::before,
+.hud-cross.hit::after,
+.hud-cross.kill::before,
+.hud-cross.kill::after {
   opacity: 1;
 }
 .hud-cross.kill {
   border-color: var(--red);
-  border-width: 3px;
-  transform: scale(2);
   opacity: 1;
+}
+.hud-cross.kill::before,
+.hud-cross.kill::after {
+  width: 40px;
+  height: 3px;
+  margin: -1.5px 0 0 -20px;
+  background: linear-gradient(to right, var(--red) 0 34%, transparent 34% 66%, var(--red) 66% 100%);
+}
+/* low health: ink seeping in from the edges; opacity set by the HUD */
+.hud-lowhp {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  box-shadow: inset 0 0 200px 90px rgba(21, 20, 28, 0.85);
+  transition: opacity 0.4s;
 }
 .hud-hp {
   position: absolute;
@@ -360,6 +393,12 @@ body {
 .combat-overlay .dmg.kill {
   font-size: 32px;
   color: var(--red);
+}
+.combat-overlay .dmg.interrupt {
+  /* ink brush characters on the usual paper halo, bigger than a number */
+  font-size: 30px;
+  font-family: var(--title);
+  letter-spacing: 2px;
 }
 .combat-overlay .mbar {
   /* hidden until the first frame places it */

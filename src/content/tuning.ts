@@ -116,6 +116,29 @@ export const TUNING = {
     wild: { drainedBelow: 0.35, greyBelow: 0.75, drained: [2, 4], grey: [0, 2] },
     /** Seconds of play before a defeated wilderness monster comes back. */
     wildRespawnSeconds: 900,
+    /** How hits feel. design: docs/game-design.md section 8 */
+    feel: {
+      /** Hitting a monster while it winds up breaks the attack (破招), if the hit is at least
+       * this big: the katana, sniper, launcher and staff do it, the rifle's pellets do not. */
+      interruptMin: 30,
+      /** Seconds a broken attack leaves the monster reeling, and the hit's damage bonus. */
+      interruptStun: 0.5,
+      interruptBonus: 1.3,
+      /** Knockback, metres per second of shove: a katana hit, a shell's direct hit (less
+       * further out), and a monster's blow on the player. About a metre each. */
+      knockMelee: 6,
+      knockBlast: 7,
+      knockPlayer: 5,
+      /** Seconds the blade and the struck monster hold still on a heavy hit (presentation). */
+      hitstop: 0.05,
+      /** A monster's blow slows the player to this share of their speed for a moment. */
+      slowFactor: 0.7,
+      slowSeconds: 0.25,
+      /** A blow tips the view up this much (radians, about 1.5°); it eases back. */
+      aimPunch: 0.026,
+      /** Below this share of health the screen edges darken with ink. */
+      lowHealth: 0.3,
+    },
   },
   marks: {
     /** design: ink marks cost 10 pigment, at most 3 per world */

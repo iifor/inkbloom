@@ -6,6 +6,10 @@ import { type Body, makeBody } from '@/engine/physics/world';
 import type { GameContext, PlayerApi, System } from '@/game/types';
 
 const P = TUNING.player;
+/** Seconds a shove carries the body before the player steers again. */
+const KNOCK_SECONDS = 0.18;
+/** How fast a punched view eases back (per second, exponential): gone in about 0.2 s. */
+const PUNCH_RETURN = 14;
 
 export class PlayerSystem implements System, PlayerApi {
   readonly id = 'player';
@@ -19,6 +23,12 @@ export class PlayerSystem implements System, PlayerApi {
   gliding = false;
   private dashT = 0;
   private readonly dashVel = new THREE.Vector3();
+  /** A shove: for a moment the body keeps the pushed velocity instead of steering. */
+  private knockT = 0;
+  private slowT = 0;
+  private slowFactor = 1;
+  /** View tipped up by a blow, easing back; added on top of pitch, never into it. */
+  private punchAmt = 0;
   private airJumps = 0;
   private readonly wish = new THREE.Vector3();
 
@@ -42,6 +52,21 @@ export class PlayerSystem implements System, PlayerApi {
 
   shake(amount: number): void {
     this.shakeAmt = Math.max(this.shakeAmt, amount);
+  }
+
+  punch(radians: number): void {
+    this.punchAmt = Math.min(0.08, this.punchAmt + radians);
+  }
+
+  knock(dir: THREE.Vector3, speed: number): void {
+    this.body.vel.x += dir.x * speed;
+    this.body.vel.z += dir.z * speed;
+    this.knockT = KNOCK_SECONDS;
+  }
+
+  slow(factor: number, seconds: number): void {
+    this.slowFactor = factor;
+    this.slowT = Math.max(this.slowT, seconds);
   }
 
   get dashing(): boolean {
@@ -71,6 +96,9 @@ export class PlayerSystem implements System, PlayerApi {
     this.yaw += look.yaw;
     this.pitch = THREE.MathUtils.clamp(this.pitch + look.pitch, -1.5, 1.5);
     if (input.pressed('debugFly')) this.flying = !this.flying;
+    this.knockT -= dt;
+    this.slowT -= dt;
+    this.punchAmt *= Math.exp(-dt * PUNCH_RETURN);
 
     const fx = -Math.sin(this.yaw);
     const fz = -Math.cos(this.yaw);
@@ -92,8 +120,10 @@ export class PlayerSystem implements System, PlayerApi {
   private walk(dt: number): void {
     const { input } = this.ctx;
     const b = this.body;
-    const speed = input.held('sprint') ? P.sprintSpeed : P.walkSpeed;
-    const accel = b.onGround ? P.accelGround : P.accelAir;
+    const speed =
+      (input.held('sprint') ? P.sprintSpeed : P.walkSpeed) * (this.slowT > 0 ? this.slowFactor : 1);
+    // while shoved the body slides with the push; the player can't steer against it
+    const accel = this.knockT > 0 ? 0 : b.onGround ? P.accelGround : P.accelAir;
     const tx = this.wish.x * speed;
     const tz = this.wish.z * speed;
     b.vel.x += THREE.MathUtils.clamp(tx - b.vel.x, -accel * dt, accel * dt);
@@ -153,7 +183,12 @@ export class PlayerSystem implements System, PlayerApi {
     // a little shake decays quickly; it never touches the aim the player sees in yaw/pitch
     this.shakeAmt = Math.max(0, this.shakeAmt - 1 / 30);
     const s = this.shakeAmt * this.shakeAmt * 0.04;
-    cam.rotation.set(this.pitch + (Math.random() - 0.5) * s, this.yaw + (Math.random() - 0.5) * s, 0, 'YXZ');
+    cam.rotation.set(
+      this.pitch + this.punchAmt + (Math.random() - 0.5) * s,
+      this.yaw + (Math.random() - 0.5) * s,
+      0,
+      'YXZ',
+    );
     cam.updateMatrixWorld();
     this.forward.set(0, 0, -1).applyQuaternion(cam.quaternion);
   }

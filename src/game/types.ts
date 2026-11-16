@@ -64,6 +64,12 @@ export interface PlayerApi {
   readonly speed: number;
   /** Shake the camera briefly (0..1). */
   shake(amount: number): void;
+  /** Tip the view up by `radians`, easing back (presentation; the aim itself is unchanged). */
+  punch(radians: number): void;
+  /** Shove the body along a direction, metres per second. */
+  knock(dir: THREE.Vector3, speed: number): void;
+  /** Move at `factor` of normal speed for `seconds`. */
+  slow(factor: number, seconds: number): void;
   teleport(pos: THREE.Vector3, yaw?: number): void;
 }
 
@@ -115,9 +121,17 @@ export interface InteractionApi {
 }
 
 /** One thing that was hit, and a way to hurt it (returns whether it died). */
+/** How a hit lands beyond its damage. */
+export interface HitOptions {
+  /** Shove away from the attacker, metres per second (0 for none). */
+  readonly knock?: number;
+  /** A heavy blow (a blade, a shell's direct hit): the target holds still for a moment. */
+  readonly heavy?: boolean;
+}
+
 export interface TargetHit {
   readonly dist: number;
-  damage(amount: number, from: THREE.Vector3): boolean;
+  damage(amount: number, from: THREE.Vector3, opts?: HitOptions): boolean;
 }
 
 /** Something the player can hit (a group of monsters registers one). */
@@ -143,14 +157,16 @@ export interface CombatApi {
   readonly hp: number;
   readonly maxHp: number;
   readonly alive: boolean;
-  damagePlayer(amount: number, from: THREE.Vector3): void;
+  /** `melee`: a blow that shoves the player back and slows them for a moment. */
+  damagePlayer(amount: number, from: THREE.Vector3, opts?: { readonly melee?: boolean }): void;
   addTargets(source: TargetSource): () => void;
   /** A hitscan shot: hits the nearest target unless a wall is closer. */
   shoot(origin: THREE.Vector3, dir: THREE.Vector3, range: number, damage: number): ShotResult;
   /** A melee swing; returns how many targets were hit. */
   strike(origin: THREE.Vector3, dir: THREE.Vector3, range: number, halfAngle: number, damage: number): number;
-  /** An explosion with linear falloff to the edge; returns how many targets were hit. */
-  blast(point: THREE.Vector3, radius: number, damage: number): number;
+  /** An explosion with linear falloff to the edge; returns how many targets were hit. A
+   * shell passes `knock` to shove what it hits; a lingering field does not. */
+  blast(point: THREE.Vector3, radius: number, damage: number, knock?: number): number;
   /** Whether any target is within `radius` of a point (shells burst on contact). */
   probe(point: THREE.Vector3, radius: number): boolean;
   /** Absorbs damage before health for a while. */

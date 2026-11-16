@@ -9,7 +9,13 @@ export interface GameEvents {
   'scene:entered': { readonly ref: SceneRef; readonly name: string };
   'city:completed': { readonly city: string; readonly name: string };
   /** Damage the player actually took (after armour), what a shield absorbed, and where from. */
-  'player:hurt': { readonly amount: number; readonly absorbed: number; readonly from: Point3 | null };
+  'player:hurt': {
+    readonly amount: number;
+    readonly absorbed: number;
+    readonly from: Point3 | null;
+    /** A blow up close (it shoves and slows), rather than a shot from range. */
+    readonly melee: boolean;
+  };
   'growth:level': { readonly level: number };
   'growth:points': { readonly gained: number; readonly total: number };
   'weapon:unlocked': { readonly key: string };
@@ -35,6 +41,8 @@ export interface GameEvents {
     /** The colours it had stolen, set free as it melts. */
     readonly colors: readonly number[];
   };
+  /** A hit broke a monster's wind-up (破招): its attack is cancelled and it reels. */
+  'monster:interrupted': { readonly at: Point3; readonly id: number };
   'monster:spit': { readonly at: Point3 };
   'monster:bite': { readonly at: Point3 };
   /** A surface the brush just coloured (bloom of its colour). */
@@ -50,7 +58,8 @@ export interface GameEvents {
   'player:jump': { readonly air: boolean };
   'player:land': { readonly impact: number };
   'player:died': { readonly lostInk: number };
-  'shot:hit': { readonly killed: boolean };
+  /** The player's attack hit something. `heavy`: a blade or a shell's direct hit (hitstop). */
+  'shot:hit': { readonly killed: boolean; readonly heavy: boolean };
   /** A bullet's streak reached the wall or ground it hit (a little after the instant hit). */
   'shot:impact': { readonly at: Point3 };
   /** Lightning struck `distance` metres from where the weather is read (the player, or a

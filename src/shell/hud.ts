@@ -1,6 +1,7 @@
 // Plain-DOM heads-up display. Reads game state once per frame and only touches the DOM when a
 // value changed. Menus will move to a UI framework later; the HUD stays plain DOM.
 import { PALETTE } from '@/content/palette';
+import { TUNING } from '@/content/tuning';
 import type { GameContext, System } from '@/game/types';
 import { CityScene } from '@/systems/city/city-scene';
 import type { SceneManager } from '@/systems/scenes/scene-manager';
@@ -19,6 +20,8 @@ function tideLine(t: TideStatus | null, here: number): string {
   return `墨潮侵入${where} ${Math.round(t.front * 100)}% · 剩 ${Math.ceil(t.seconds)} 秒 · ${action}`;
 }
 
+const LOW_HEALTH = TUNING.combat.feel.lowHealth;
+
 const css = (rgb: readonly number[]): string => `rgb(${rgb.map((v) => Math.round(v * 255)).join(',')})`;
 
 export class Hud implements System {
@@ -31,6 +34,7 @@ export class Hud implements System {
     | 'hp'
     | 'hpFill'
     | 'hurt'
+    | 'lowhp'
     | 'tide'
     | 'slots'
     | 'lines'
@@ -54,6 +58,7 @@ export class Hud implements System {
     root.innerHTML = `
       <div class="hud-place"><b data-k="place"></b><span data-k="progress"></span><div class="hud-res" data-k="res"></div><div class="hud-goal" data-k="goal"></div></div>
       <div class="hud-tide" data-k="tide"></div>
+      <div class="hud-lowhp" data-k="lowhp"></div>
       <div class="hud-hurt" data-k="hurt"></div>
       <div class="hud-cross"></div>
       <div class="hud-hp" data-k="hp"><i data-k="hpFill"></i></div>
@@ -70,6 +75,7 @@ export class Hud implements System {
       hp: q('hp'),
       hpFill: q('hpFill'),
       hurt: q('hurt'),
+      lowhp: q('lowhp'),
       tide: q('tide'),
       slots: q('slots'),
       lines: q('lines'),
@@ -92,8 +98,13 @@ export class Hud implements System {
       ctx.events.on('growth:points', ({ gained }) => this.toast(`获得 ${gained} 个属性点，按 Tab 分配`, 5)),
     );
     this.release.push(
+      // hit marker: a cross round the crosshair; a bigger red one for a kill
       ctx.events.on('shot:hit', ({ killed }) =>
-        this.flash(root.querySelector<HTMLElement>('.hud-cross')!, killed ? 'kill' : 'hit', 120),
+        this.flash(
+          root.querySelector<HTMLElement>('.hud-cross')!,
+          killed ? 'kill' : 'hit',
+          killed ? 260 : 150,
+        ),
       ),
     );
   }
@@ -144,7 +155,10 @@ export class Hud implements System {
     if (this.cache.get('hp') !== pct) {
       this.cache.set('hp', pct);
       this.el.hpFill.style.width = pct;
-      this.el.hp.classList.toggle('low', hp < maxHp * 0.3);
+      this.el.hp.classList.toggle('low', hp < maxHp * LOW_HEALTH);
+      // low on health: ink creeps in from the screen edges, thicker the closer to falling
+      const low = alive ? Math.max(0, 1 - hp / (maxHp * LOW_HEALTH)) : 0;
+      this.el.lowhp.style.opacity = low.toFixed(2);
     }
     this.el.hurt.classList.toggle('dead', !alive);
 

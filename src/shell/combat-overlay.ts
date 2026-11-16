@@ -1,4 +1,5 @@
-// Damage you can see: numbers floating off monsters you hit, a health bar over a monster for
+// Damage you can see: numbers floating off monsters you hit ("破招" when a hit breaks a
+// wind-up), a health bar over a monster for
 // a few seconds after each hit, and for hits you take a red number by the health bar plus an
 // arrow at the screen edge pointing where it came from. Plain DOM over the canvas, positions
 // projected from the world each frame. Listens to events only.
@@ -58,6 +59,7 @@ export class CombatOverlay implements System {
         this.number(e.at, e.amount, e.amount >= BIG_HIT ? 'big' : '');
         this.bar(e.id, e.anchor, e.height, e.hp);
       }),
+      on('monster:interrupted', (e) => this.number(e.at, '破招', 'interrupt')),
       on('monster:died', (e) => {
         this.number(e.at, e.amount, 'kill');
         this.dropBar(e.id);
@@ -73,10 +75,10 @@ export class CombatOverlay implements System {
     );
   }
 
-  private number(at: Point3, amount: number, style: string): void {
+  private number(at: Point3, amount: number | string, style: string): void {
     const el = document.createElement('div');
     el.className = `dmg ${style}`;
-    el.textContent = String(Math.max(1, Math.round(amount)));
+    el.textContent = typeof amount === 'string' ? amount : String(Math.max(1, Math.round(amount)));
     this.root.append(el);
     this.floaters.push({
       el,
