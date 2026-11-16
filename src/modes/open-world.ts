@@ -13,6 +13,7 @@ import { EffectsSystem } from '@/systems/effects/effects';
 import { CombatOverlay } from '@/shell/combat-overlay';
 import { PlaytestSystem } from '@/systems/playtest/playtest-system';
 import { CityRegistry } from '@/systems/city/city-registry';
+import { CityScene } from '@/systems/city/city-scene';
 import { ClockSystem } from '@/systems/clock/clock';
 import { DebugPanel } from '@/systems/debug/debug-panel';
 import { InteractionSystem } from '@/systems/interaction/interaction';
@@ -103,7 +104,11 @@ export function startOpenWorld(opts: {
   ctx.interactions = interactions;
   const player = new PlayerSystem(ctx);
   ctx.player = player;
-  const scenes = new SceneManager(ctx, new WildScene(ctx));
+  const scenes = new SceneManager(
+    ctx,
+    new WildScene(ctx),
+    (entrance, layout) => new CityScene(ctx, entrance, layout),
+  );
   ctx.scenes = scenes;
   const belt = new ToolBelt(ctx, [new Brush(ctx), new WeaponSlot(ctx), new Marker(ctx)]);
   const inkDrop = new InkDropSystem(ctx);

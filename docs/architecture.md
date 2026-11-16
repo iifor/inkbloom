@@ -14,7 +14,7 @@ src/
   engine/          与玩法无关：render（墨线渲染、几何构建）、physics（AABB）、input
   world/           纯数据与纯函数：数学、野外生成、城市生成、表面状态、补丁、存档。无 Three.js，Node 可测
   content/         设计数据：调色板、群系、模板、数值、按键、名字。改设计主要改这里
-tests/             world/ 和 physics 的单元测试（vitest）
+tests/             world/ 和 physics 的单元测试；墨潮、墨怪、战斗的无头模拟（support/headless.ts，vitest）
 ```
 
 | 层      | 可以依赖                  | 不可以                       |

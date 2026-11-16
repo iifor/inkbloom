@@ -4,9 +4,13 @@ import * as THREE from 'three';
 import type { GameContext, GameScene, SceneApi, System } from '@/game/types';
 import type { PlayerSave } from '@/world/state';
 import type { Entrance } from '@/world/wilderness/generator';
+import type { CityLayout } from '@/world/city/layout';
 import { nextDestination } from '@/world/travel';
-import { CityScene } from '../city/city-scene';
+import type { CityScene } from '../city/city-scene';
 import type { WildScene } from '../wilderness/wild-scene';
+
+/** Builds a city instance; the mode passes this in so scenes never import the city system. */
+export type CityFactory = (entrance: Entrance, layout: CityLayout) => CityScene;
 
 export class SceneManager implements SceneApi, System {
   readonly id = 'scenes';
@@ -18,6 +22,7 @@ export class SceneManager implements SceneApi, System {
   constructor(
     private readonly ctx: GameContext,
     readonly wild: WildScene,
+    private readonly makeCity: CityFactory,
   ) {
     this.active = wild;
     ctx.renderer.scene.add(wild.root);
@@ -44,7 +49,7 @@ export class SceneManager implements SceneApi, System {
       this.wildReturn = { pos: player.position.clone(), yaw: player.yaw + Math.PI };
     this.leaveCity();
     const layout = this.ctx.cities.layout(entrance);
-    this.city = new CityScene(this.ctx, entrance, layout);
+    this.city = this.makeCity(entrance, layout);
     this.switchTo(this.city);
     const s = this.city.spawn();
     player.teleport(s.pos, s.yaw);
