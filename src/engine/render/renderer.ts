@@ -39,6 +39,8 @@ uniform vec3 uHorizon;
 uniform float uNight;
 uniform int uGlass;
 uniform int uWater;
+uniform int uGrass;
+uniform int uRock;
 uniform float uSkySat;
 uniform float uGloom;
 uniform float uTime;
@@ -114,7 +116,9 @@ vec3 skyPaint(vec3 rd) {
   // stars, between the clouds, at night
   vec2 sp = rd.xz / (max(e, 0.0) + 0.3) * 160.0;
   float star = step(0.9975, hash21(floor(sp))) * smoothstep(0.02, 0.25, e) * uNight;
-  vec2 cuv = rd.xz / (max(e, 0.0) + 0.16) * 0.75 + vec2(uTime * 0.006, uTime * 0.0025);
+  // a flatter projection than a true cloud deck, so clouds near the horizon heap up instead of
+  // stretching into streaks
+  vec2 cuv = rd.xz / (max(e, 0.0) + 0.3) * 1.0 + vec2(uTime * 0.006, uTime * 0.0025);
   // warp the noise into rounded heaps rather than streaks
   cuv += (vec2(fbm(cuv * 0.6), fbm(cuv * 0.6 + 3.1)) - 0.5) * 1.3;
   float n = fbm(cuv);
@@ -132,6 +136,28 @@ vec3 skyPaint(vec3 rd) {
   return mix(c, cloud, body);
 }
 
+/**
+ * Far mountain ranges painted along the horizon behind everything: two layers of ridges, the
+ * far one pale and hazy, the near one bluer and darker. Sampled around a circle so there is no
+ * seam. Returns the colour and, in w, how much of it covers the sky here.
+ */
+vec4 farRanges(vec3 rd) {
+  vec2 dir = normalize(rd.xz + 1e-5);
+  float e = rd.y;
+  vec3 haze = horizonOf(rd);
+  vec3 far = mix(haze, mix(uZenith, uShade, 0.4), 0.32);
+  vec3 near = mix(haze, mix(uShade * vec3(0.8, 0.95, 0.9), uZenith, 0.35), 0.55);
+  float h1 = 0.035 + 0.075 * fbm(dir * 3.0 + 11.0);
+  float h2 = 0.012 + 0.05 * fbm(dir * 5.5 + 29.0);
+  float m1 = smoothstep(h1 + 0.002, h1 - 0.002, e);
+  float m2 = smoothstep(h2 + 0.002, h2 - 0.002, e);
+  // lighter towards their feet, where the haze is thickest
+  far = mix(haze, far, smoothstep(-0.02, h1, e) * 0.85 + 0.15);
+  near = mix(haze, near, smoothstep(-0.02, h2, e) * 0.8 + 0.2);
+  vec3 c = mix(far, near, m2);
+  return vec4(c, max(m1, m2));
+}
+
 void main() {
   vec2 px = 1.0 / uRes;
   vec4 s = texture2D(tScene, vUv);
@@ -146,6 +172,8 @@ void main() {
   vec3 col;
   if (sky) {
     vec3 painted = skyPaint(rd);
+    vec4 ranges = farRanges(rd);
+    painted = mix(painted, ranges.rgb, ranges.w * (1.0 - uNight * 0.5));
     // drained: an overcast grey version of the same sky
     col = mix(drainedOf(painted), painted, skySat);
   } else {
@@ -163,6 +191,12 @@ void main() {
     float big = fbm(bp * 0.18);
     float leaf = fbm(bp * 1.3 + 7.0);
     float stroke = vnoise(vec2(bp.x * 2.5, bp.y * 0.6));
+    // where meadow ground gets steep, bare rock shows through, with a ragged painted edge
+    if (indexOf(s.g) == uGrass) {
+      float steep = 1.0 - smoothstep(0.62, 0.74, wn.y + (big - 0.5) * 0.18 + (leaf - 0.5) * 0.08);
+      base = mix(base, paletteColor(float(uRock)), steep);
+      tex = mix(tex, 0.7, steep);
+    }
     float mott = ((big - 0.5) * 0.3 + (leaf - 0.5) * 0.35) * tex + (stroke - 0.5) * 0.06;
     base *= 1.0 + mott * near;
     // leaves and grass are painted in dabs: each clump its own stroke, blending into the next;
@@ -204,6 +238,9 @@ void main() {
     vec3 painted = base * light * ao;
     // sunlit leaves catch bright yellow-green highlights
     painted += tex * lit * smoothstep(0.52, 0.75, leaf) * vec3(0.1, 0.11, 0.01) * near;
+    // looking towards the sun, light shines through leaves, brightest at a crown's edges
+    float edgeOn = 1.0 - abs(dot(wn, -rd));
+    painted += tex * pow(max(0.0, dot(rd, uSun)), 3.0) * (0.4 + 0.6 * edgeOn) * vec3(0.2, 0.24, 0.05) * (1.0 - uNight) * near;
     col = mix(drainedOf(painted), painted, sat);
     if (indexOf(s.g) == uWater) {
       // water mirrors the painted sky, more so at a glancing angle; slow ripple bands drift
@@ -256,6 +293,39 @@ const _up = new THREE.Vector3();
 const _centre = new THREE.Vector3();
 const _fwd = new THREE.Vector3();
 
+const glowVert = postVert;
+/** Bright parts of the painted frame, blurred along one axis (9 taps). With `uPick` set it
+ * first keeps only what is brighter than the threshold. */
+const glowFrag = /* glsl */ `
+precision highp float;
+varying vec2 vUv;
+uniform sampler2D tSrc;
+uniform vec2 uStep;
+uniform float uPick;
+vec3 pick(vec3 c) {
+  float l = dot(c, vec3(0.3, 0.59, 0.11));
+  return uPick > 0.5 ? c * smoothstep(0.72, 1.0, l) : c;
+}
+void main() {
+  vec3 sum = pick(texture2D(tSrc, vUv).rgb) * 0.227;
+  for (int i = 1; i <= 4; i++) {
+    float w = i == 1 ? 0.195 : i == 2 ? 0.122 : i == 3 ? 0.054 : 0.016;
+    sum += pick(texture2D(tSrc, vUv + uStep * float(i) * 1.5).rgb) * w;
+    sum += pick(texture2D(tSrc, vUv - uStep * float(i) * 1.5).rgb) * w;
+  }
+  gl_FragColor = vec4(sum, 1.0);
+}`;
+/** Adds the glow on top of the finished frame. */
+const glowAddFrag = /* glsl */ `
+precision highp float;
+varying vec2 vUv;
+uniform sampler2D tGlow;
+uniform float uStrength;
+void main() { gl_FragColor = vec4(texture2D(tGlow, vUv).rgb * uStrength, 1.0); }`;
+
+/** How strongly bright light blooms over its surroundings. */
+const GLOW_STRENGTH = 0.32;
+
 export class InkRenderer {
   readonly renderer: THREE.WebGLRenderer;
   readonly scene = new THREE.Scene();
@@ -267,6 +337,13 @@ export class InkRenderer {
   private readonly fxaa: THREE.ShaderMaterial;
   private readonly postScene = new THREE.Scene();
   private readonly fxaaScene = new THREE.Scene();
+  /** Soft glow: bright parts at a quarter of the resolution, blurred both ways, added on top. */
+  private readonly glowA: THREE.WebGLRenderTarget;
+  private readonly glowB: THREE.WebGLRenderTarget;
+  private readonly glowBlur: THREE.ShaderMaterial;
+  private readonly glowAdd: THREE.ShaderMaterial;
+  private readonly glowScene = new THREE.Scene();
+  private readonly glowQuad: THREE.Mesh;
   private readonly postCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
   private readonly clearColor = new THREE.Color(1, 0, 0);
   private pixelRatio: number;
@@ -380,6 +457,8 @@ export class InkRenderer {
         uNight: { value: 0 },
         uGlass: { value: color('glass') },
         uWater: { value: color('water') },
+        uGrass: { value: color('grass') },
+        uRock: { value: color('rock') },
         uSkySat: { value: 1 },
         uGloom: { value: 0 },
         uTime: { value: 0 },
@@ -401,6 +480,35 @@ export class InkRenderer {
     });
     this.fxaa.uniforms.tDiffuse!.value = this.paintRt.texture;
     this.fxaaScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this.fxaa));
+    const glowTarget = (): THREE.WebGLRenderTarget =>
+      new THREE.WebGLRenderTarget(2, 2, {
+        type: THREE.HalfFloatType,
+        minFilter: THREE.LinearFilter,
+        magFilter: THREE.LinearFilter,
+        depthBuffer: false,
+        stencilBuffer: false,
+        generateMipmaps: false,
+      });
+    this.glowA = glowTarget();
+    this.glowB = glowTarget();
+    this.glowBlur = new THREE.ShaderMaterial({
+      uniforms: { tSrc: { value: null }, uStep: { value: new THREE.Vector2() }, uPick: { value: 0 } },
+      vertexShader: glowVert,
+      fragmentShader: glowFrag,
+      depthTest: false,
+      depthWrite: false,
+    });
+    this.glowAdd = new THREE.ShaderMaterial({
+      uniforms: { tGlow: { value: this.glowA.texture }, uStrength: { value: GLOW_STRENGTH } },
+      vertexShader: glowVert,
+      fragmentShader: glowAddFrag,
+      depthTest: false,
+      depthWrite: false,
+      transparent: true,
+      blending: THREE.AdditiveBlending,
+    });
+    this.glowQuad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this.glowBlur);
+    this.glowScene.add(this.glowQuad);
     this.resize();
   }
 
@@ -425,6 +533,8 @@ export class InkRenderer {
     const rh = Math.floor(h * this.pixelRatio);
     this.rt.setSize(rw, rh);
     this.paintRt.setSize(rw, rh);
+    this.glowA.setSize(Math.max(2, rw >> 2), Math.max(2, rh >> 2));
+    this.glowB.setSize(Math.max(2, rw >> 2), Math.max(2, rh >> 2));
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
     const u = this.post.uniforms;
@@ -458,6 +568,7 @@ export class InkRenderer {
     r.render(this.postScene, this.postCam);
     r.setRenderTarget(null);
     r.render(this.fxaaScene, this.postCam);
+    this.renderGlow();
   }
 
   /**
@@ -496,13 +607,40 @@ export class InkRenderer {
     cam.visible = camVisible;
   }
 
+  /** Pick the bright parts, blur them across then down at quarter size, add them to the screen. */
+  private renderGlow(): void {
+    const r = this.renderer;
+    const b = this.glowBlur.uniforms;
+    const w = this.glowA.width;
+    const h = this.glowA.height;
+    this.glowQuad.material = this.glowBlur;
+    b.tSrc!.value = this.paintRt.texture;
+    b.uPick!.value = 1;
+    b.uStep!.value.set(1 / w, 0);
+    r.setRenderTarget(this.glowB);
+    r.render(this.glowScene, this.postCam);
+    b.tSrc!.value = this.glowB.texture;
+    b.uPick!.value = 0;
+    b.uStep!.value.set(0, 1 / h);
+    r.setRenderTarget(this.glowA);
+    r.render(this.glowScene, this.postCam);
+    this.glowQuad.material = this.glowAdd;
+    r.setRenderTarget(null);
+    r.render(this.glowScene, this.postCam);
+  }
+
   dispose(): void {
     this.rt.dispose();
     this.shadowRt.dispose();
     this.shadowMaterial.dispose();
     this.paintRt.dispose();
+    this.glowA.dispose();
+    this.glowB.dispose();
+    this.glowBlur.dispose();
+    this.glowAdd.dispose();
     disposeTree(this.postScene);
     disposeTree(this.fxaaScene);
+    this.glowQuad.geometry.dispose();
     this.renderer.dispose();
   }
 }

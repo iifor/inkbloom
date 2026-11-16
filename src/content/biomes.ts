@@ -29,8 +29,8 @@ export const BIOMES = [
   {
     key: 'mountain',
     name: '山地',
-    // green hills; bare rock only where it is steep
-    ground: color('forest'),
+    // green hills; bare rock only where it is steep (painted in by the renderer)
+    ground: color('grass'),
     cliff: color('rock'),
     treeDensity: 0.012,
     treeColor: color('forest'),

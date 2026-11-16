@@ -117,9 +117,11 @@ export function buildChunkGeometry(
     for (let i = 0; i < steps; i++) {
       const cx = Math.min(n - 1, Math.floor(((i + 0.5) * MESH_STEP) / cell));
       const cz = Math.min(n - 1, Math.floor(((k + 0.5) * MESH_STEP) / cell));
+      // meadow ground shows rock on steep slopes in the shader, with a painted edge; other
+      // ground (sand) switches colour per square here
       const biome = BIOMES[biomes[cz * n + cx]!]!;
       const rise = Math.max(Math.abs(H(i + 1, k) - H(i, k)), Math.abs(H(i, k + 1) - H(i, k))) / MESH_STEP;
-      const colour = rise > STEEP ? biome.cliff : biome.ground;
+      const colour = rise > STEEP && biome.ground !== color('grass') ? biome.cliff : biome.ground;
       // counter-clockwise seen from above
       g.quadSmooth(
         P(i, k + 1),

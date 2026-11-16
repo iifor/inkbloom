@@ -47,6 +47,7 @@ varying vec3 vNormalV;
 varying float vCode;
 varying vec4 vShadow;
 varying float vTip;
+varying float vGust;
 
 float derivedSat(vec3 wp) {
   float drain = 0.0;
@@ -70,12 +71,15 @@ void main() {
   vec4 world = modelMatrix * vec4(transformed, 1.0);
   #ifdef WIND
     // plants sway: the higher up the blade, the further; slow waves roll across the field
+    // gusts: broad bands of wind rolling across the field, bending the grass further
+    vGust = smoothstep(0.55, 1.0, sin(uTime * 0.9 + world.x * 0.045 - world.z * 0.06) * 0.5 + 0.5);
     float sway = sin(uTime * 1.6 + world.x * 0.31 + world.z * 0.23) * 0.6
-               + sin(uTime * 0.7 + world.x * 0.05 - world.z * 0.07) * 0.5;
+               + sin(uTime * 0.7 + world.x * 0.05 - world.z * 0.07) * 0.5 + vGust * 0.9;
     world.xz += vec2(0.8, 0.5) * sway * 0.16 * max(position.y, 0.0);
     vTip = clamp(position.y / 0.4, 0.0, 1.0);
   #else
     vTip = 1.0;
+    vGust = 0.0;
   #endif
   float idx = aColor;
   #ifdef USE_INSTANCING_COLOR
@@ -113,6 +117,7 @@ varying vec3 vNormalV;
 varying float vCode;
 varying vec4 vShadow;
 varying float vTip;
+varying float vGust;
 
 /**
  * 1 in sunlight, 0 in shadow, fading out at the map's edge. Eight taps on a ring turned by a
@@ -145,6 +150,8 @@ void main() {
   #ifdef WIND
     // a tuft is dark down among the stems and catches the light at the tips
     shade = clamp(shade * mix(0.62, 1.12, vTip), 0.0, 1.0);
+    // a gust turns the blades over and a wave of light runs across the meadow
+    shade = clamp(shade + vGust * vTip * 0.18, 0.0, 1.0);
   #endif
   gl_FragColor = vec4(shade, vCode, n.x, n.y);
 }`;
