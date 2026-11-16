@@ -9,7 +9,10 @@
 import * as THREE from 'three';
 import { FXAAShader } from 'three/examples/jsm/shaders/FXAAShader.js';
 import { type ColorDef, MAX_COLORS, PALETTE, color } from '@/content/palette';
+import { SEASONS } from '@/content/seasons';
+import { TUNING } from '@/content/tuning';
 import { type Daylight, daylightAt } from './daylight';
+import { Precipitation } from './precipitation';
 import { disposeTree } from '../resources';
 import { NO_SHADOW_LAYER, shared } from './ink-material';
 
@@ -41,6 +44,20 @@ uniform int uGlass;
 uniform int uWater;
 uniform int uGrass;
 uniform int uRock;
+uniform int uSnow;
+uniform float uSeasonKind[${MAX_COLORS}];
+uniform vec4 uMeadow[4];
+uniform vec4 uLeaf[4];
+uniform vec4 uLeafAlt[4];
+uniform float uYear;
+uniform float uStagger;
+uniform float uSeaTemp;
+uniform float uLapse;
+uniform float uCloud;
+uniform float uOvercast;
+uniform float uFog;
+uniform float uWet;
+uniform float uFreshSnow;
 uniform float uSkySat;
 uniform float uGloom;
 uniform float uTime;
@@ -72,6 +89,37 @@ float textureOf(float code) {
   int i = indexOf(code); float s = 0.25;
   for (int k = 0; k < ${MAX_COLORS}; k++) if (k == i) s = uTexture[k];
   return s;
+}
+/** 0 unchanged by the seasons, 1 meadow (ground, grass), 2 broadleaf crowns. */
+float seasonKindOf(float code) {
+  int i = indexOf(code); float s = 0.0;
+  for (int k = 0; k < ${MAX_COLORS}; k++) if (k == i) s = uSeasonKind[k];
+  return s;
+}
+/** target, taking most of c's lightness, so dark woods stay darker than sunny meadows. */
+vec3 atLightness(vec3 target, vec3 c) {
+  float l = dot(c, vec3(0.3, 0.59, 0.11)) / max(dot(target, vec3(0.3, 0.59, 0.11)), 0.01);
+  return target * mix(1.0, l, 0.7);
+}
+/** A plant colour at this time of year (content/seasons.ts). Each place runs a little ahead of
+ * or behind the calendar, so woods turn patch by patch; some take the season's other colour. */
+vec3 seasonal(vec3 c, float kind, vec2 xz) {
+  if (kind < 0.5) return c;
+  float p = fract(uYear - 0.125 + (vnoise(xz * 0.03) - 0.5) * 2.0 * uStagger) * 4.0;
+  int a = int(floor(p));
+  int b = a == 3 ? 0 : a + 1;
+  float t = smoothstep(0.0, 1.0, fract(p));
+  float pick = vnoise(xz * 0.17 + 31.0);
+  vec3 ca = c, cb = c;
+  for (int k = 0; k < 4; k++) {
+    vec4 key = kind < 1.5 ? uMeadow[k] : uLeaf[k];
+    vec3 rgb = key.rgb;
+    if (kind > 1.5) rgb = mix(rgb, uLeafAlt[k].rgb, step(1.0 - uLeafAlt[k].a, pick));
+    vec3 look = mix(c, atLightness(rgb, c), key.a);
+    if (k == a) ca = look;
+    if (k == b) cb = look;
+  }
+  return mix(ca, cb, t);
 }
 vec2 hash22(vec2 p) { return vec2(hash21(p), hash21(p + 17.31)); }
 /**
@@ -123,14 +171,19 @@ vec3 skyPaint(vec3 rd) {
   cuv += (vec2(fbm(cuv * 0.6), fbm(cuv * 0.6 + 3.1)) - 0.5) * 1.3;
   float n = fbm(cuv);
   float above = smoothstep(-0.01, 0.1, e);
-  float thr = mix(0.6, 0.52, smoothstep(0.05, 0.55, e));
-  float body = smoothstep(thr, thr + 0.03, n) * above;
+  // the weather's cloud cover fills the gaps until the sky is one grey deck
+  float thr = mix(0.6, 0.52, smoothstep(0.05, 0.55, e)) - uCloud * 0.34;
+  float body = smoothstep(thr, thr + 0.03 + uCloud * 0.05, n) * above;
   // lit where the cloud thins towards the sun, shadowed underneath
   float n2 = fbm(cuv + uSun.xz * 0.09);
   float lit = clamp((n - n2) * 8.0 + 0.55, 0.0, 1.0);
   lit = mix(lit, 1.0, smoothstep(0.05, 0.0, n - thr) * 0.5);
   vec3 cloudLit = mix(vec3(1.0, 0.99, 0.96), clamp(uSunColor, 0.0, 1.0), 0.35) * mix(1.0, 0.32, uNight);
   vec3 cloudShade = mix(uShade, uZenith, 0.3) * 1.15;
+  // rain clouds are heavy and grey, darker underneath
+  vec3 rainGrey = vec3(0.6, 0.62, 0.67) * mix(1.0, 0.3, uNight);
+  cloudLit = mix(cloudLit, rainGrey, uOvercast * 0.75 + uCloud * 0.15);
+  cloudShade = mix(cloudShade, rainGrey * 0.72, uOvercast * 0.8);
   vec3 cloud = mix(cloudShade, cloudLit, lit);
   c += vec3(star * 0.8);
   return mix(c, cloud, body);
@@ -182,7 +235,7 @@ void main() {
     vec3 wn = normalize(mat3(uInvView) * nView);
     float sat = satOf(s.g);
     float tex = textureOf(s.g);
-    vec3 base = paletteColor(s.g);
+    vec3 base = seasonal(paletteColor(s.g), seasonKindOf(s.g), wpos.xz);
 
     // brush texture, anchored to the world (held tools ride with the camera: keep them clean)
     vec3 an = abs(wn);
@@ -198,6 +251,25 @@ void main() {
       tex = mix(tex, 0.7, steep);
       // the meadow floor is mostly seen between the grass, down in its shade
       base *= mix(0.78, 1.0, steep);
+    }
+    // snow lies on what faces up wherever the day's mean temperature is below freezing (colder
+    // higher up), in patches at first, then over everything
+    float cover = max(smoothstep(1.0, -3.0, uSeaTemp - uLapse * wpos.y), uFreshSnow);
+    if (cover > 0.0 && indexOf(s.g) != uWater && indexOf(s.g) != uGlass) {
+      float lie = 0.55 * wn.y + 0.45 * big + (leaf - 0.5) * 0.1;
+      float th = mix(1.15, 0.3, cover);
+      float snow = smoothstep(th, th + 0.06, lie) * near;
+      base = mix(base, paletteColor(float(uSnow)), snow);
+      tex = mix(tex, 0.3, snow);
+    }
+    // rain darkens what faces the sky; on paving and bare earth it pools in puddles that
+    // mirror the sky (drawn in once the light is worked out)
+    float puddle = 0.0;
+    if (uWet > 0.0 && indexOf(s.g) != uWater && indexOf(s.g) != uGlass) {
+      float soaked = uWet * smoothstep(0.3, 0.8, wn.y) * (1.0 - cover);
+      base *= 1.0 - 0.24 * soaked;
+      if (seasonKindOf(s.g) < 0.5)
+        puddle = soaked * smoothstep(0.96, 0.99, wn.y) * smoothstep(0.55, 0.65, big + (leaf - 0.5) * 0.15) * near;
     }
     float mott = ((big - 0.5) * 0.3 + (leaf - 0.5) * 0.35) * tex + (stroke - 0.5) * 0.06;
     base *= 1.0 + mott * near;
@@ -244,6 +316,7 @@ void main() {
     float edgeOn = 1.0 - abs(dot(wn, -rd));
     painted += tex * pow(max(0.0, dot(rd, uSun)), 3.0) * (0.4 + 0.6 * edgeOn) * vec3(0.2, 0.24, 0.05) * (1.0 - uNight) * near;
     col = mix(drainedOf(painted), painted, sat);
+    if (puddle > 0.0) col = mix(col, skyPaint(reflect(rd, vec3(0.0, 1.0, 0.0))) * 0.85, puddle * 0.6);
     if (indexOf(s.g) == uWater) {
       // water mirrors the painted sky, more so at a glancing angle; slow ripple bands drift
       // across it and the sun glints off their crests
@@ -270,7 +343,8 @@ void main() {
     // aerial perspective: far things melt into blue-white haze
     vec3 haze = horizonOf(rd);
     haze = mix(drainedOf(haze), haze, skySat);
-    col = mix(col, haze, (1.0 - exp(-d * 0.0042)) * 0.85);
+    // mist and rain thicken it and pull it close
+    col = mix(col, haze, (1.0 - exp(-d * (0.0042 + uFog * 0.035))) * mix(0.85, 0.97, uFog));
   }
   // a faint canvas grain so flat colour reads as paint
   col *= 0.985 + 0.03 * vnoise(pp * 0.7);
@@ -294,6 +368,9 @@ const _right = new THREE.Vector3();
 const _up = new THREE.Vector3();
 const _centre = new THREE.Vector3();
 const _fwd = new THREE.Vector3();
+const _grey = new THREE.Vector3();
+/** What a lightning flash adds to the light: a cold white-violet. */
+const _flash = new THREE.Vector3(0.7, 0.72, 0.9);
 
 const glowVert = postVert;
 /** Bright parts of the painted frame, blurred along one axis (9 taps). With `uPick` set it
@@ -402,7 +479,6 @@ void main() {
   float streak = vnoise(vec2(dot(pp0, along) * 0.07, dot(pp0, across) * 0.9));
   col *= 1.0 + (streak - 0.5) * mix(0.025, 0.12, edge);
 
-
   // grade like a painting: warm lift, gentle S-curve, a little more colour
   col = clamp(col * vec3(1.03, 1.0, 0.95) + vec3(0.022, 0.016, 0.004), 0.0, 1.0);
   col = mix(col, col * col * (3.0 - 2.0 * col), 0.22);
@@ -468,8 +544,22 @@ export class InkRenderer {
   baseFov = 78;
   /** Mood of the whole view, set by gameplay each frame. `colour` 0..1 is how much colour
    * is around the camera (the sky follows it); `gloom` 0..1 drains everything to black and
-   * white with ink closing in from the edges. */
-  readonly atmosphere = { colour: 1, gloom: 0, hour: 10 };
+   * white with ink closing in from the edges. `hour` and `declination` (the time of year, see
+   * `calendarAt`) place the sun; `year` (0..1) turns the plants and `seaTemp` (the day's mean
+   * temperature at ground level, °C) sets where snow lies. */
+  readonly atmosphere = {
+    colour: 1,
+    gloom: 0,
+    hour: 10,
+    declination: 0,
+    year: 0.375,
+    seaTemp: 25,
+    /** The weather where the player is, eased (see AtmosphereSystem): cloud cover, rain and
+     * snow falling, mist, wet ground and fresh snow (0..1), wind (m/s) and a lightning flash. */
+    weather: { cloud: 0, rain: 0, snowfall: 0, fog: 0, wet: 0, freshSnow: 0, windX: 0, windZ: 0, flash: 0 },
+  };
+  /** Rain, snow and lightning over the painted frame. */
+  private readonly precipitation: Precipitation;
   /** Sun, sky and shade for the current hour; its vectors are the post pass's uniforms. */
   private readonly day: Daylight = daylightAt(10);
 
@@ -562,6 +652,22 @@ export class InkRenderer {
         uWater: { value: color('water') },
         uGrass: { value: color('grass') },
         uRock: { value: color('rock') },
+        uSnow: { value: color('snow') },
+        uSeasonKind: { value: perColor((c) => (c.season === 'meadow' ? 1 : c.season === 'leaf' ? 2 : 0), 0) },
+        uMeadow: { value: SEASONS.map(({ meadow: m }) => new THREE.Vector4(...m.rgb, m.amount)) },
+        uLeaf: { value: SEASONS.map(({ leaf: l }) => new THREE.Vector4(...l.rgb, l.amount)) },
+        uLeafAlt: {
+          value: SEASONS.map(({ leaf: l }) => new THREE.Vector4(...(l.alt ?? l.rgb), l.altShare ?? 0)),
+        },
+        uYear: { value: this.atmosphere.year },
+        uStagger: { value: TUNING.season.stagger },
+        uSeaTemp: { value: this.atmosphere.seaTemp },
+        uLapse: { value: TUNING.season.lapse },
+        uCloud: { value: 0 },
+        uOvercast: { value: 0 },
+        uFog: { value: 0 },
+        uWet: { value: 0 },
+        uFreshSnow: { value: 0 },
         uSkySat: { value: 1 },
         uGloom: { value: 0 },
         uTime: { value: 0 },
@@ -572,6 +678,7 @@ export class InkRenderer {
       depthWrite: false,
     });
     this.postScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this.post));
+    this.precipitation = new Precipitation(depthTexture);
     // the eye sees grass; the sun's shadow camera (default layer only) does not
     this.camera.layers.enable(NO_SHADOW_LAYER);
     this.fxaa = new THREE.ShaderMaterial({
@@ -674,11 +781,40 @@ export class InkRenderer {
     u.uRes!.value.set(rw, rh);
     u.uAspect!.value = w / h;
     this.fxaa.uniforms.resolution!.value.set(1 / rw, 1 / rh);
+    this.precipitation.setSize(rw, rh);
+  }
+
+  /** Lightning strikes the ground at `at` (drawn for a moment; `shape` picks its path). */
+  strike(at: THREE.Vector3Like, shape: number): void {
+    this.precipitation.strike(at, shape);
+  }
+
+  /**
+   * The weather over the day's light: cloud veils the sun and greys the sky, so sunlight and
+   * shade draw together; a lightning flash lights everything for a moment.
+   */
+  private applyWeather(): void {
+    const w = this.atmosphere.weather;
+    const d = this.day;
+    const falling = Math.min(1, w.rain + w.snowfall);
+    const grey = (v: THREE.Vector3, amount: number, dim: number): void => {
+      const l = v.x * 0.3 + v.y * 0.59 + v.z * 0.11;
+      v.lerp(_grey.set(l, l, l * 1.04), amount).multiplyScalar(dim);
+    };
+    d.sun.multiplyScalar(1 - 0.5 * w.cloud - 0.15 * falling);
+    d.shade.lerp(d.sun, 0.35 * w.cloud);
+    grey(d.sun, 0.4 * w.cloud, 1);
+    grey(d.shade, 0.3 * w.cloud, 1);
+    grey(d.zenith, 0.55 * w.cloud + 0.2 * falling, 1 - 0.25 * falling);
+    grey(d.horizon, 0.45 * w.cloud + 0.2 * falling, 1 - 0.15 * falling);
+    if (w.flash > 0)
+      for (const v of [d.sun, d.shade, d.zenith, d.horizon]) v.addScaledVector(_flash, w.flash);
   }
 
   render(): void {
     this.camera.updateMatrixWorld();
-    daylightAt(this.atmosphere.hour, this.day);
+    daylightAt(this.atmosphere.hour, this.atmosphere.declination, this.day);
+    this.applyWeather();
     shared.uLightDir.value.copy(this.day.dir).transformDirection(this.camera.matrixWorldInverse);
     const r = this.renderer;
     r.info.reset();
@@ -694,6 +830,16 @@ export class InkRenderer {
     u.uInvView!.value.copy(this.camera.matrixWorld);
     u.uSkySat!.value = this.atmosphere.colour;
     u.uGloom!.value = this.atmosphere.gloom;
+    u.uYear!.value = this.atmosphere.year;
+    u.uSeaTemp!.value = this.atmosphere.seaTemp;
+    const w = this.atmosphere.weather;
+    u.uCloud!.value = w.cloud;
+    u.uOvercast!.value = Math.min(1, w.rain + w.snowfall);
+    u.uFog!.value = w.fog;
+    u.uWet!.value = w.wet;
+    u.uFreshSnow!.value = w.freshSnow;
+    // grass sways with the weather's wind
+    shared.uWind.value.set(w.windX, w.windZ);
     u.uNight!.value = this.day.night;
     u.uTime!.value = performance.now() / 1000;
     shared.uTime.value = u.uTime!.value;
@@ -702,6 +848,8 @@ export class InkRenderer {
     this.brush.uniforms.uTime!.value = u.uTime!.value;
     r.setRenderTarget(this.brushRt);
     r.render(this.brushScene, this.postCam);
+    // after the brush pass, which would smear one-pixel streaks away
+    this.precipitation.render(r, this.camera, { ...w, night: this.day.night }, u.uTime!.value);
     r.setRenderTarget(null);
     r.render(this.fxaaScene, this.postCam);
     this.renderGlow();
@@ -766,6 +914,7 @@ export class InkRenderer {
   }
 
   dispose(): void {
+    this.precipitation.dispose();
     this.rt.dispose();
     this.shadowRt.dispose();
     this.shadowMaterial.dispose();

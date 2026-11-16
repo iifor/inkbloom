@@ -85,9 +85,9 @@ class SpotCache {
 
 /** Per biome: chance of a tuft per grid point, chance of a flower, blade colours. */
 const COVER: Partial<Record<string, { tuft: number; flower: number; blades: readonly ColorKey[] }>> = {
-  grassland: { tuft: 0.97, flower: 0.1, blades: ['grass', 'grass', 'green'] },
-  forest: { tuft: 0.85, flower: 0.03, blades: ['grass', 'green', 'forest'] },
-  mountain: { tuft: 0.85, flower: 0.04, blades: ['grass', 'green', 'forest'] },
+  grassland: { tuft: 0.97, flower: 0.1, blades: ['grass', 'grass', 'sprout'] },
+  forest: { tuft: 0.85, flower: 0.03, blades: ['grass', 'sprout', 'forest'] },
+  mountain: { tuft: 0.85, flower: 0.04, blades: ['grass', 'sprout', 'forest'] },
 };
 const FLOWERS: readonly ColorKey[] = ['yellow', 'yellow', 'cream', 'cream', 'pink', 'sky', 'purple'];
 /** Metres across a drift of flowers. */
@@ -188,8 +188,10 @@ export class GrassField {
     );
   }
 
-  update(at: THREE.Vector3): void {
+  /** `flowers`: how many wildflowers the season brings, 0..1 (see content/seasons.ts). */
+  update(at: THREE.Vector3, flowers = 1): void {
     this.field.uField.value.copy(at);
+    this.field.uBloom.value = flowers;
     this.slide(this.coarseWindow, at);
     this.slide(this.nearWindow, at);
   }

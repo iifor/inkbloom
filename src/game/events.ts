@@ -53,6 +53,9 @@ export interface GameEvents {
   'shot:hit': { readonly killed: boolean };
   /** A bullet's streak reached the wall or ground it hit (a little after the instant hit). */
   'shot:impact': { readonly at: Point3 };
+  /** Lightning struck `distance` metres from where the weather is read (the player, or a
+   * city's entrance outside). Thunder follows at the speed of sound. */
+  'weather:bolt': { readonly at: Point3; readonly distance: number };
   toast: { readonly text: string; readonly seconds?: number };
 }
 

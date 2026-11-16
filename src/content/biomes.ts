@@ -23,7 +23,7 @@ export const BIOMES = [
     ground: color('sand'),
     cliff: color('sand'),
     treeDensity: 0,
-    treeColor: color('forest'),
+    treeColor: color('canopy'),
     treeMaxSlope: 0,
   },
   {
@@ -33,7 +33,7 @@ export const BIOMES = [
     ground: color('grass'),
     cliff: color('rock'),
     treeDensity: 0.012,
-    treeColor: color('forest'),
+    treeColor: color('canopy'),
     treeMaxSlope: 1,
   },
   {
@@ -43,7 +43,7 @@ export const BIOMES = [
     ground: color('grass'),
     cliff: color('rock'),
     treeDensity: 0.12,
-    treeColor: color('forest'),
+    treeColor: color('canopy'),
     treeMaxSlope: 1.5,
   },
   {
@@ -52,7 +52,7 @@ export const BIOMES = [
     ground: color('grass'),
     cliff: color('rock'),
     treeDensity: 0.008,
-    treeColor: color('green'),
+    treeColor: color('leaf'),
     treeMaxSlope: 1.5,
   },
 ] as const satisfies readonly BiomeDef[];

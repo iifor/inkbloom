@@ -150,7 +150,7 @@ export function buildChunkGeometry(
   const bark = color('bark');
   for (const t of chunk.trees) {
     const roll = treeRoll(t.x, t.z);
-    const isCedar = roll < (t.color === color('forest') ? CEDAR_SHARE.forest : CEDAR_SHARE.other);
+    const isCedar = roll < (t.color === color('canopy') ? CEDAR_SHARE.forest : CEDAR_SHARE.other);
     const trunk = isCedar ? 0.3 : 0.25;
     const trunkTop = t.height * (isCedar ? 0.45 : 0.6);
     g.box(
@@ -166,7 +166,8 @@ export function buildChunkGeometry(
         spin,
         new THREE.Vector3(r, r * 1.35, r),
       );
-      g.meshSmooth(cedar, m, t.color);
+      // evergreen: cedars keep their colour through the year, broadleaf crowns turn
+      g.meshSmooth(cedar, m, color('cedar'));
     } else {
       // some crowns spread wide, some stand rounder
       const wide = 0.9 + 0.35 * treeRoll(t.z, t.x);

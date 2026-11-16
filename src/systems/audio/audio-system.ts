@@ -19,6 +19,7 @@ export class AudioSystem implements System {
   private brush: Loop | null = null;
   private wind: Loop | null = null;
   private rumble: Loop | null = null;
+  private rain: Loop | null = null;
   private stepT = 0;
   private stepSide = 0;
 
@@ -126,7 +127,27 @@ export class AudioSystem implements System {
       on('scene:entered', () =>
         s.noise({ dur: 0.6, gain: 0.15, type: 'bandpass', freq: 400, freqEnd: 2400 }),
       ),
+      on('weather:bolt', ({ distance }) => this.thunder(distance)),
     );
+  }
+
+  /** Thunder reaches the ear at the speed of sound: a sharp crack when close, a long low roll. */
+  private thunder(distance: number): void {
+    const s = this.synth;
+    const delay = distance / 343;
+    const near = 1 - Math.min(1, distance / 900);
+    if (distance < 250)
+      s.noise({ dur: 0.25, gain: 0.5 * near, type: 'highpass', freq: 1800, freqEnd: 600, delay });
+    s.noise({
+      dur: 2.2 + 1.5 * (1 - near),
+      gain: 0.25 + 0.6 * near,
+      type: 'lowpass',
+      freq: 500,
+      freqEnd: 60,
+      attack: 0.05,
+      delay,
+    });
+    s.tone({ freq: 55, freqEnd: 32, dur: 1.8, gain: 0.15 + 0.3 * near, delay: delay + 0.1 });
   }
 
   /** Start audio from a user gesture (browser rule). */
@@ -137,13 +158,15 @@ export class AudioSystem implements System {
   }
 
   /** Loops are created once audio exists. */
-  private loops(): { brush: Loop | null; wind: Loop | null; rumble: Loop | null } {
+  private loops(): { brush: Loop | null; wind: Loop | null; rumble: Loop | null; rain: Loop | null } {
     if (this.synth.ctx && !this.brush) {
       this.brush = this.synth.noiseLoop({ type: 'bandpass', freq: 2300, q: 0.9, gain: 0.18, bus: 'sfx' });
       this.wind = this.synth.noiseLoop({ type: 'bandpass', freq: 700, q: 0.6, gain: 0.35 });
       this.rumble = this.synth.noiseLoop({ type: 'lowpass', freq: 160, gain: 0.5 });
+      // a soft hiss of rain on leaves and ground
+      this.rain = this.synth.noiseLoop({ type: 'bandpass', freq: 3200, q: 0.4, gain: 0.3 });
     }
-    return { brush: this.brush, wind: this.wind, rumble: this.rumble };
+    return { brush: this.brush, wind: this.wind, rumble: this.rumble, rain: this.rain };
   }
 
   private bloom(at: Point3, color: number): void {
@@ -194,7 +217,11 @@ export class AudioSystem implements System {
     const { player } = this.ctx;
     const yaw = player.yaw;
     this.synth.setListener(player.eye, { x: Math.cos(yaw), y: 0, z: -Math.sin(yaw) });
-    this.loops().wind?.set(player.gliding ? 1 : 0);
+    // wind from the weather (a breeze is barely there, a storm roars), louder still when gliding
+    const w = this.ctx.renderer.atmosphere.weather;
+    const blow = Math.max(0, Math.hypot(w.windX, w.windZ) - 3) / 9;
+    this.loops().wind?.set(Math.max(player.gliding ? 1 : 0, Math.min(0.8, blow)));
+    this.loops().rain?.set(w.rain);
     // footsteps
     if (player.grounded && player.speed > 1.5 && !player.flying) {
       this.stepT -= dt;

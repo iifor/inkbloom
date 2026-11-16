@@ -2,12 +2,14 @@
 // never hitches), owns their colliders, registers each city entrance and pigment source as an
 // interactable, and hosts the monsters that roam drained land.
 import * as THREE from 'three';
+import { SEASONS } from '@/content/seasons';
 import { TUNING } from '@/content/tuning';
 import { PhysicsWorld } from '@/engine/physics/world';
 import { GeometryBuilder } from '@/engine/render/geometry-builder';
 import { makeInkMaterial, shared } from '@/engine/render/ink-material';
 import { disposeTree } from '@/engine/resources';
 import type { GameContext, GameScene } from '@/game/types';
+import { calendarAt, seasonBlend } from '@/world/climate/calendar';
 import { chunkKey, generateWildChunk } from '@/world/wilderness/chunk';
 import { buildChunkGeometry, addChunkColliders } from './build-chunk';
 import { buildLandmark } from './build-landmark';
@@ -87,7 +89,8 @@ export class WildScene implements GameScene {
       const [cx, cz] = key.split(',').map(Number) as [number, number];
       if (Math.max(Math.abs(cx - pcx), Math.abs(cz - pcz)) > W.unloadRadius) this.unload(key, item);
     }
-    this.grass.update(p);
+    const year = seasonBlend(calendarAt(this.ctx.state.clock).yearPhase);
+    this.grass.update(p, SEASONS[year.from]!.flowers * (1 - year.t) + SEASONS[year.to]!.flowers * year.t);
     this.sources.update(dt);
     this.monsters.update(dt);
     this.ruins.update(dt);

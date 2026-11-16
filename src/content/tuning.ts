@@ -199,6 +199,51 @@ export const TUNING = {
     /** Hour of day when a new world starts. */
     startHour: 9,
   },
+  /** The year: the sun's path, plants and snow (presentation only). It follows the world
+   * clock too, so no time passes while the game is closed. */
+  season: {
+    /** Days in each season; four seasons make a year. */
+    days: 7,
+    /** Day of the year a new world starts on (0 = the first day of spring). */
+    startDay: 2,
+    /** Degrees north. Sets how far the sun's height and the length of the day swing. */
+    latitude: 35,
+    /** Daily mean temperature at ground level over the year, °C: `meanTemp ± tempSwing`,
+     * warmest at midsummer. */
+    meanTemp: 12,
+    tempSwing: 13,
+    /** °C colder per metre up. Game hills are short, so far steeper than the real 6.5 °C/km:
+     * peaks keep snow through spring and autumn, plains only get it in midwinter. */
+    lapse: 0.4,
+    /** How far apart in the year (0..1) places turn: woods change patch by patch, not at once. */
+    stagger: 0.05,
+  },
+  /** Weather: a pure function of (seed, clock, position); see world/climate/weather.ts. */
+  weather: {
+    /** Metres across the two cloud fields that drift over the land and grow and fade where
+     * they overlap. */
+    fields: [1500, 900],
+    /** The small field drifts this much faster than the wind, turned this many radians. */
+    driftSpeed: 1.6,
+    driftTurn: 1,
+    /** Humidity (the cloud field, about -1..1) where cloud starts, and where it is overcast. */
+    cloudFrom: -0.05,
+    cloudFull: 0.17,
+    /** Humidity where rain or snow starts, and where it is at its heaviest. */
+    rainFrom: 0.13,
+    rainFull: 0.45,
+    /** How much the land's own moisture (forests, lakes) adds to humidity. */
+    landMoisture: 0.15,
+    /** °C: warmest in mid-afternoon, coldest before dawn; plus a slow wander (warm spells,
+     * cold snaps) over a couple of days. */
+    dayNight: 4,
+    wander: 3,
+    /** Gusts, as a share of the wind; and extra wind in heavy rain, metres per second. */
+    gust: 0.5,
+    stormWind: 6,
+    /** Play-clock seconds: fair weather until the first, back to normal by the second. */
+    calmStart: [1440, 2160],
+  },
   save: {
     debounceMs: 1500,
   },
