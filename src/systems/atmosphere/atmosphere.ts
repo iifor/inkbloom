@@ -3,9 +3,10 @@
 // has drained the world (black and white, ink closing in from the edges), the time of day and
 // year, and the weather where the player is (eased, so it never pops), with lightning. A
 // listener like audio and effects: gameplay never reads it.
+import { SEASONS } from '@/content/seasons';
 import { TUNING } from '@/content/tuning';
 import type { GameContext, System } from '@/game/types';
-import { calendarAt } from '@/world/climate/calendar';
+import { calendarAt, seasonBlend } from '@/world/climate/calendar';
 import { meanTemperature, snowCover } from '@/world/climate/temperature';
 import { type WeatherAt, boltsAt, createWeather } from '@/world/climate/weather';
 import { saturationAt } from '@/world/wilderness/drain';
@@ -26,6 +27,8 @@ interface WeatherLook {
   freshSnow: number;
   windX: number;
   windZ: number;
+  /** Petals or leaves blowing about (spring and autumn, in the wild). */
+  litter: number;
 }
 const look = (): WeatherLook => ({
   cloud: 0,
@@ -36,6 +39,7 @@ const look = (): WeatherLook => ({
   freshSnow: 0,
   windX: 0,
   windZ: 0,
+  litter: 0,
 });
 
 export class AtmosphereSystem implements System {
@@ -54,6 +58,7 @@ export class AtmosphereSystem implements System {
   private snap = true;
   private second = -1;
   private flash = 0;
+  private litterSeason = 0;
 
   constructor(private readonly ctx: GameContext) {
     this.weather = createWeather(ctx.wilderness);
@@ -112,6 +117,14 @@ export class AtmosphereSystem implements System {
     t.freshSnow = Math.max(0, w.snowCover - settled);
     t.windX = w.wind[0];
     t.windZ = w.wind[1];
+    // blossom and leaves come off in the wind, not in a downpour; there are no trees in a city
+    const year = seasonBlend(calendarAt(clock).yearPhase);
+    const litter =
+      SEASONS[year.from]!.litter.amount * (1 - year.t) + SEASONS[year.to]!.litter.amount * year.t;
+    const blow = Math.min(1, 0.3 + Math.hypot(w.wind[0], w.wind[1]) / 10);
+    const wild = this.ctx.scenes.active.ref.kind === 'wild';
+    t.litter = wild ? litter * blow * (1 - 0.7 * w.precip) : 0;
+    this.litterSeason = year.t < 0.5 ? year.from : year.to;
     if (snap) Object.assign(this.weatherNow, t);
   }
 
@@ -166,6 +179,7 @@ export class AtmosphereSystem implements System {
     a.seaTemp = meanTemperature(cal.yearPhase);
     Object.assign(a.weather, now);
     a.weather.flash = this.flash;
+    a.weather.litterSeason = this.litterSeason;
   }
 
   dispose(): void {

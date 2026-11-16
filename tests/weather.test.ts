@@ -117,6 +117,19 @@ describe('weather', () => {
     expect(checked).toBeGreaterThan(0);
   });
 
+  it('some dry days are blustery, most are not', () => {
+    let dry = 0;
+    let windy = 0;
+    for (let t = 0; t < YEAR; t += 97) {
+      const w = weatherAt(t, 300, -700);
+      if (w.precip > 0) continue;
+      dry++;
+      if (Math.hypot(...w.wind) > 6) windy++;
+    }
+    expect(windy / dry).toBeGreaterThan(0.05);
+    expect(windy / dry).toBeLessThan(0.5);
+  });
+
   it('the wind blows from the north-west in autumn and the north in winter', () => {
     const autumn = weatherAt(YEAR * 0.625, 0, 0).wind;
     const winter = weatherAt(YEAR * 0.875, 0, 0).wind;

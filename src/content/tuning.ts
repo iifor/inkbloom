@@ -227,8 +227,8 @@ export const TUNING = {
     driftSpeed: 1.6,
     driftTurn: 1,
     /** Humidity (the cloud field, about -1..1) where cloud starts, and where it is overcast. */
-    cloudFrom: -0.05,
-    cloudFull: 0.17,
+    cloudFrom: -0.15,
+    cloudFull: 0.1,
     /** Humidity where rain or snow starts, and where it is at its heaviest. */
     rainFrom: 0.13,
     rainFull: 0.45,
@@ -241,6 +241,9 @@ export const TUNING = {
     /** Gusts, as a share of the wind; and extra wind in heavy rain, metres per second. */
     gust: 0.5,
     stormWind: 6,
+    /** On blustery days the prevailing wind blows up to this much stronger (1 = double),
+     * rain or not; about one day in four. */
+    windyDays: 1.2,
     /** Play-clock seconds: fair weather until the first, back to normal by the second. */
     calmStart: [1440, 2160],
   },

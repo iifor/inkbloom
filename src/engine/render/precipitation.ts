@@ -4,13 +4,16 @@
 // a fixed fraction of the box shifted by time and wind and wrapped, so nothing is simulated on
 // the CPU. They read the scene's depth to hide behind walls and hills. Lightning bolts are
 // jagged lines built once per strike (midpoint displacement with a few branches) that flicker
-// out over a quarter of a second.
+// out over a quarter of a second. In spring and autumn the same box carries blossom petals and
+// leaves, spinning and tumbling on the wind.
 import * as THREE from 'three';
+import { SEASONS } from '@/content/seasons';
 
 /** Metres across the box of drops around the camera. */
 const BOX = 36;
 const RAIN_DROPS = 5000;
 const SNOW_FLAKES = 4000;
+const LITTER = 1200;
 /** Seconds a bolt stays on screen. */
 const BOLT_LIFE = 0.28;
 /** Metres a bolt drops from. */
@@ -23,6 +26,9 @@ export interface PrecipitationLook {
   readonly windZ: number;
   /** 0 by day, 1 at night: drops catch less light. */
   readonly night: number;
+  /** Petals or leaves blowing about, 0..1, in the colours of season `litterSeason`. */
+  readonly litter: number;
+  readonly litterSeason: number;
 }
 
 const common = /* glsl */ `
@@ -105,6 +111,51 @@ void main() {
   gl_FragColor = vec4(uColor, a);
 }`;
 
+const litterVert = /* glsl */ `
+${dropPlace}
+uniform float uScale;
+varying float vDepth;
+varying float vFade;
+varying float vTurn;
+varying float vPick;
+void main() {
+  vec3 p = dropPlace();
+  // petals and leaves loop and bob as they fall, each on its own beat
+  float ph = aSeed.w * 60.0;
+  p.x += sin(uTime * 0.9 + ph) * 0.9;
+  p.z += cos(uTime * 0.7 + ph * 1.3) * 0.9;
+  p.y += sin(uTime * 1.7 + ph) * 0.25;
+  vec4 view = viewMatrix * vec4(p, 1.0);
+  vDepth = -view.z;
+  vFade = step(aSeed.w, uLevel) * (1.0 - smoothstep(${(BOX * 0.3).toFixed(1)}, ${(BOX * 0.5).toFixed(1)}, length(p - cameraPosition)));
+  vTurn = uTime * (1.5 + aSeed.y * 2.0) + ph;
+  vPick = aSeed.x;
+  gl_Position = projectionMatrix * view;
+  gl_PointSize = clamp(uScale * 0.09 / max(vDepth, 0.1), 2.0, 14.0);
+}`;
+
+const litterFrag = /* glsl */ `
+precision highp float;
+${common}
+uniform vec3 uColors[3];
+uniform float uLight;
+varying float vFade;
+varying float vTurn;
+varying float vPick;
+void main() {
+  if (vFade <= 0.0) discard;
+  // a small oval that spins, and narrows as it tumbles edge-on
+  vec2 q = gl_PointCoord - 0.5;
+  float c = cos(vTurn), s = sin(vTurn);
+  q = vec2(c * q.x - s * q.y, s * q.x + c * q.y);
+  float face = max(0.25, abs(cos(vTurn * 0.6)));
+  q.y /= face;
+  float a = (1.0 - smoothstep(0.3, 0.42, length(q * vec2(1.0, 1.9)))) * vFade * visible();
+  if (a <= 0.0) discard;
+  vec3 col = vPick < 0.34 ? uColors[0] : vPick < 0.67 ? uColors[1] : uColors[2];
+  gl_FragColor = vec4(col * uLight * mix(0.75, 1.05, face), a);
+}`;
+
 const boltVert = /* glsl */ `
 varying float vDepth;
 void main() {
@@ -173,6 +224,8 @@ export class Precipitation {
   private readonly snow: THREE.Points;
   private readonly rainMat: THREE.ShaderMaterial;
   private readonly snowMat: THREE.ShaderMaterial;
+  private readonly litter: THREE.Points;
+  private readonly litterMat: THREE.ShaderMaterial;
   private readonly bolts: { line: THREE.LineSegments; age: number }[] = [];
   private last = performance.now();
 
@@ -220,7 +273,17 @@ export class Precipitation {
     this.snowMat = drops(snowFrag, snowVert, { uScale: { value: 600 } });
     this.snow = new THREE.Points(sg, this.snowMat);
 
-    for (const o of [this.rain, this.snow]) {
+    const lg = new THREE.BufferGeometry();
+    lg.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(LITTER * 3), 3));
+    lg.setAttribute('aSeed', new THREE.Float32BufferAttribute(seeds(LITTER, 1), 4));
+    this.litterMat = drops(litterFrag, litterVert, {
+      uScale: { value: 600 },
+      uColors: { value: [new THREE.Color(), new THREE.Color(), new THREE.Color()] },
+      uLight: { value: 1 },
+    });
+    this.litter = new THREE.Points(lg, this.litterMat);
+
+    for (const o of [this.rain, this.snow, this.litter]) {
       o.frustumCulled = false;
       this.scene.add(o);
     }
@@ -276,7 +339,7 @@ export class Precipitation {
         this.bolts.splice(i, 1);
       }
     }
-    if (look.rain < 0.01 && look.snowfall < 0.01 && this.bolts.length === 0) return;
+    if (look.rain < 0.01 && look.snowfall < 0.01 && look.litter < 0.01 && this.bolts.length === 0) return;
     this.shared.uNear!.value = camera.near;
     this.shared.uFar!.value = camera.far;
     const light = 1 - 0.65 * look.night;
@@ -293,10 +356,18 @@ export class Precipitation {
     };
     set(this.rainMat, look.rain, 11, 0xc4ccdc);
     set(this.snowMat, look.snowfall, 1.4, 0xffffff);
-    this.snowMat.uniforms.uScale!.value =
-      (camera.projectionMatrix.elements[5]! * (this.shared.uRes!.value as THREE.Vector2).y) / 2;
+    // leaves ride the wind more than they fall
+    set(this.litterMat, look.litter, 0.8, 0xffffff);
+    (this.litterMat.uniforms.uVelocity!.value as THREE.Vector3).set(look.windX * 0.9, -0.8, look.windZ * 0.9);
+    const colors = this.litterMat.uniforms.uColors!.value as THREE.Color[];
+    SEASONS[look.litterSeason]!.litter.colors.forEach((c, i) => colors[i]!.setRGB(c[0], c[1], c[2]));
+    this.litterMat.uniforms.uLight!.value = light;
+    const scale = (camera.projectionMatrix.elements[5]! * (this.shared.uRes!.value as THREE.Vector2).y) / 2;
+    this.snowMat.uniforms.uScale!.value = scale;
+    this.litterMat.uniforms.uScale!.value = scale;
     this.rain.visible = look.rain >= 0.01;
     this.snow.visible = look.snowfall >= 0.01;
+    this.litter.visible = look.litter >= 0.01;
     r.render(this.scene, camera);
   }
 
@@ -305,7 +376,7 @@ export class Precipitation {
       b.line.geometry.dispose();
       (b.line.material as THREE.Material).dispose();
     }
-    for (const o of [this.rain, this.snow]) {
+    for (const o of [this.rain, this.snow, this.litter]) {
       o.geometry.dispose();
       (o.material as THREE.Material).dispose();
     }

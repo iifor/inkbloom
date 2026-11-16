@@ -9,7 +9,10 @@
 // Geometry provides aColor (original palette index) and aSurface per vertex. An InstancedMesh
 // with instance colours overrides the palette index per instance (red channel = index).
 import * as THREE from 'three';
+import { color } from '@/content/palette';
 import { TUNING } from '@/content/tuning';
+
+const CROWNS = new THREE.Vector3(color('leaf'), color('canopy'), color('cedar'));
 
 export const shared = {
   uLightDir: { value: new THREE.Vector3(0, 1, 0) },
@@ -46,6 +49,8 @@ uniform float uSceneSat;
 uniform mat4 uShadowMatrix;
 uniform float uTime;
 uniform vec2 uWind;
+/** Palette indices of tree crowns, which rock in the wind: broadleaf, wood canopy, cedar. */
+uniform vec3 uCrowns;
 varying vec3 vNormalV;
 varying float vCode;
 varying vec4 vShadow;
@@ -111,6 +116,15 @@ void main() {
   #else
     vTip = 1.0;
     vGust = 0.0;
+    // tree crowns lean and rock with the wind; a slow wave across the wood keeps neighbouring
+    // trees out of step (trunks stay put)
+    if (abs(aColor - uCrowns.x) < 0.5 || abs(aColor - uCrowns.y) < 0.5 || abs(aColor - uCrowns.z) < 0.5) {
+      float ws = length(uWind);
+      vec2 wdir = ws > 0.1 ? uWind / ws : vec2(0.85, 0.53);
+      float rock = sin(uTime * (0.8 + ws * 0.06) + world.x * 0.13 + world.z * 0.09) * 0.6
+                 + sin(uTime * 1.9 + world.x * 0.31 - world.z * 0.27) * 0.25;
+      world.xz += wdir * (0.012 * ws + (0.03 + 0.022 * ws) * rock);
+    }
   #endif
   float idx = aColor;
   #ifdef USE_INSTANCING_COLOR
@@ -257,6 +271,7 @@ export function makeInkMaterial(opts: InkMaterialOptions = {}): THREE.ShaderMate
       uShadowOn: shared.uShadowOn,
       uTime: shared.uTime,
       uWind: shared.uWind,
+      uCrowns: { value: CROWNS },
       uState: { value: opts.state?.texture ?? empty() },
       uStateWidth: { value: opts.state?.width ?? 1 },
       uShadeBias: { value: opts.shadeBias ?? 0 },

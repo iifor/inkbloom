@@ -147,7 +147,9 @@ export function createWeather(land: WeatherLand): WeatherAt {
     wetness *= 1 - cover;
 
     const s = season(cal.yearPhase);
-    const gust = 1 + W.gust * drift(clock / 40, 7.3);
+    // some days are blustery whether or not it rains: the prevailing wind blows up for a while
+    const windy = 1 + W.windyDays * smoothstep(0.25, 0.75, drift(clock / TUNING.day.length / 1.5, 3.1));
+    const gust = windy * (1 + W.gust * drift(clock / 40, 7.3));
     const len = Math.hypot(s.wx, s.wz) || 1;
     const storm = W.stormWind * precip;
     const wind: [number, number] = [s.wx * gust + (s.wx / len) * storm, s.wz * gust + (s.wz / len) * storm];

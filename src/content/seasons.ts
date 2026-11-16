@@ -28,6 +28,8 @@ export interface SeasonDef {
   readonly wet: number;
   /** Prevailing wind, metres per second along +x (east) and +z (south). Clouds drift with it. */
   readonly wind: readonly [number, number];
+  /** Petals or leaves blowing about in the wild (more in wind), and their three colours. */
+  readonly litter: { readonly amount: number; readonly colors: readonly [RGB, RGB, RGB] };
 }
 
 export const SEASONS: readonly SeasonDef[] = [
@@ -40,6 +42,15 @@ export const SEASONS: readonly SeasonDef[] = [
     // spring rain on a south-easterly
     wet: 0.1,
     wind: [-2.8, -2.8],
+    // blossom petals
+    litter: {
+      amount: 0.5,
+      colors: [
+        [0.98, 0.8, 0.86],
+        [0.96, 0.7, 0.78],
+        [1, 0.94, 0.95],
+      ],
+    },
   },
   {
     key: 'summer',
@@ -50,6 +61,14 @@ export const SEASONS: readonly SeasonDef[] = [
     // showers and, when it is hot, thunderstorms; a light southerly
     wet: 0.03,
     wind: [0, -3],
+    litter: {
+      amount: 0,
+      colors: [
+        [0.4, 0.6, 0.3],
+        [0.4, 0.6, 0.3],
+        [0.4, 0.6, 0.3],
+      ],
+    },
   },
   {
     key: 'autumn',
@@ -60,6 +79,15 @@ export const SEASONS: readonly SeasonDef[] = [
     // clear, dry autumn days on a north-westerly
     wet: -0.12,
     wind: [2.8, 2.8],
+    // falling leaves
+    litter: {
+      amount: 1,
+      colors: [
+        [0.93, 0.62, 0.2],
+        [0.95, 0.8, 0.3],
+        [0.8, 0.33, 0.18],
+      ],
+    },
   },
   {
     key: 'winter',
@@ -70,5 +98,13 @@ export const SEASONS: readonly SeasonDef[] = [
     // grey skies and snow on a cold northerly
     wet: 0.05,
     wind: [0, 5],
+    litter: {
+      amount: 0,
+      colors: [
+        [0.5, 0.4, 0.33],
+        [0.5, 0.4, 0.33],
+        [0.5, 0.4, 0.33],
+      ],
+    },
   },
 ];

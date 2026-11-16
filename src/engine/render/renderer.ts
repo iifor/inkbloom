@@ -59,6 +59,8 @@ uniform float uOvercast;
 uniform float uFog;
 uniform float uWet;
 uniform float uFreshSnow;
+uniform vec2 uDrift;
+uniform float uCloudShade;
 uniform float uSkySat;
 uniform float uGloom;
 uniform float uTime;
@@ -155,7 +157,8 @@ vec3 skyPaint(vec3 rd) {
   float star = step(0.9975, hash21(floor(sp))) * smoothstep(0.02, 0.25, e) * uNight;
   // a flatter projection than a true cloud deck, so clouds near the horizon heap up instead of
   // stretching into streaks
-  vec2 cuv = rd.xz / (max(e, 0.0) + 0.3) * 1.0 + vec2(uTime * 0.006, uTime * 0.0025);
+  // clouds sail downwind (uDrift: how far the wind has carried the air, metres)
+  vec2 cuv = rd.xz / (max(e, 0.0) + 0.3) * 1.0 - uDrift * 0.0015;
   // warp the noise into rounded heaps rather than streaks
   cuv += (vec2(fbm2(cuv * 0.6), fbm2(cuv * 0.6 + 3.1)) - 0.5) * 1.3;
   float n = fbm(cuv);
@@ -286,6 +289,12 @@ void main() {
     // leaves and grass go deeper and bluer in shade
     shadowTint = mix(shadowTint, uShade * vec3(0.76, 0.88, 0.8), tex * 0.6);
     vec3 light = mix(shadowTint, uSunColor, lit);
+    // on a broken-cloud day the clouds' shadows sail across the land with the wind
+    if (uCloudShade > 0.0) {
+      float cs = fbm2((wpos.xz - uDrift) * 0.006 + 11.0);
+      float cthr = mix(0.6, 0.36, uCloud);
+      light = mix(light, shadowTint, smoothstep(cthr, cthr + 0.06, cs) * uCloudShade * 0.7);
+    }
 
     // soft contact shadow where surfaces meet (a few depth taps around the pixel)
     float rpx = clamp(14.0 / max(d, 0.5), 1.5, 26.0) * uRes.y / 900.0;
@@ -359,6 +368,7 @@ const _up = new THREE.Vector3();
 const _centre = new THREE.Vector3();
 const _fwd = new THREE.Vector3();
 const _grey = new THREE.Vector3();
+const _avg = new THREE.Vector3();
 /** What a lightning flash adds to the light: a cold white-violet. */
 const _flash = new THREE.Vector3(0.7, 0.72, 0.9);
 
@@ -550,8 +560,26 @@ export class InkRenderer {
     seaTemp: 25,
     /** The weather where the player is, eased (see AtmosphereSystem): cloud cover, rain and
      * snow falling, mist, wet ground and fresh snow (0..1), wind (m/s) and a lightning flash. */
-    weather: { cloud: 0, rain: 0, snowfall: 0, fog: 0, wet: 0, freshSnow: 0, windX: 0, windZ: 0, flash: 0 },
+    weather: {
+      cloud: 0,
+      rain: 0,
+      snowfall: 0,
+      fog: 0,
+      wet: 0,
+      freshSnow: 0,
+      windX: 0,
+      windZ: 0,
+      flash: 0,
+      /** Petals or leaves blowing about, and which season's colours they are. */
+      litter: 0,
+      litterSeason: 0,
+    },
   };
+  /** How far the wind has carried the air since the game started, metres (drifts the clouds). */
+  private readonly drift = new THREE.Vector2();
+  private lastFrame = performance.now();
+  /** How strongly broken cloud shades the ground, 0..1 (from `applyWeather`). */
+  private cloudShade = 0;
   /** Rain, snow and lightning over the painted frame. */
   private readonly precipitation: Precipitation;
   /** Sun, sky and shade for the current hour; its vectors are the post pass's uniforms. */
@@ -663,6 +691,8 @@ export class InkRenderer {
         uFog: { value: 0 },
         uWet: { value: 0 },
         uFreshSnow: { value: 0 },
+        uDrift: { value: this.drift },
+        uCloudShade: { value: 0 },
         uSkySat: { value: 1 },
         uGloom: { value: 0 },
         uTime: { value: 0 },
@@ -800,7 +830,14 @@ export class InkRenderer {
       v.lerp(_grey.set(l, l, l * 1.04), amount).multiplyScalar(dim);
     };
     d.sun.multiplyScalar(1 - 0.5 * w.cloud - 0.15 * falling);
-    d.shade.lerp(d.sun, 0.35 * w.cloud);
+    // under an unbroken deck light comes from the whole sky: sun and shade meet, shadows go
+    const flat = THREE.MathUtils.smoothstep(w.cloud, 0.55, 1) * 0.85;
+    _avg.copy(d.sun).add(d.shade).multiplyScalar(0.5);
+    d.sun.lerp(_avg, flat);
+    d.shade.lerp(_avg, flat);
+    // broken cloud instead throws moving shadows on the ground (post pass)
+    this.cloudShade =
+      THREE.MathUtils.smoothstep(w.cloud, 0.05, 0.3) * (1 - flat / 0.85) * (1 - this.day.night);
     grey(d.sun, 0.4 * w.cloud, 1);
     grey(d.shade, 0.3 * w.cloud, 1);
     grey(d.zenith, 0.55 * w.cloud + 0.2 * falling, 1 - 0.25 * falling);
@@ -845,8 +882,14 @@ export class InkRenderer {
     u.uFog!.value = w.fog;
     u.uWet!.value = w.wet;
     u.uFreshSnow!.value = w.freshSnow;
-    // grass sways with the weather's wind
+    // grass sways with the weather's wind, and it carries the clouds and their shadows along
     shared.uWind.value.set(w.windX, w.windZ);
+    const now = performance.now();
+    const dt = Math.min(0.1, (now - this.lastFrame) / 1000);
+    this.lastFrame = now;
+    this.drift.x += w.windX * dt;
+    this.drift.y += w.windZ * dt;
+    u.uCloudShade!.value = this.cloudShade;
     u.uNight!.value = this.day.night;
     u.uTime!.value = performance.now() / 1000;
     shared.uTime.value = u.uTime!.value;
