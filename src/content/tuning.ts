@@ -165,6 +165,8 @@ export const TUNING = {
     /** Held when the block keeps at least this share of colour. design: 50% */
     holdRatio: 0.5,
     reward: { generic: 12, ink: 10 },
+    /** Metres the curtain falls back for each monster of the wave that is defeated. */
+    monsterKnockBack: 6,
   },
   economy: {
     /** Ink from one city ink stain. Tuned so a city's own stains plus starting pigment cover
@@ -183,6 +185,13 @@ export const TUNING = {
     studioStockCap: 12,
     /** Seconds of play before a harvested wilderness source grows back. design: 10 min */
     regrowSeconds: 600,
+  },
+  /** Colour set free without pigment: a defeated stronghold monster gives back what it stole
+   * around its post, a granted wish brightens the resident's street. Nearest drained surfaces
+   * within `radius` metres, at most `max` of them. */
+  release: {
+    monster: { radius: 14, max: 10 },
+    request: { radius: 18, max: 24 },
   },
   save: {
     debounceMs: 1500,

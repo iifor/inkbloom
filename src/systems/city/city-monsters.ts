@@ -53,7 +53,10 @@ export class CityMonsters {
     const m = this.layout.monsters[i]!;
     if (!this.ctx.apply({ kind: 'defeat', city: this.layout.id, monster: i }).ok) return;
     const def = ENEMIES[m.type]!;
-    this.ctx.events.emit('toast', { text: `打败了${def.name}　墨 +${def.ink}`, seconds: 1.5 });
+    this.ctx.events.emit('toast', {
+      text: `打败了${def.name}　墨 +${def.ink}，它抢走的颜色回来了`,
+      seconds: 2,
+    });
     if (standingMonsters(this.layout, this.defeated, m.chunk).length === 0)
       this.ctx.events.emit('toast', { text: '这个街区的墨怪都赶走了，可以上色了！', seconds: 4 });
   }
@@ -64,7 +67,7 @@ export class CityMonsters {
   }
 
   /** Monsters that come in with a tide, on road cells near the edge it enters through. */
-  spawnTide(chunk: number, from: number): void {
+  spawnTide(chunk: number, from: number, onDefeat: () => void): void {
     const { n, cell, roads } = this.layout;
     const bounds = blockBounds(chunk, this.layout);
     const spots: THREE.Vector3[] = [];
@@ -84,6 +87,7 @@ export class CityMonsters {
       // tide monsters come for this block's colour, and already wear it
       this.group.spawn(enemyIndex(Math.random() < TUNING.combat.spitterChance ? 'spitter' : 'blot'), spot, {
         tag: 'tide',
+        onDefeat,
         colors: this.colorsOf(chunk),
       });
     }

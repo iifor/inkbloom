@@ -66,7 +66,7 @@ export class Menu {
     switch (this.screen) {
       case 'main':
         body = `<h1>重彩</h1><p>世界本来是彩色的。墨潮抽走了颜色。</p>
-          <button data-a="play">开始：${esc(summary)}</button>
+          <button class="primary" data-a="play">开始：${esc(summary)}</button>
           <button data-a="new">新世界</button>
           <button data-a="worlds">世界列表</button>
           <button data-a="settings">设置</button>
@@ -74,7 +74,7 @@ export class Menu {
         break;
       case 'pause':
         body = `<h2>暂停</h2><p>${esc(summary)}</p>
-          <button data-a="play">继续游戏</button>
+          <button class="primary" data-a="play">继续游戏</button>
           <button data-a="settings">设置</button>
           <button data-a="controls">操作说明</button>
           <button data-a="report">导出试玩报告</button>

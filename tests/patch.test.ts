@@ -350,9 +350,10 @@ describe('brush upgrades', () => {
 describe('combat rules', () => {
   const GUARDED: CitySkeleton = {
     ...SKEL,
+    // posts out of reach of every surface, so defeating them frees no colour on its own
     monsters: [
-      { type: 0, x: 140, z: 12, chunk: 1 },
-      { type: 1, x: 142, z: 14, chunk: 1 },
+      { type: 0, x: 200, z: 100, chunk: 1 },
+      { type: 1, x: 202, z: 102, chunk: 1 },
     ],
   };
   const g: PatchContext = { ...ctx, cityOf: (id) => (id === 'c' ? GUARDED : null) };

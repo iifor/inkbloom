@@ -8,6 +8,7 @@ import type { GameContext, System } from '@/game/types';
 import { Hud } from '@/shell/hud';
 import { ObjectiveSystem } from '@/shell/objectives';
 import { CharacterPanel } from '@/shell/character-panel';
+import { AtmosphereSystem } from '@/systems/atmosphere/atmosphere';
 import { AudioSystem } from '@/systems/audio/audio-system';
 import { EffectsSystem } from '@/systems/effects/effects';
 import { CombatOverlay } from '@/shell/combat-overlay';
@@ -118,6 +119,7 @@ export function startOpenWorld(opts: {
   const panel = new CharacterPanel(ctx, opts.hudRoot.parentElement ?? opts.hudRoot);
   const audio = new AudioSystem(ctx);
   const effects = new EffectsSystem(ctx);
+  const atmosphere = new AtmosphereSystem(ctx);
   const hud = new Hud(ctx, opts.hudRoot, belt, scenes, objectives);
   // after the HUD, which rewrites its root when built
   const overlay = new CombatOverlay(ctx, opts.hudRoot);
@@ -139,6 +141,7 @@ export function startOpenWorld(opts: {
     hud,
     audio,
     effects,
+    atmosphere,
     overlay,
     playtest,
     save,

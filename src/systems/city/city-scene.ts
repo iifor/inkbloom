@@ -77,22 +77,16 @@ export class CityScene implements GameScene {
 
     this.release.push(
       ctx.events.on('patch:applied', ({ patch }) => {
-        if (patch.kind !== 'restore' && patch.kind !== 'paint' && patch.kind !== 'drain') return;
-        if (patch.city !== layout.id) return;
-        const before = isColored(this.texture.get(patch.surface));
-        const after = isColored(this.states[patch.surface]!);
-        if (before !== after) {
-          const d = after ? 1 : -1;
-          this.colored[layout.surfaces[patch.surface]!.chunk]! += d;
-          this.coloredAll += d;
-        }
-        if (before && !after) {
-          const s = layout.surfaces[patch.surface]!;
-          this.ctx.events.emit('paint:drained', { at: { x: s.x, y: 2, z: s.z } });
-        }
-        this.texture.set(patch.surface, this.states[patch.surface]!);
+        if (!('city' in patch) || patch.city !== layout.id) return;
+        let gained = false;
+        if (patch.kind === 'restore' || patch.kind === 'paint' || patch.kind === 'drain')
+          gained = this.sync(patch.surface, false);
+        else if (patch.kind === 'defeat' || patch.kind === 'request')
+          // a fallen monster or a granted wish frees the colour around it; bloom each surface
+          for (let i = 0; i < this.states.length; i++) gained = this.sync(i, true) || gained;
+        else return;
         this.updateSceneSat();
-        if (after) this.checkComplete();
+        if (gained) this.checkComplete();
       }),
     );
     for (const gate of layout.gates) {
@@ -130,6 +124,24 @@ export class CityScene implements GameScene {
   }
 
   /** Once every block has colour, the city is restored for good. */
+  /** Bring one surface's counts and texture up to its saved state. Returns whether it gained
+   * colour; `bloom` bursts its colour where it stands (for colour freed without the brush). */
+  private sync(i: number, bloom: boolean): boolean {
+    const before = isColored(this.texture.get(i));
+    const after = isColored(this.states[i]!);
+    const s = this.layout.surfaces[i]!;
+    if (before !== after) {
+      const d = after ? 1 : -1;
+      this.colored[s.chunk]! += d;
+      this.coloredAll += d;
+    }
+    if (before && !after) this.ctx.events.emit('paint:drained', { at: { x: s.x, y: 2, z: s.z } });
+    if (bloom && !before && after)
+      this.ctx.events.emit('paint:bloom', { at: { x: s.x, y: 2, z: s.z }, color: s.color });
+    if (this.texture.get(i) !== this.states[i]) this.texture.set(i, this.states[i]!);
+    return !before && after;
+  }
+
   private checkComplete(): void {
     if (this.completed) return;
     if (!this.blocks().every((b) => b === 'colored' || b === 'thriving')) return;
@@ -144,8 +156,8 @@ export class CityScene implements GameScene {
     this.ctx.events.emit('city:completed', { city: this.layout.id, name: this.layout.name });
   }
 
-  spawnTideMonsters(chunk: number, from: number): void {
-    this.monsters.spawnTide(chunk, from);
+  spawnTideMonsters(chunk: number, from: number, onDefeat: () => void): void {
+    this.monsters.spawnTide(chunk, from, onDefeat);
   }
 
   clearTideMonsters(): void {

@@ -17,6 +17,7 @@ function setup(): {
   states: Uint8Array;
   tide: InkTide;
   spawned: number[];
+  knock: (() => void)[];
   cleared: () => number;
 } {
   const layout = generateCity('tide', 11, 2);
@@ -26,6 +27,7 @@ function setup(): {
   layout.surfaces.forEach((s, i) => (states[i] = s.chunk === 0 ? DRAINED : ORIGINAL));
   const per = layout.size / layout.chunks;
   const spawned: number[] = [];
+  const knock: (() => void)[] = [];
   let clears = 0;
   const tide = new InkTide(
     h.ctx,
@@ -33,7 +35,10 @@ function setup(): {
     states,
     {
       blocks: () => blockStates(states, layout.surfaces, layout.chunks),
-      spawnTideMonsters: (chunk) => spawned.push(chunk),
+      spawnTideMonsters: (chunk, _from, onDefeat) => {
+        spawned.push(chunk);
+        knock.push(onDefeat);
+      },
       clearTideMonsters: () => clears++,
       progress: (c) => coloredRatio(states, layout.surfaces, c),
       chunkAt: (p) => {
@@ -47,7 +52,7 @@ function setup(): {
   );
   // stand in block 1 (east of the drained block 0)
   h.place(per * 1.5, 0, per * 0.5);
-  return { h, layout, states, tide, spawned, cleared: () => clears };
+  return { h, layout, states, tide, spawned, knock, cleared: () => clears };
 }
 
 /** Stand a few metres ahead of the moving curtain, facing it. */
@@ -137,6 +142,24 @@ describe('ink tide', () => {
       if (s?.phase === 'active' && s.blocked) blocked = s.blocked;
     });
     expect(blocked).toContain('通用颜料不足');
+  });
+
+  it('defeating the wave’s monsters knocks it back and can repel it without pigment', () => {
+    const { h, tide, knock } = setup();
+    h.ctx.state.inventory.generic = 0;
+    tide.trigger();
+    h.run(T.warning + 20, (dt) => tide.update(dt));
+    const before = tide.status();
+    expect(before?.phase).toBe('active');
+    knock[0]!();
+    const after = tide.status();
+    if (before?.phase === 'active' && after?.phase === 'active')
+      expect(after.front).toBeLessThan(before.front);
+    // enough monsters down and the curtain is back at its edge: held
+    for (let i = 0; i < 20; i++) knock[0]!();
+    h.run(1, (dt) => tide.update(dt));
+    expect(tide.status()).toBeNull();
+    expect(h.log.find((e) => e.type === 'tide:end')?.payload).toEqual({ held: true });
   });
 
   it('resumes a saved wave where it stopped', () => {

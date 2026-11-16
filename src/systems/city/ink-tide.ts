@@ -24,8 +24,9 @@ export const SIDE_NAMES = ['东', '南', '西', '北'] as const;
 
 export interface TideHost {
   blocks(): BlockState[];
-  /** Monsters come in with the wave and dissolve when it ends. */
-  spawnTideMonsters(chunk: number, from: number): void;
+  /** Monsters come in with the wave and dissolve when it ends; each one defeated calls
+   * `onDefeat`, which knocks the wave back. */
+  spawnTideMonsters(chunk: number, from: number, onDefeat: () => void): void;
   clearTideMonsters(): void;
   progress(chunk: number): number;
   chunkAt(pos: THREE.Vector3): number;
@@ -134,7 +135,7 @@ export class InkTide {
     }
     if (now < w.startsAt) return;
     if (!this.curtain.visible) {
-      this.host.spawnTideMonsters(w.chunk, w.from);
+      this.host.spawnTideMonsters(w.chunk, w.from, () => this.knockBack(T.monsterKnockBack));
       this.ctx.events.emit('tide:start', { at: this.blockCentre(w.chunk) });
     }
     this.curtain.visible = true;
@@ -147,6 +148,16 @@ export class InkTide {
     this.record(w, now);
     const repelled = w.front <= 0 && now - w.startsAt > T.repelAfter;
     if (now >= w.endsAt || repelled) this.finish(w, repelled);
+  }
+
+  /** Fighting the wave's monsters drives it back, so a tide can be beaten without pigment. */
+  knockBack(metres: number): void {
+    const w = this.wave;
+    if (!w || this.ctx.state.clock < w.startsAt) return;
+    w.front = Math.max(0, w.front - metres);
+    // checked here, not in update: the next frame would move the front off the edge first
+    if (w.front <= 0 && this.ctx.state.clock - w.startsAt > T.repelAfter) this.finish(w, true);
+    else this.ctx.events.emit('toast', { text: '墨怪倒下，墨帘退了回去', seconds: 2 });
   }
 
   private record(w: Wave, now: number): void {

@@ -8,6 +8,7 @@ import { type CitySkeleton, openRequests, recolorDone, standingMonsters, studioO
 import { REQUEST_RULES } from '@/content/requests';
 import { blockStates } from './city/blocks';
 import { DRAINED, ORIGINAL, coloredRatio, graffiti, surfaceCost, type SurfaceInfo } from './paint/surfaces';
+import { releaseAround } from './paint/release';
 import { type SceneRef, type WorldState, cityStates, sourceReady, wildMonsterBack } from './state';
 import { ENEMIES } from '@/content/enemies';
 import { ATTRIBUTES, MILESTONES, XP, type Attribute } from '@/content/progression';
@@ -119,6 +120,33 @@ function blockMilestones(
   const count = coloredOnce.reduce((a, b) => a + b, 0);
   if ((MILESTONES.cityBlocks as readonly number[]).includes(count))
     milestone(g, `city:${city}:blocks:${count}`, MILESTONES.cityBlocksPoint);
+}
+
+/** Free colour around a spot (a fallen monster's post, a granted wish's door): the nearest
+ * drained surfaces go back to their original colour, with the same experience and block
+ * rewards as restoring them by brush. */
+function release(
+  state: WorldState,
+  city: string,
+  skel: CitySkeleton,
+  states: Uint8Array,
+  coloredOnce: Uint8Array,
+  requestsDone: Uint8Array,
+  x: number,
+  z: number,
+  rule: { readonly radius: number; readonly max: number },
+): void {
+  const freed = releaseAround(skel.surfaces, states, x, z, rule);
+  const chunks = new Set<number>();
+  for (const i of freed) {
+    states[i] = ORIGINAL;
+    state.growth.xp += XP.surface;
+    chunks.add(skel.surfaces[i]!.chunk);
+  }
+  for (const c of chunks) {
+    blockMilestones(state, city, skel.surfaces, states, coloredOnce, c);
+    markThriving(state, city, skel, states, requestsDone, c);
+  }
 }
 
 export function applyPatch(state: WorldState, patch: Patch, ctx: PatchContext): PatchResult {
@@ -280,6 +308,7 @@ function applyRules(state: WorldState, patch: Patch, ctx: PatchContext): PatchRe
       defeated[patch.monster] = 1;
       inv.ink += ENEMIES[m.type]?.ink ?? 0;
       state.growth.xp += XP.monster;
+      release(state, patch.city, skel, states, coloredOnce, requestsDone, m.x, m.z, TUNING.release.monster);
       return OK;
     }
     case 'request': {
@@ -297,6 +326,17 @@ function applyRules(state: WorldState, patch: Patch, ctx: PatchContext): PatchRe
       inv.generic += REQUEST_RULES.reward.generic;
       inv.ink += REQUEST_RULES.reward.ink;
       state.growth.xp += XP.request;
+      release(
+        state,
+        patch.city,
+        skel,
+        states,
+        coloredOnce,
+        requestsDone,
+        r.door.x,
+        r.door.z,
+        TUNING.release.request,
+      );
       markThriving(state, patch.city, skel, states, requestsDone, r.chunk);
       return OK;
     }

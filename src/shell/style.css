@@ -1,3 +1,26 @@
+/* Hand-painted storybook look: warm paper cards with washi tape, wooden sign buttons, brush
+   calligraphy for titles, warm brown ink for text. During an ink tide the HUD keeps its paper
+   cards so it stays readable while the world goes black and white. */
+:root {
+  --paper: #f8f1de;
+  --paper-2: #efe2c2;
+  --paper-a: rgba(248, 241, 222, 0.9);
+  --ink: #3b2f27;
+  --ink-soft: #6b5a4b;
+  --wood: #9a6640;
+  --wood-light: #b98458;
+  --wood-dark: #5f3d26;
+  --leaf: #5f9a52;
+  --leaf-dark: #3f6e37;
+  --sky: #78aedb;
+  --red: #c4483b;
+  --gold: #d29a35;
+  --tape: rgba(214, 160, 120, 0.55);
+  --tape-2: rgba(130, 176, 214, 0.5);
+  --night: #15141c;
+  --title: 'Ma Shan Zheng', 'STKaiti', 'KaiTi', serif;
+  --hand: 'ZCOOL XiaoWei', 'Songti SC', 'STSong', serif;
+}
 * {
   box-sizing: border-box;
 }
@@ -6,8 +29,8 @@ body {
   margin: 0;
   height: 100%;
   overflow: hidden;
-  background: #f6f4e7;
-  color: #2b2d36;
+  background: var(--paper);
+  color: var(--ink);
   font-family: 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', system-ui, sans-serif;
 }
 #app {
@@ -20,64 +43,130 @@ body {
   display: block;
   outline: none;
 }
+
+/* ---- HUD ---- */
 #hud {
   position: absolute;
   inset: 0;
   pointer-events: none;
   font-size: 15px;
-  text-shadow:
-    0 0 3px #f6f4e7,
-    0 0 6px #f6f4e7;
+}
+/* a paper card held on by a strip of washi tape */
+.hud-place,
+.hud-tool,
+.character-panel,
+.menu-body {
+  background: var(--paper-a);
+  border: 2px solid var(--wood);
+  border-radius: 12px;
+  box-shadow:
+    0 2px 0 var(--paper-2) inset,
+    0 6px 18px rgba(59, 47, 39, 0.22);
+}
+.hud-place::before,
+.hud-tool::before,
+.character-panel::before,
+.menu-body::before {
+  content: '';
+  position: absolute;
+  top: -11px;
+  left: 50%;
+  width: 74px;
+  height: 20px;
+  margin-left: -37px;
+  background: var(--tape);
+  transform: rotate(-3deg);
+  border-radius: 2px;
+}
+.hud-tool::before {
+  background: var(--tape-2);
+  transform: rotate(4deg);
 }
 .hud-place {
   position: absolute;
   top: 16px;
-  left: 20px;
+  left: 18px;
+  max-width: min(360px, 27vw);
+  padding: 10px 14px 10px;
   font-size: 18px;
+}
+.hud-place b {
+  font-family: var(--hand);
+  font-size: 22px;
+  font-weight: 400;
+}
+.hud-place span {
+  display: block;
+  font-size: 13px;
+  margin: 2px 0 0;
+  color: var(--ink-soft);
+}
+.hud-res {
+  font-size: 13px;
+  margin-top: 4px;
+  color: var(--ink-soft);
 }
 .hud-goal {
   font-size: 15px;
-  margin-top: 6px;
+  margin-top: 8px;
+  padding-top: 7px;
+  border-top: 1.5px dashed rgba(154, 102, 64, 0.45);
   font-weight: 600;
-  max-width: 46vw;
+  line-height: 1.45;
 }
-.hud-res {
-  font-size: 14px;
-  margin-top: 4px;
+.hud-goal:empty {
+  display: none;
 }
-.hud-place span {
-  font-size: 14px;
-  margin-left: 10px;
-  opacity: 0.8;
-}
+/* the ink tide is announced on a strip of wet ink */
 .hud-tide {
   position: absolute;
-  top: 74px;
-  white-space: nowrap;
+  top: 18px;
   left: 50%;
   transform: translateX(-50%);
-  font-size: 17px;
+  max-width: 40vw;
+  padding: 9px 22px;
+  font-size: 16px;
   font-weight: 600;
-  color: #2b2d36;
+  text-align: center;
+  color: var(--paper);
+  background: var(--night);
+  border-radius: 22px 8px 26px 10px / 12px 22px 10px 24px;
+  box-shadow:
+    0 0 0 3px rgba(21, 20, 28, 0.35),
+    0 8px 22px rgba(0, 0, 0, 0.45);
+  animation: tide-pulse 2.4s ease-in-out infinite;
+}
+.hud-tide:empty {
+  display: none;
+}
+@keyframes tide-pulse {
+  50% {
+    box-shadow:
+      0 0 0 7px rgba(21, 20, 28, 0.18),
+      0 8px 22px rgba(0, 0, 0, 0.45);
+  }
 }
 .hud-cross {
   position: absolute;
   left: 50%;
   top: 50%;
-  width: 8px;
-  height: 8px;
-  margin: -4px 0 0 -4px;
-  border: 2px solid #2b2d36;
+  width: 10px;
+  height: 10px;
+  margin: -5px 0 0 -5px;
+  border: 2px solid var(--paper);
   border-radius: 50%;
-  opacity: 0.7;
+  box-shadow:
+    0 0 0 1.5px var(--ink),
+    inset 0 0 0 1px var(--ink);
+  opacity: 0.85;
 }
 .hud-cross.hit {
-  border-color: #c9302c;
+  border-color: var(--red);
   transform: scale(1.4);
   opacity: 1;
 }
 .hud-cross.kill {
-  border-color: #c9302c;
+  border-color: var(--red);
   border-width: 3px;
   transform: scale(2);
   opacity: 1;
@@ -86,54 +175,60 @@ body {
   position: absolute;
   left: 50%;
   bottom: 22px;
-  width: 260px;
-  height: 10px;
-  margin-left: -130px;
-  border: 2px solid #2b2d36;
-  border-radius: 5px;
-  background: rgba(246, 244, 231, 0.7);
+  width: 280px;
+  height: 16px;
+  margin-left: -140px;
+  padding: 2px;
+  border: 2px solid var(--wood-dark);
+  border-radius: 10px;
+  background: linear-gradient(var(--wood-light), var(--wood));
+  box-shadow: 0 4px 10px rgba(59, 47, 39, 0.3);
 }
 .hud-hp i {
   display: block;
   height: 100%;
   width: 100%;
-  background: #2b2d36;
+  border-radius: 6px;
+  background: linear-gradient(#8cc275, var(--leaf));
+  box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.35);
   transition: width 0.15s;
 }
 .hud-hp.low i {
-  background: #c9302c;
+  background: linear-gradient(#e0786b, var(--red));
 }
 .hud-hurt {
   position: absolute;
   inset: 0;
   pointer-events: none;
-  box-shadow: inset 0 0 120px 30px rgba(201, 48, 44, 0);
+  box-shadow: inset 0 0 120px 30px rgba(196, 72, 59, 0);
   transition: box-shadow 0.25s;
 }
 .hud-hurt.on {
-  box-shadow: inset 0 0 120px 30px rgba(201, 48, 44, 0.55);
+  box-shadow: inset 0 0 120px 30px rgba(196, 72, 59, 0.5);
   transition: none;
 }
 .hud-hurt.dead {
-  background: rgba(43, 45, 54, 0.55);
+  background: rgba(21, 20, 28, 0.6);
   transition: background 0.6s;
 }
 .hud-bar {
   position: absolute;
   left: 50%;
-  top: calc(50% + 22px);
-  width: 90px;
-  height: 6px;
-  margin-left: -45px;
-  border: 1.5px solid #2b2d36;
-  border-radius: 3px;
+  top: calc(50% + 24px);
+  width: 96px;
+  height: 8px;
+  margin-left: -48px;
+  border: 1.5px solid var(--wood-dark);
+  border-radius: 5px;
+  background: var(--paper-a);
   visibility: hidden;
 }
 .hud-bar i {
   display: block;
   height: 100%;
   width: 0;
-  background: #2b2d36;
+  border-radius: 3px;
+  background: var(--gold);
 }
 .hud-prompt {
   position: absolute;
@@ -142,63 +237,100 @@ body {
   left: 50%;
   top: 60%;
   transform: translateX(-50%);
-  font-size: 18px;
+  padding: 7px 18px;
+  font-size: 17px;
+  background: var(--paper-a);
+  border: 2px solid var(--wood);
+  border-radius: 18px;
+  box-shadow: 0 4px 12px rgba(59, 47, 39, 0.25);
+}
+.hud-prompt:empty {
+  display: none;
 }
 .hud-tool {
   position: absolute;
-  left: 20px;
+  left: 18px;
   bottom: 18px;
+  max-width: min(420px, 36vw);
+  padding: 10px 14px;
   white-space: pre-line;
   line-height: 1.6;
+  font-size: 14px;
 }
 .hud-slots {
-  font-weight: 600;
+  font-family: var(--hand);
+  font-size: 17px;
   white-space: pre;
+  color: var(--wood-dark);
 }
 .hud-swatch {
   display: none;
-  width: 18px;
-  height: 18px;
-  border: 2px solid #2b2d36;
-  border-radius: 50%;
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--ink);
+  border-radius: 50% 45% 55% 48%;
   vertical-align: middle;
   margin: 4px 0;
+  box-shadow: 0 2px 0 rgba(59, 47, 39, 0.3);
 }
 .hud-toasts {
   position: absolute;
-  top: 18%;
+  top: 17%;
   left: 50%;
   transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
   text-align: center;
-  font-size: 17px;
-  line-height: 1.8;
+  font-size: 16px;
 }
+.hud-toasts > div {
+  padding: 6px 16px;
+  background: var(--paper-a);
+  border: 1.5px solid var(--wood);
+  border-radius: 14px 16px 12px 18px;
+  box-shadow: 0 4px 12px rgba(59, 47, 39, 0.2);
+  animation: toast-in 0.25s ease-out;
+}
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.97);
+  }
+}
+
+/* ---- character panel ---- */
 .character-panel {
   position: absolute;
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
   min-width: 420px;
-  padding: 18px 24px;
-  background: rgba(246, 244, 231, 0.95);
-  border: 2px solid #2b2d36;
-  border-radius: 8px;
+  padding: 22px 28px 18px;
   pointer-events: none;
 }
 .character-panel h2 {
   margin: 0 0 8px;
+  font-family: var(--title);
+  font-weight: 400;
+  font-size: 32px;
+  color: var(--wood-dark);
 }
 .character-panel table {
   border-collapse: collapse;
   margin: 8px 0;
 }
 .character-panel td {
-  padding: 3px 10px 3px 0;
+  padding: 4px 12px 4px 0;
+  border-bottom: 1px dashed rgba(154, 102, 64, 0.35);
 }
 .character-panel .muted {
-  opacity: 0.65;
+  color: var(--ink-soft);
   font-size: 13px;
 }
+
+/* ---- combat feedback (floats over the world, so it keeps a paper halo) ---- */
 .combat-overlay {
   position: absolute;
   inset: 0;
@@ -211,21 +343,23 @@ body {
   position: absolute;
   left: 0;
   top: 0;
-  font-size: 20px;
+  font-family: var(--hand);
+  font-size: 22px;
   font-weight: 700;
-  color: #2b2d36;
+  color: var(--ink);
   white-space: nowrap;
   text-shadow:
-    0 0 3px #f6f4e7,
-    0 0 6px #f6f4e7;
+    0 0 3px var(--paper),
+    0 0 6px var(--paper),
+    0 0 9px var(--paper);
 }
 .combat-overlay .dmg.big {
-  font-size: 28px;
-  color: #b8860b;
+  font-size: 30px;
+  color: var(--gold);
 }
 .combat-overlay .dmg.kill {
-  font-size: 30px;
-  color: #c9302c;
+  font-size: 32px;
+  color: var(--red);
 }
 .combat-overlay .mbar {
   /* hidden until the first frame places it */
@@ -233,37 +367,39 @@ body {
   position: absolute;
   left: 0;
   top: 0;
-  width: 54px;
-  height: 7px;
-  border: 1.5px solid #2b2d36;
-  border-radius: 3px;
-  background: rgba(246, 244, 231, 0.85);
+  width: 56px;
+  height: 8px;
+  border: 1.5px solid var(--wood-dark);
+  border-radius: 5px;
+  background: var(--paper-a);
 }
 .combat-overlay .mbar i {
   display: block;
   height: 100%;
-  background: #2b2d36;
+  border-radius: 3px;
+  background: var(--ink);
 }
 .combat-overlay .mbar.low i {
-  background: #c9302c;
+  background: var(--red);
 }
 .combat-overlay .selfdmg {
   position: absolute;
-  bottom: 44px;
+  bottom: 48px;
   transform: translateX(-50%);
-  font-size: 22px;
+  font-family: var(--hand);
+  font-size: 24px;
   font-weight: 700;
   animation: selfdmg 0.9s ease-out forwards;
   text-shadow:
-    0 0 3px #f6f4e7,
-    0 0 6px #f6f4e7;
+    0 0 3px var(--paper),
+    0 0 6px var(--paper);
 }
 .combat-overlay .selfdmg.hurt {
-  color: #c9302c;
+  color: var(--red);
 }
 .combat-overlay .selfdmg.shield {
-  color: #1f8a8a;
-  font-size: 18px;
+  color: #2f8a86;
+  font-size: 19px;
 }
 @keyframes selfdmg {
   from {
@@ -285,7 +421,7 @@ body {
   height: 0;
   border-left: 16px solid transparent;
   border-right: 16px solid transparent;
-  border-bottom: 30px solid rgba(201, 48, 44, 0.85);
+  border-bottom: 30px solid rgba(196, 72, 59, 0.85);
 }
 .debug-panel {
   position: absolute;
@@ -297,10 +433,13 @@ body {
     12px/1.5 ui-monospace,
     Menlo,
     monospace;
-  background: rgba(246, 244, 231, 0.85);
-  border: 1px solid #c9c6b6;
+  background: var(--paper-a);
+  border: 1px solid var(--paper-2);
+  border-radius: 6px;
   pointer-events: none;
 }
+
+/* ---- menus: a storybook page over a soft sky ---- */
 #overlay {
   position: absolute;
   inset: 0;
@@ -309,49 +448,123 @@ body {
   align-items: center;
   justify-content: center;
   gap: 6px;
-  background: rgba(246, 244, 231, 0.78);
+  padding: 16px;
+  overflow-y: auto;
+  background:
+    radial-gradient(ellipse at 50% 120%, rgba(95, 154, 82, 0.35), transparent 60%),
+    linear-gradient(rgba(120, 174, 219, 0.55), rgba(248, 241, 222, 0.7) 70%);
   text-align: center;
 }
 .menu-body {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 8px;
-  min-width: 360px;
+  width: min(440px, 100%);
+  padding: 28px 28px 24px;
 }
 .menu-body button {
-  min-width: 320px;
+  width: 100%;
+}
+.menu-body p {
+  margin: 0 0 8px;
+  color: var(--ink-soft);
+  font-family: var(--hand);
+  font-size: 17px;
 }
 .menu-body label {
   display: flex;
   gap: 12px;
   align-items: center;
+  justify-content: space-between;
+  width: 100%;
   font-size: 16px;
 }
+.menu-body input[type='range'] {
+  flex: 1;
+  accent-color: var(--leaf);
+}
+.menu-body select {
+  font: inherit;
+  padding: 4px 8px;
+  border: 1.5px solid var(--wood);
+  border-radius: 8px;
+  background: var(--paper);
+  color: var(--ink);
+}
 .menu-body table.controls td {
-  padding: 3px 12px;
+  padding: 4px 12px;
   text-align: left;
+  border-bottom: 1px dashed rgba(154, 102, 64, 0.3);
+}
+.menu-body table.controls td:first-child {
+  font-weight: 600;
+  white-space: nowrap;
+  color: var(--wood-dark);
 }
 .menu-body h2 {
   margin: 0 0 6px;
+  font-family: var(--title);
+  font-weight: 400;
+  font-size: 38px;
+  color: var(--wood-dark);
 }
 #overlay[hidden] {
   display: none;
 }
 #overlay h1 {
-  font-size: 56px;
-  margin: 0 0 4px;
-  letter-spacing: 0.2em;
+  margin: 0;
+  font-family: var(--title);
+  font-weight: 400;
+  font-size: 88px;
+  line-height: 1.1;
+  letter-spacing: 0.12em;
+  color: var(--ink);
+  text-shadow: 3px 3px 0 rgba(196, 72, 59, 0.25);
 }
+/* wooden signboard buttons */
 #overlay button {
   margin: 2px 0;
   font: inherit;
-  font-size: 20px;
-  padding: 10px 34px;
-  border: 2px solid #2b2d36;
-  border-radius: 6px;
-  background: #fffdf2;
+  font-size: 18px;
+  padding: 10px 24px;
+  color: var(--paper);
+  border: 2px solid var(--wood-dark);
+  border-radius: 12px;
+  background: linear-gradient(var(--wood-light), var(--wood));
+  box-shadow:
+    inset 0 2px 0 rgba(255, 255, 255, 0.25),
+    0 4px 0 var(--wood-dark);
+  text-shadow: 0 1px 0 rgba(59, 47, 39, 0.5);
   cursor: pointer;
+  transition:
+    transform 0.08s,
+    box-shadow 0.08s,
+    filter 0.15s;
+}
+#overlay button:hover {
+  filter: brightness(1.08);
+  transform: translateY(-1px);
+}
+#overlay button:active {
+  transform: translateY(3px);
+  box-shadow:
+    inset 0 2px 0 rgba(255, 255, 255, 0.2),
+    0 1px 0 var(--wood-dark);
+}
+#overlay button.primary {
+  font-size: 20px;
+  background: linear-gradient(#7fb46c, var(--leaf));
+  border-color: var(--leaf-dark);
+  box-shadow:
+    inset 0 2px 0 rgba(255, 255, 255, 0.3),
+    0 4px 0 var(--leaf-dark);
+}
+#overlay button small {
+  display: block;
+  font-size: 12px;
+  opacity: 0.75;
 }
 #overlay .keys {
   font-size: 14px;
@@ -359,7 +572,24 @@ body {
   line-height: 1.8;
 }
 #overlay-error {
-  color: #b3262f;
+  color: var(--red);
   max-width: 640px;
   white-space: pre-wrap;
+}
+#overlay-error:empty {
+  display: none;
+}
+@media (max-width: 720px) {
+  .hud-place,
+  .hud-tool {
+    max-width: calc(100vw - 32px);
+  }
+  .hud-tide {
+    top: auto;
+    bottom: 56px;
+    max-width: calc(100vw - 32px);
+  }
+  #overlay h1 {
+    font-size: 64px;
+  }
 }
