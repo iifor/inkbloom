@@ -75,3 +75,7 @@ export const RULES: readonly { biome: BiomeKey; when: (s: ClimateSample) => bool
   { biome: 'forest', when: (s) => s.moisture > 0.15 },
   { biome: 'grassland', when: () => true },
 ];
+
+export function climateBiome(s: ClimateSample): BiomeKey {
+  return RULES.find((rule) => rule.when(s))!.biome;
+}

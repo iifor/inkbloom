@@ -51,6 +51,9 @@ export const PALETTE = [
   { key: 'skinLight', name: '浅肤', rgb: [0.96, 0.82, 0.71], paintable: false, texture: 0.1 },
   { key: 'skinWarm', name: '暖肤', rgb: [0.87, 0.67, 0.51], paintable: false, texture: 0.1 },
   { key: 'skinDeep', name: '深肤', rgb: [0.55, 0.36, 0.27], paintable: false, texture: 0.1 },
+  { key: 'clayTile', name: '陶瓦', rgb: [0.68, 0.36, 0.26], paintable: false, texture: 0.38 },
+  { key: 'slateTile', name: '青瓦', rgb: [0.32, 0.43, 0.45], paintable: false, texture: 0.35 },
+  { key: 'limewash', name: '灰泥', rgb: [0.9, 0.82, 0.66], paintable: false, texture: 0.26 },
 ] as const satisfies readonly ColorDef[];
 
 export type ColorKey = (typeof PALETTE)[number]['key'];

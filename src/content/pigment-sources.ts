@@ -4,7 +4,7 @@
 import type { BiomeKey } from './biomes';
 import { color } from './palette';
 
-export type Placement = 'land' | 'shore' | 'high';
+export type Placement = 'land' | 'shore' | 'high' | 'shallows';
 
 export interface PigmentSourceDef {
   readonly key: string;
@@ -63,6 +63,17 @@ export const PIGMENT_SOURCES = [
     amount: 3,
     ink: 2,
     perChunk: 0.6,
+    base: color('sand'),
+  },
+  {
+    key: 'shells',
+    name: '扇贝滩',
+    biomes: ['grassland', 'forest', 'water'],
+    placement: 'shallows',
+    colors: [color('cream')],
+    amount: 2,
+    ink: 1,
+    perChunk: 0.38,
     base: color('sand'),
   },
 ] as const satisfies readonly PigmentSourceDef[];

@@ -1,7 +1,7 @@
 // Ruins in loaded chunks: stones in the chunk mesh and colliders, plus a tall crayon in the
 // colour the ruin holds, standing until the player walks up to it (a `discover` patch).
 import * as THREE from 'three';
-import { PALETTE } from '@/content/palette';
+import { color, PALETTE } from '@/content/palette';
 import { RUINS } from '@/content/templates';
 import { TUNING } from '@/content/tuning';
 import type { PhysicsWorld } from '@/engine/physics/world';
@@ -9,6 +9,7 @@ import { ALWAYS_COLOR, GeometryBuilder } from '@/engine/render/geometry-builder'
 import type { GameContext } from '@/game/types';
 import { Rng } from '@/world/math/rng';
 import type { Ruin } from '@/world/wilderness/ruins';
+import { buildCountryHouse } from '../city/country-house';
 
 const solid = (c: number) => ({ px: c, nx: c, pz: c, nz: c, py: c });
 
@@ -35,11 +36,43 @@ export function buildRuin(r: Ruin, g: GeometryBuilder, physics: PhysicsWorld, gr
       stone(Math.cos(a) * 9, Math.sin(a) * 9, 1.4, 1.4, rng.range(2.5, 4.5));
     }
   } else if (tpl.shape === 'bridge') {
-    // two piers and a deck that stops short in the middle
-    stone(-7, 0, 2.5, 4, 4);
-    stone(7, 0, 2.5, 4, 4);
-    stone(-4.5, 0, 6, 3.6, 4.6);
-    stone(5.5, 0, 4, 3.6, 4.6);
+    // The two old abutments now carry a bridge keeper's cottage and storehouse.
+    // Their foundations follow the hillside; the crayon stands in the open lane.
+    for (const barn of [false, true]) {
+      const x = r.x + (barn ? 7.1 : -6.6),
+        z = r.z + (barn ? -1.1 : 0.7);
+      const halfX = barn ? 3.4 : 3.1,
+        halfZ = barn ? 2.55 : 2.9;
+      const x0 = x - halfX,
+        x1 = x + halfX,
+        z0 = z - halfZ,
+        z1 = z + halfZ;
+      const floor = (a: number, b: number) => physics.ground?.(a, b) ?? r.y;
+      const samples = [floor(x0, z0), floor(x0, z1), floor(x1, z0), floor(x1, z1), floor(x, z)];
+      const base = Math.max(...samples) + 0.08;
+      const foot = { x: x0, y: Math.min(...samples) - 0.35, z: z0 },
+        top = { x: x1, y: base, z: z1 };
+      g.box(foot, top, solid(color('rock')));
+      physics.addBox(group, foot, top);
+      buildCountryHouse(
+        g,
+        {
+          x0,
+          x1,
+          z0,
+          z1,
+          base,
+          height: barn ? 3.3 : 3.05,
+          front: barn ? 'nx' : 'pz',
+          doorAt: barn ? z : x,
+          style: barn ? 'barn' : 'cottage',
+          plaster: color(barn ? 'sand' : 'limewash'),
+          tile: color(barn ? 'slateTile' : 'clayTile'),
+          doorColor: color(barn ? 'brown' : 'teal'),
+        },
+        (min, max) => physics.addBox(group, min, max),
+      );
+    }
   } else {
     for (let i = 0; i < 7; i++) stone(rng.range(-9, 9), rng.range(-9, 9), 0.7, 1.6, rng.range(1.8, 3.2));
   }

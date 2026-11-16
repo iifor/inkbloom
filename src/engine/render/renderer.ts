@@ -10,12 +10,16 @@ import * as THREE from 'three';
 import { FXAAShader } from 'three/examples/jsm/shaders/FXAAShader.js';
 import { type ColorDef, MAX_COLORS, PALETTE, color } from '@/content/palette';
 import { SEASONS } from '@/content/seasons';
+import { BANK_HEIGHT, WATER_LEVEL } from '@/world/wilderness/generator';
 import { TUNING } from '@/content/tuning';
 import { type Daylight, daylightAt } from './daylight';
 import { ResolutionGovernor } from './resolution';
 import { Precipitation } from './precipitation';
+import { makeCanopyBrush } from './canopy-brush';
 import { disposeTree } from '../resources';
-import { NO_SHADOW_LAYER, shared } from './ink-material';
+import { NO_SHADOW_LAYER, shared, wildernessDrainGLSL } from './ink-material';
+
+const WAKE_COUNT = 18;
 
 const postVert = /* glsl */ `
 varying vec2 vUv;
@@ -43,9 +47,14 @@ uniform vec3 uHorizon;
 uniform float uNight;
 uniform int uGlass;
 uniform int uWater;
+uniform bool uWildWater;
+uniform vec4 uWakes[${WAKE_COUNT}];
 uniform int uGrass;
+uniform int uSand;
 uniform int uRock;
 uniform int uSnow;
+uniform int uCedar;
+uniform sampler2D uCanopyBrush;
 uniform float uSeasonKind[${MAX_COLORS}];
 uniform vec4 uMeadow[4];
 uniform vec4 uLeaf[4];
@@ -64,6 +73,7 @@ uniform float uCloudShade;
 uniform float uSkySat;
 uniform float uGloom;
 uniform float uTime;
+${wildernessDrainGLSL}
 
 float hash21(vec2 p) { p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }
 float vnoise(vec2 p) {
@@ -203,6 +213,31 @@ vec4 farRanges(vec3 rd) {
   return vec4(c, max(m1, m2));
 }
 
+vec3 wakeLight(vec2 surface, float surfaceDist) {
+  float rings = 0.0;
+  float troughs = 0.0;
+  for (int i=0; i<${WAKE_COUNT}; i++) {
+    vec4 wake = uWakes[i];
+    float age = uTime - wake.z;
+    if (wake.w <= 0.0 || age < 0.0 || age > 2.4) continue;
+    vec2 delta = surface - wake.xy - vec2(.04,.12) * age;
+    delta.x *= 1.08;
+    float radius = age * mix(1.15, 1.95, wake.w);
+    if (dot(delta,delta) > (radius+.5)*(radius+.5)) continue;
+    float distort = sin(3.4*delta.x+1.5*delta.y) * cos(2.6*delta.y+float(i));
+    float crest = length(delta) - radius + .067 * distort;
+    float width = .06 + .047*age + min(.19, surfaceDist * .002);
+    vec2 band = vec2(crest,crest+.32)/width;
+    float ring = exp(-band.x*band.x) + .45 * exp(-band.y*band.y);
+    float fade = wake.w * smoothstep(.0,.14,age) * (1.0-smoothstep(.22,2.4,age));
+    float fragments = mix(.32,1.0,smoothstep(-.65,.55,distort));
+    rings += fade * ring * fragments;
+    float lee = (crest-.13)/width;
+    troughs += fade * exp(-lee*lee) * fragments;
+  }
+  return vec3(.45,.58,.5) * min(1.0,rings) - vec3(.12,.16,.15) * min(1.0,troughs);
+}
+
 void main() {
   vec2 px = 1.0 / uRes;
   vec4 s = texture2D(tScene, vUv);
@@ -215,6 +250,7 @@ void main() {
   vec3 rd = normalize(mat3(uInvView) * normalize(vpos));
   float skySat = uSkySat * (1.0 - uGloom);
   vec3 col;
+  float paintAlpha = 1.0;
   if (sky) {
     vec3 painted = skyPaint(rd);
     vec4 ranges = farRanges(rd);
@@ -223,31 +259,84 @@ void main() {
     col = mix(drainedOf(painted), painted, skySat);
   } else {
     vec3 wpos = (uInvView * vec4(vpos, 1.0)).xyz;
+    bool fish = s.b < -1.5;
+    vec3 fishPaint = vec3(-2.0 - s.b, s.g, s.a);
+    if (fish) {
+      s.g = ${color('teal')}.9;
+      paintAlpha = 0.90;
+    }
     vec3 nView = vec3(s.ba, sqrt(max(0.0, 1.0 - dot(s.ba, s.ba))));
-    vec3 wn = normalize(mat3(uInvView) * nView);
-    float sat = satOf(s.g);
-    float tex = textureOf(s.g);
-    vec3 base = seasonal(paletteColor(s.g), seasonKindOf(s.g), wpos.xz);
+    bool grassBlade = s.b > 1.5;
+    vec3 wn = (grassBlade || fish) ? vec3(0.0, 1.0, 0.0) : normalize(mat3(uInvView) * nView);
+    if (grassBlade) paintAlpha = 0.75 * s.a;
+    bool ground = s.g < 0.0;
+    bool petal = s.g >= ${MAX_COLORS}.0;
+    // A drained index lies exactly on an integer. Interpolation followed by
+    // half-float storage can round it down one ULP, into the previous pigment.
+    // Ordinary saturation occupies only the lower 0.90 of each palette slot.
+    if (!ground && !petal && fract(s.g) > 0.96) s.g = ceil(s.g);
+    bool meadowPetal = s.g >= ${2 * MAX_COLORS}.0;
+    float petalWash = fract(s.g);
+    if (petal) s.g = floor(s.g) - (meadowPetal ? ${2 * MAX_COLORS}.0 : ${MAX_COLORS}.0) + 0.9;
+    float meadow = clamp(-1.0 - s.g, 0.0, 1.0);
+    float sat = (ground || meadowPetal) ? derivedSat(wpos) * uSceneSat : satOf(s.g);
+    if (ground) s.g = float(uGrass);
+    float tex = fish ? 0.0 : textureOf(s.g);
+    float seasonKind = seasonKindOf(s.g);
+    vec3 base = seasonal(paletteColor(s.g), seasonKind, wpos.xz);
+    // Overlapping rows of hand-laid tiles. Fade the joints when several tiles
+    // cover one pixel so distant roofs read as a single wash without shimmer.
+    int pigment = indexOf(s.g);
+    if (!petal && (pigment == ${color('clayTile')} || pigment == ${color('slateTile')}) && wn.y > 0.15) {
+      float across = abs(wn.x) > abs(wn.z) ? wpos.z : wpos.x;
+      vec2 tile = vec2(across * 1.6, wpos.y * 3.4);
+      vec2 footprint = fwidth(tile);
+      float fade = 1.0 - smoothstep(0.18, 0.65, max(footprint.x, footprint.y));
+      tile.y += 0.055 * sin(across * 1.7);
+      tile.x += 0.5 * mod(floor(tile.y), 2.0);
+      vec2 f = fract(tile);
+      vec2 joints = 1.0 - smoothstep(vec2(0.02), vec2(0.06) + footprint, min(f, 1.0-f));
+      float wash = hash21(floor(tile)) - 0.5;
+      base *= 1.0 + fade * (0.11 * wash + 0.06 * sin(6.283 * f.x) - 0.21 * joints.y - 0.10 * joints.x);
+    }
+    bool cedar = indexOf(s.g) == uCedar;
+    bool crown = cedar || seasonKind > 1.5;
 
     // brush texture, anchored to the world (held tools ride with the camera: keep them clean)
     vec3 an = abs(wn);
     vec2 bp = an.y > max(an.x, an.z) ? wpos.xz : (an.x > an.z ? wpos.zy : wpos.xy);
-    float near = smoothstep(1.5, 3.0, d);
+    // A continuous oblique projection keeps brush marks intact across rounded boughs.
+    if (crown) bp = vec2(wpos.x + 0.51 * wpos.z, wpos.y - 0.63 * wpos.z);
+    float near = (ground || grassBlade || crown) ? 1.0 : smoothstep(1.5, 3.0, d);
     float big = fbm(bp * 0.18);
     float leaf = fbm(bp * 1.3 + 7.0);
     float stroke = vnoise(vec2(bp.x * 2.5, bp.y * 0.6));
     // where meadow ground gets steep, bare rock shows through, with a ragged painted edge
-    if (indexOf(s.g) == uGrass) {
+    if (grassBlade) {
+      // Keep the base of a leaf in the shade and let its lit edge separate from the soil
+      // even at noon, when both are otherwise on the sunlit end of the lighting ramp.
+      base *= mix(0.69, 0.94, smoothstep(0.25, 0.95, s.r));
+      tex *= 0.48;
+    } else if (indexOf(s.g) == uGrass) {
       float steep = 1.0 - smoothstep(0.62, 0.74, wn.y + (big - 0.5) * 0.18 + (leaf - 0.5) * 0.08);
       base = mix(base, paletteColor(float(uRock)), steep);
       tex = mix(tex, 0.7, steep);
       // the meadow floor is mostly seen between the grass, down in its shade
       base *= mix(0.78, 1.0, steep);
+      if (ground) {
+        // Anchor the transition to the actual shore. Painted variation breaks up the
+        // tideline without shifting either the water surface or the player's footing.
+        float bank = wpos.y - (${WATER_LEVEL}) + (big - 0.5) * 0.38 + (leaf - 0.5) * 0.13;
+        meadow *= smoothstep(0.0, ${BANK_HEIGHT}, bank);
+        vec3 sand = paletteColor(float(uSand)) * mix(0.78, 1.0, smoothstep(-0.15, 0.45, bank));
+        base = mix(sand, base, meadow);
+        tex = mix(textureOf(float(uSand)), tex, meadow);
+      }
     }
     // snow lies on what faces up wherever the day's mean temperature is below freezing (colder
     // higher up), in patches at first, then over everything
     float cover = max(smoothstep(1.0, -3.0, uSeaTemp - uLapse * wpos.y), uFreshSnow);
-    if (cover > 0.0 && indexOf(s.g) != uWater && indexOf(s.g) != uGlass) {
+    if (!fish && cover > 0.0 && indexOf(s.g) != uWater && indexOf(s.g) != uGlass) {
       float lie = 0.55 * wn.y + 0.45 * big + (leaf - 0.5) * 0.1;
       float th = mix(1.15, 0.3, cover);
       float snow = smoothstep(th, th + 0.06, lie) * near;
@@ -257,21 +346,31 @@ void main() {
     // rain darkens what faces the sky; on paving and bare earth it pools in puddles that
     // mirror the sky (drawn in once the light is worked out)
     float puddle = 0.0;
-    if (uWet > 0.0 && indexOf(s.g) != uWater && indexOf(s.g) != uGlass) {
+    if (!fish && uWet > 0.0 && indexOf(s.g) != uWater && indexOf(s.g) != uGlass) {
       float soaked = uWet * smoothstep(0.3, 0.8, wn.y) * (1.0 - cover);
       base *= 1.0 - 0.24 * soaked;
-      if (seasonKindOf(s.g) < 0.5)
-        puddle = soaked * smoothstep(0.96, 0.99, wn.y) * smoothstep(0.55, 0.65, big + (leaf - 0.5) * 0.15) * near;
+      float bare = ground ? 1.0 - meadow : (seasonKindOf(s.g) < 0.5 ? 1.0 : 0.0);
+      if (!petal) puddle = bare * soaked * smoothstep(0.96, 0.99, wn.y) * smoothstep(0.55, 0.65, big + (leaf - 0.5) * 0.15) * near;
     }
     float mott = ((big - 0.5) * 0.3 + (leaf - 0.5) * 0.35) * tex + (stroke - 0.5) * 0.06;
     base *= 1.0 + mott * near;
     // leaves and grass are painted in dabs: each clump its own stroke, blending into the next;
     // they blur into plain mottling far away where single dabs would only flicker
-    float dabFade = near * (1.0 - smoothstep(35.0, 90.0, d)) * smoothstep(0.35, 0.8, tex);
+    float dabFade = near * (1.0 - smoothstep(35.0, 90.0, d)) * (crown ? 1.0 : smoothstep(0.35, 0.8, tex));
     // strongest on leafy crowns, gentle on flat ground
-    dabFade *= mix(1.0, 0.4, smoothstep(0.85, 0.98, wn.y));
+    if (!crown) dabFade *= mix(1.0, 0.4, smoothstep(0.85, 0.98, wn.y));
     // only where it shows (leafy, near): walls, roads and the distance skip the work
-    float dab = dabFade > 0.001 ? dabs(bp * 1.7) : 0.0;
+    float dab = 0.0;
+    float canopyWash = 0.0;
+    if (!grassBlade && dabFade > 0.001) {
+      if (crown) {
+        vec3 brush = texture2D(uCanopyBrush, bp * 0.41 + big * 0.12).rgb;
+        vec3 sideBrush = texture2D(uCanopyBrush, vec2(wpos.z - 0.45 * wpos.x, wpos.y + 0.65 * wpos.x) * 0.41).rgb;
+        brush = mix(sideBrush, brush, smoothstep(0.25, 0.75, abs(dot(wn, vec3(-0.39, 0.48, 0.78)))));
+        dab = (cedar ? brush.g : brush.r) - 0.45;
+        canopyWash = (brush.b - 0.46) * dabFade;
+      } else dab = dabs(bp * 1.7);
+    }
     base *= 1.0 + dab * 0.16 * dabFade;
     // big fields of colour across meadows and hills: warm yellow-green here, cool blue-green there
     float field = fbm2(wpos.xz * 0.011 + 3.0);
@@ -285,6 +384,10 @@ void main() {
     float ndl = s.r * 2.0 - 1.0;
     // each dab catches the light a little differently, so a crown reads as many clumps
     float lit = smoothstep(-0.12, 0.38, ndl + (leaf - 0.5) * 0.25 * tex + dab * 0.55 * dabFade);
+    if (fish) {
+      base = fishPaint;
+      lit = mix(0.25, 0.90, smoothstep(-0.85, 0.90, ndl));
+    }
     vec3 shadowTint = uShade * mix(0.9, 1.08, 0.5 + 0.5 * wn.y);
     // leaves and grass go deeper and bluer in shade
     shadowTint = mix(shadowTint, uShade * vec3(0.76, 0.88, 0.8), tex * 0.6);
@@ -309,6 +412,23 @@ void main() {
     float ao = 1.0 - (occ / 8.0) * 0.45;
 
     vec3 painted = base * light * ao;
+    if (petal) {
+      // Dense colour at the throat, a thin irregular wash at the lip. Let skylight fill
+      // the folds so turning over a petal doesn't produce a solid black underside.
+      vec2 paper = vec2(wpos.x + 0.43 * wpos.z, wpos.y - 0.73 * wpos.z);
+      float bleed = (vnoise(paper * 52.0) - 0.5) * (1.0 - smoothstep(2.0, 6.0, d));
+      float wash = clamp(petalWash + 0.10 * bleed, 0.0, 1.0);
+      vec3 pigment = mix(base * vec3(0.52, 0.42, 0.59), base, smoothstep(0.05, 0.61, wash));
+      pigment = mix(pigment, vec3(1.0, 0.88, 0.77), 0.37 * smoothstep(0.47, 0.93, wash));
+      vec3 paperLight = mix(shadowTint, uSunColor, smoothstep(-0.68, 0.88, ndl));
+      painted = pigment * mix(light, paperLight, 0.74) * mix(ao, 1.0, 0.28);
+    }
+    if (crown) {
+      float fleck = smoothstep(0.01, 0.26, dab) * dabFade;
+      painted *= mix(vec3(0.84, 0.95, 1.14), vec3(1.07, 1.02, 0.91), lit);
+      painted *= 1.0 + dab * 0.85 * dabFade + canopyWash * 0.6;
+      painted += vec3(0.18, 0.19, 0.11) * fleck * light * ao;
+    }
     // sunlit leaves catch bright yellow-green highlights
     painted += tex * lit * smoothstep(0.52, 0.75, leaf) * vec3(0.1, 0.11, 0.01) * near;
     // looking towards the sun, light shines through leaves, brightest at a crown's edges
@@ -316,19 +436,6 @@ void main() {
     painted += tex * pow(max(0.0, dot(rd, uSun)), 3.0) * (0.4 + 0.6 * edgeOn) * vec3(0.2, 0.24, 0.05) * (1.0 - uNight) * near;
     col = mix(drainedOf(painted), painted, sat);
     if (puddle > 0.0) col = mix(col, skyPaint(reflect(rd, vec3(0.0, 1.0, 0.0))) * 0.85, puddle * 0.6);
-    if (indexOf(s.g) == uWater) {
-      // water mirrors the painted sky, more so at a glancing angle; slow ripple bands drift
-      // across it and the sun glints off their crests
-      vec2 rp = wpos.xz;
-      float rip = vnoise(vec2(rp.x * 0.35 + uTime * 0.25, rp.y * 1.6)) * 0.6 + vnoise(rp * 2.3 - uTime * 0.4) * 0.4;
-      vec3 rdir = reflect(rd, normalize(vec3((rip - 0.5) * 0.12, 1.0, (rip - 0.5) * 0.06)));
-      float fres = 0.2 + 0.7 * pow(1.0 - clamp(-rd.y, 0.0, 1.0), 4.0);
-      vec3 water = mix(paletteColor(s.g) * light, skyPaint(rdir), fres);
-      water += vec3(0.92, 0.96, 1.0) * smoothstep(0.76, 0.8, rip) * 0.22 * lit * (1.0 - uNight);
-      float glint = pow(max(0.0, dot(rdir, uSun)), 120.0) * step(0.55, vnoise(rp * 5.0 + uTime * 1.3));
-      water += uSunColor * glint * 1.4 * (1.0 - uNight);
-      col = mix(drainedOf(water), water, sat);
-    }
     // the ink: no paint, a wet sheen where the light catches it
     float solid = solidOf(s.g) * sat;
     vec3 wet = mix(paletteColor(s.g), vec3(0.36, 0.37, 0.44), pow(clamp(ndl, 0.0, 1.0), 6.0) * 0.55);
@@ -339,6 +446,38 @@ void main() {
       col = mix(col, vec3(1.0, 0.76, 0.4), on * uNight * sat * 0.92);
     }
 
+    float waterDepth = ${WATER_LEVEL} - wpos.y;
+    bool submerged = uWildWater && waterDepth > 0.0;
+    if (indexOf(s.g) == uWater || submerged) {
+      // water mirrors the painted sky, more so at a glancing angle; slow ripple bands drift
+      // across it and the sun glints off their crests
+      vec3 eye = uInvView[3].xyz;
+      float t = clamp((eye.y - ${WATER_LEVEL}) / max(0.001, eye.y - wpos.y), 0.0, 1.0);
+      vec2 rp = submerged ? mix(eye.xz, wpos.xz, t) : wpos.xz;
+      float rip = vnoise(vec2(rp.x * 0.35 + uTime * 0.25, rp.y * 1.6)) * 0.6 + vnoise(rp * 2.3 - uTime * 0.4) * 0.4;
+      vec3 rdir = reflect(rd, normalize(vec3((rip - 0.5) * 0.12, 1.0, (rip - 0.5) * 0.06)));
+      float grazing = 1.0 - clamp(-rd.y, 0.0, 1.0);
+      vec3 reflected = skyPaint(rdir);
+      vec3 water;
+      float opacity;
+      if (fish) {
+        // Looking down, the reflection belongs to the lake surface, independent
+        // of the fish's orientation. Below the surface only the water tint remains.
+        float surface = smoothstep(-0.02, 0.06, eye.y - ${WATER_LEVEL});
+        vec3 tint = paletteColor(float(uWater)) * mix(uShade, uSunColor, 0.62);
+        water = mix(tint, reflected, surface * (0.12 + 0.60 * grazing * grazing));
+        opacity = mix(0.16, 0.37, smoothstep(0.2, 1.4, waterDepth)) + surface * grazing * 0.16;
+      } else {
+        float fres = 0.2 + 0.7 * pow(grazing, 4.0);
+        water = mix(paletteColor(float(uWater)) * light, reflected, fres);
+        water += vec3(0.92, 0.96, 1.0) * smoothstep(0.76, 0.8, rip) * 0.22 * lit * (1.0 - uNight);
+        float glint = pow(max(0.0, dot(rdir, uSun)), 120.0) * step(0.55, vnoise(rp * 5.0 + uTime * 1.3));
+        water += uSunColor * glint * 1.4 * (1.0 - uNight);
+        opacity = submerged ? smoothstep(0.0, 0.22, waterDepth) * mix(0.38, 0.8, smoothstep(0.2, 3.0, waterDepth)) : 1.0;
+      }
+      if (submerged && (!fish || eye.y > ${WATER_LEVEL})) water += wakeLight(rp, distance(rp, eye.xz)) * mix(0.4, 1.0, lit);
+      col = mix(col, mix(drainedOf(water), water, sat), opacity);
+    }
     // aerial perspective: far things melt into blue-white haze
     vec3 haze = horizonOf(rd);
     haze = mix(drainedOf(haze), haze, skySat);
@@ -356,7 +495,7 @@ void main() {
     float vig = smoothstep(0.5, 0.9, length(q) + blot) * uGloom;
     col = mix(col, vec3(0.05, 0.05, 0.08), vig * 0.92);
   }
-  gl_FragColor = vec4(col, 1.0);
+  gl_FragColor = vec4(col, paintAlpha);
 }`;
 
 /** Half the side of the square of ground that gets sun shadows, metres. */
@@ -450,34 +589,50 @@ float vnoise(vec2 p) {
 float lum(vec3 c) { return dot(c, vec3(0.3, 0.59, 0.11)); }
 
 void main() {
-  vec3 centre = texture2D(tSrc, vUv).rgb;
-  vec3 acc = vec3(0.0);
-  float total = 0.0;
-  for (int k = 0; k < 6; k++) {
-    vec3 mean;
-    float variance;
-    float ang = float(k) * (PI / 3.0);
-    wedge(vec2(cos(ang), sin(ang)), centre, mean, variance);
-    // calmer wedges count for much more (smooth rather than winner-takes-all, so no blocks)
-    float w = 1.0 / (variance * 400.0 + 1e-3);
-    w *= w;
-    acc += mean * w;
-    total += w;
+  vec4 centre = texture2D(tSrc, vUv);
+  vec3 col;
+  if (centre.a < 0.85) {
+    // Resolve thin leaf edges in painted RGB. Blending the G-buffer itself would mix
+    // unrelated palette indices and depths. A solid blade needs only a little smoothing.
+    vec2 e = uTexel * 1.15;
+    vec4 left = texture2D(tSrc, vUv - vec2(e.x, 0.0));
+    vec4 right = texture2D(tSrc, vUv + vec2(e.x, 0.0));
+    vec4 up = texture2D(tSrc, vUv + vec2(0.0, e.y));
+    vec4 down = texture2D(tSrc, vUv - vec2(0.0, e.y));
+    vec4 weights = 0.3 + smoothstep(vec4(0.76), vec4(0.98), vec4(left.a, right.a, up.a, down.a));
+    vec3 behind = (left.rgb * weights.x + right.rgb * weights.y + up.rgb * weights.z + down.rgb * weights.w) / dot(weights, vec4(1.0));
+    col = mix(behind, centre.rgb, 0.90 * clamp(centre.a / 0.75, 0.0, 1.0));
+  } else if (centre.a < 0.95) {
+    // Fish already carry painted, mip-filtered marks. A broad brush kernel
+    // would erase an entire eye or fin ray as the school turns away.
+    col = centre.rgb;
+  } else {
+    vec3 acc = vec3(0.0);
+    float total = 0.0;
+    for (int k = 0; k < 6; k++) {
+      vec3 mean;
+      float variance;
+      float ang = float(k) * (PI / 3.0);
+      wedge(vec2(cos(ang), sin(ang)), centre.rgb, mean, variance);
+      float w = 1.0 / (variance * 400.0 + 1e-3);
+      w *= w;
+      acc += mean * w;
+      total += w;
+    }
+    col = acc / total;
+    // brush streaks: fine ridges of paint dragged along the forms (across the local gradient),
+    // stronger where the picture has structure, a soft cross-hatch of strokes where it is flat
+    vec2 e = uTexel * uSpread * 2.0;
+    vec2 grad = vec2(
+      lum(texture2D(tSrc, vUv + vec2(e.x, 0.0)).rgb) - lum(texture2D(tSrc, vUv - vec2(e.x, 0.0)).rgb),
+      lum(texture2D(tSrc, vUv + vec2(0.0, e.y)).rgb) - lum(texture2D(tSrc, vUv - vec2(0.0, e.y)).rgb));
+    float edge = smoothstep(0.01, 0.08, length(grad));
+    vec2 across = mix(normalize(vec2(0.6, 0.8)), normalize(grad + 1e-6), edge);
+    vec2 along = vec2(-across.y, across.x);
+    vec2 pp0 = gl_FragCoord.xy / max(uSpread, 1.0);
+    float streak = vnoise(vec2(dot(pp0, along) * 0.07, dot(pp0, across) * 0.9));
+    col *= 1.0 + (streak - 0.5) * mix(0.025, 0.12, edge);
   }
-  vec3 col = acc / total;
-
-  // brush streaks: fine ridges of paint dragged along the forms (across the local gradient),
-  // stronger where the picture has structure, a soft cross-hatch of strokes where it is flat
-  vec2 e = uTexel * uSpread * 2.0;
-  vec2 grad = vec2(
-    lum(texture2D(tSrc, vUv + vec2(e.x, 0.0)).rgb) - lum(texture2D(tSrc, vUv - vec2(e.x, 0.0)).rgb),
-    lum(texture2D(tSrc, vUv + vec2(0.0, e.y)).rgb) - lum(texture2D(tSrc, vUv - vec2(0.0, e.y)).rgb));
-  float edge = smoothstep(0.01, 0.08, length(grad));
-  vec2 across = mix(normalize(vec2(0.6, 0.8)), normalize(grad + 1e-6), edge);
-  vec2 along = vec2(-across.y, across.x);
-  vec2 pp0 = gl_FragCoord.xy / max(uSpread, 1.0);
-  float streak = vnoise(vec2(dot(pp0, along) * 0.07, dot(pp0, across) * 0.9));
-  col *= 1.0 + (streak - 0.5) * mix(0.025, 0.12, edge);
 
   // grade like a painting: warm lift, gentle S-curve, a little more colour
   col = clamp(col * vec3(1.03, 1.0, 0.95) + vec3(0.022, 0.016, 0.004), 0.0, 1.0);
@@ -525,6 +680,8 @@ export class InkRenderer {
   private brushSpread = 2.8;
   private readonly postCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
   private readonly clearColor = new THREE.Color(1, 0, 0);
+  private fishWake = 0;
+  private playerWake = 0;
   private pixelRatio: number;
   /** The quality setting's pixel ratio: the most the frame is ever drawn at. */
   private maxPixelRatio: number;
@@ -532,6 +689,7 @@ export class InkRenderer {
   private readonly governor = new ResolutionGovernor();
   /** Sun shadows: a depth map from the sun's side, covering a square around the camera. */
   private readonly shadowRt: THREE.WebGLRenderTarget;
+  private readonly canopyBrush = makeCanopyBrush();
   private readonly shadowCam = new THREE.OrthographicCamera(
     -SHADOW_REACH,
     SHADOW_REACH,
@@ -635,6 +793,7 @@ export class InkRenderer {
       generateMipmaps: false,
     });
     shared.uShadowMap.value = shadowDepth;
+    shared.uCanopyBrush.value = this.canopyBrush;
     shared.uShadowTexel.value = 1 / SHADOW_SIZE;
     this.paintRt = new THREE.WebGLRenderTarget(2, 2, {
       minFilter: THREE.LinearFilter,
@@ -673,9 +832,19 @@ export class InkRenderer {
         uNight: { value: 0 },
         uGlass: { value: color('glass') },
         uWater: { value: color('water') },
+        uWildWater: { value: false },
+        uWakes: { value: Array.from({ length: WAKE_COUNT }, () => new THREE.Vector4()) },
         uGrass: { value: color('grass') },
+        uSand: { value: color('sand') },
+        uCities: shared.uCities,
+        uCityCount: shared.uCityCount,
+        uDrainInner: shared.uDrainInner,
+        uDrainOuter: shared.uDrainOuter,
+        uSceneSat: shared.uSceneSat,
         uRock: { value: color('rock') },
         uSnow: { value: color('snow') },
+        uCedar: { value: color('cedar') },
+        uCanopyBrush: { value: this.canopyBrush },
         uSeasonKind: { value: perColor((c) => (c.season === 'meadow' ? 1 : c.season === 'leaf' ? 2 : 0), 0) },
         uMeadow: { value: SEASONS.map(({ meadow: m }) => new THREE.Vector4(...m.rgb, m.amount)) },
         uLeaf: { value: SEASONS.map(({ leaf: l }) => new THREE.Vector4(...l.rgb, l.amount)) },
@@ -851,6 +1020,15 @@ export class InkRenderer {
     return this.governor.scale;
   }
 
+  setWildWater(enabled: boolean): void {
+    this.post.uniforms.uWildWater!.value = enabled;
+  }
+
+  ripple(x: number, z: number, fromPlayer: boolean): void {
+    const i = fromPlayer ? this.playerWake++ % 6 : 6 + (this.fishWake++ % (WAKE_COUNT - 6));
+    this.post.uniforms.uWakes!.value[i].set(x, z, performance.now() / 1000, fromPlayer ? 1 : 0.52);
+  }
+
   render(): void {
     if (this.governor.frame(performance.now())) {
       this.pixelRatio = this.maxPixelRatio * this.governor.scale;
@@ -964,6 +1142,8 @@ export class InkRenderer {
   }
 
   dispose(): void {
+    this.canopyBrush.dispose();
+    if (shared.uCanopyBrush.value === this.canopyBrush) shared.uCanopyBrush.value = null;
     this.precipitation.dispose();
     this.rt.dispose();
     this.shadowRt.dispose();

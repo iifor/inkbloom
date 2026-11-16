@@ -11,12 +11,15 @@ import { disposeTree } from '@/engine/resources';
 import type { GameContext, GameScene } from '@/game/types';
 import { calendarAt, seasonBlend } from '@/world/climate/calendar';
 import { chunkKey, generateWildChunk } from '@/world/wilderness/chunk';
-import { buildChunkSteps, addChunkColliders } from './build-chunk';
+import { buildTerrainSteps, addChunkColliders } from './build-chunk';
+import { WildTrees } from './wild-trees';
 import { buildLandmark } from './build-landmark';
 import { WildSources } from './pigment-sources';
 import { WildMonsterCamps } from './wild-monster-camps';
 import { WildRuins, buildRuin } from './ruins';
 import { WildMarks } from './marks';
+import { WildFish } from './fish';
+import { Waterweed } from './waterweed';
 import { GrassField } from './grass';
 
 interface Loaded {
@@ -34,6 +37,7 @@ export class WildScene implements GameScene {
   readonly root = new THREE.Group();
   readonly physics = new PhysicsWorld(8);
   private readonly material = makeInkMaterial();
+  private readonly trees = new WildTrees(this.root);
   private readonly loaded = new Map<string, Loaded>();
   /** The chunk being built a little each frame, if any; see update(). */
   private building: { readonly key: string; readonly steps: Generator<void, void, void> } | null = null;
@@ -43,6 +47,9 @@ export class WildScene implements GameScene {
   private readonly ruins: WildRuins;
   private readonly marks: WildMarks;
   private readonly grass: GrassField;
+  private readonly fish = new WildFish(this.root, (x, z) => this.ctx.renderer.ripple(x, z, false));
+  private readonly weed = new Waterweed(this.root);
+  private nextWake = 0;
 
   constructor(private readonly ctx: GameContext) {
     this.root.name = 'wild';
@@ -52,7 +59,7 @@ export class WildScene implements GameScene {
     this.monsters = new WildMonsterCamps(ctx, this.physics, this.root, this.material);
     this.ruins = new WildRuins(ctx, this.material, this.root);
     this.marks = new WildMarks(ctx, this.material, this.root);
-    this.grass = new GrassField(ctx.wilderness, this.root);
+    this.grass = new GrassField(ctx.wilderness, this.root, ctx.renderer.camera);
   }
 
   spawn(): { pos: THREE.Vector3; yaw: number } {
@@ -105,7 +112,14 @@ export class WildScene implements GameScene {
       if (Math.max(Math.abs(cx - pcx), Math.abs(cz - pcz)) > W.unloadRadius) this.unload(key, item);
     }
     const year = seasonBlend(calendarAt(this.ctx.state.clock).yearPhase);
+    this.trees.update(p);
     this.grass.update(p, SEASONS[year.from]!.flowers * (1 - year.t) + SEASONS[year.to]!.flowers * year.t);
+    const t = this.ctx.state.clock;
+    this.fish.update(t, p, dt);
+    if (this.ctx.player.waterMode !== 'dry' && this.ctx.player.speed > 0.45 && t >= this.nextWake) {
+      this.ctx.renderer.ripple(p.x, p.z, true);
+      this.nextWake = t + 0.41;
+    }
     this.sources.update(dt);
     this.monsters.update(dt);
     this.ruins.update(dt);
@@ -144,14 +158,15 @@ export class WildScene implements GameScene {
     const chunk = generateWildChunk(this.ctx.wilderness, cx, cz);
     yield;
     const g = new GeometryBuilder();
-    yield* buildChunkSteps(chunk, this.ctx.wilderness, g);
+    yield* buildTerrainSteps(chunk, this.ctx.wilderness, g);
     if (this.loaded.has(key)) return;
     const group = `chunk:${key}`;
     addChunkColliders(chunk, this.physics, group);
     const release: (() => void)[] = [];
+    release.push(this.trees.add(chunk, this.ctx.player.position));
     if (chunk.entrance) {
       const e = chunk.entrance;
-      // its tower is in view: work the city out in the background before anyone walks in
+      // Once the village house is in view, prepare the streets before anyone walks in.
       this.ctx.cities.prefetch(e);
       const lm = buildLandmark(e, g, this.physics, group);
       // the name arrives with the layout from the city worker; never stall a frame for it
@@ -174,6 +189,9 @@ export class WildScene implements GameScene {
     release.push(this.sources.add(chunk.sources));
     release.push(this.monsters.add(chunk));
     yield;
+    release.push(this.fish.add(chunk, this.ctx.wilderness));
+    release.push(this.weed.add(chunk, this.ctx.wilderness));
+    yield;
     const mesh = new THREE.Mesh(g.build(), this.material);
     mesh.name = group;
     this.root.add(mesh);
@@ -193,7 +211,12 @@ export class WildScene implements GameScene {
   }
 
   activate(): void {
+    this.ctx.renderer.setWildWater(true);
     this.updateDrain();
+  }
+
+  deactivate(): void {
+    this.ctx.renderer.setWildWater(false);
   }
 
   dispose(): void {
@@ -201,9 +224,13 @@ export class WildScene implements GameScene {
     if (this.building) while (!this.building.steps.next().done);
     this.building = null;
     for (const [key, item] of [...this.loaded]) this.unload(key, item);
+    this.sources.dispose();
     this.monsters.dispose();
     this.marks.dispose();
     this.grass.dispose();
+    this.fish.dispose();
+    this.weed.dispose();
+    this.trees.dispose();
     this.material.dispose();
     disposeTree(this.root);
   }

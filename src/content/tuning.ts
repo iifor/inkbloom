@@ -74,6 +74,8 @@ export const TUNING = {
     height: 1.8,
     halfWidth: 0.35,
     stepHeight: 0.55,
+    swimDepth: 1.15,
+    swimSpeed: 3,
     walkSpeed: 6,
     sprintSpeed: 10,
     accelGround: 60,
@@ -113,7 +115,7 @@ export const TUNING = {
     monsterDrop: 4,
     /** Wilderness monsters per chunk by how drained the land is (derived saturation below
      * `drainedBelow` counts as drained, below `greyBelow` as grey): [min, max]. */
-    wild: { drainedBelow: 0.35, greyBelow: 0.75, drained: [2, 4], grey: [0, 2] },
+    wild: { drainedBelow: 0.35, greyBelow: 0.75, drained: [4, 7], grey: [1, 3] },
     /** Seconds of play before a defeated wilderness monster comes back. */
     wildRespawnSeconds: 900,
     /** How hits feel. design: docs/game-design.md section 8 */

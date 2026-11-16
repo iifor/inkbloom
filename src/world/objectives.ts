@@ -85,7 +85,7 @@ export function objective(s: Situation): Objective {
   }
   if (!s.visitedCity && s.nextCity)
     return {
-      text: `去远处的塔楼：${s.nextCity.name}`,
+      text: `去村口的屋檐下：${s.nextCity.name}`,
       target: s.nextCity,
       teach: { id: 'enter-city', text: '走到门口按 E 进城' },
     };
@@ -100,7 +100,7 @@ export function objective(s: Situation): Objective {
       text: s.restoredCities > 0 ? `下一座城：${s.nextCity.name}` : `回${s.nextCity.name}，把颜色还回去`,
       target: s.nextCity,
     };
-  return { text: '四处走走，找下一座塔楼', target: null };
+  return { text: '沿路走走，找下一处村口', target: null };
 }
 
 const ARROWS = ['↑', '↖', '←', '↙', '↓', '↘', '→', '↗'] as const;

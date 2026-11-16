@@ -70,6 +70,7 @@ export function headless(opts: { cities?: Record<string, CitySkeleton> } = {}): 
     pitch: 0,
     flying: false,
     gliding: false,
+    waterMode: 'dry',
     dashing: false,
     grounded: true,
     speed: 0,

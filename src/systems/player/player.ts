@@ -5,6 +5,9 @@ import { TUNING } from '@/content/tuning';
 import { type Body, makeBody } from '@/engine/physics/world';
 import type { GameContext, PlayerApi, System } from '@/game/types';
 
+import { WATER_LEVEL } from '@/world/wilderness/generator';
+import { SwimArms } from './swim-arms';
+
 const P = TUNING.player;
 /** Seconds a shove carries the body before the player steers again. */
 const KNOCK_SECONDS = 0.18;
@@ -21,6 +24,9 @@ export class PlayerSystem implements System, PlayerApi {
   flying = false;
   /** Gliding on the paper plane this frame (for the HUD). */
   gliding = false;
+  waterMode: PlayerApi['waterMode'] = 'dry';
+  private swimBlend = 0;
+  private readonly arms: SwimArms;
   private dashT = 0;
   private readonly dashVel = new THREE.Vector3();
   /** A shove: for a moment the body keeps the pushed velocity instead of steering. */
@@ -34,6 +40,7 @@ export class PlayerSystem implements System, PlayerApi {
 
   constructor(private readonly ctx: GameContext) {
     this.body = makeBody(new THREE.Vector3(0, 10, 0), P.halfWidth, P.height, P.stepHeight);
+    this.arms = new SwimArms(ctx.renderer.camera);
   }
 
   get position(): THREE.Vector3 {
@@ -85,6 +92,12 @@ export class PlayerSystem implements System, PlayerApi {
     this.body.pos.copy(pos);
     this.body.vel.set(0, 0, 0);
     this.body.onGround = false;
+    this.waterMode = 'dry';
+    this.swimBlend = 0;
+    this.dashT = 0;
+    this.gliding = false;
+    this.body.height = P.height;
+    this.arms.update(0, 0, 0);
     this.yaw = yaw;
     this.pitch = 0;
     this.syncCamera();
@@ -112,22 +125,62 @@ export class PlayerSystem implements System, PlayerApi {
     this.wish.set(fx * mz - fz * mx, 0, fz * mz + fx * mx);
     if (this.wish.lengthSq() > 1) this.wish.normalize();
 
-    if (this.flying) this.fly(dt);
-    else if (this.ctx.combat.alive) this.walk(dt);
+    const p = this.position;
+    const wet =
+      this.ctx.scenes.active.ref.kind === 'wild' &&
+      !this.flying &&
+      this.ctx.combat.alive &&
+      p.y < WATER_LEVEL - 0.03;
+    const depth = wet ? WATER_LEVEL - this.ctx.wilderness.heightAt(p.x, p.z) : 0;
+    const wasSwimming = this.waterMode === 'swimming';
+    const ground = this.ctx.wilderness.heightAt;
+    const room = wasSwimming ? 2 : 3;
+    const swim =
+      depth >= (wasSwimming ? P.swimDepth - 0.25 : P.swimDepth) &&
+      p.y < WATER_LEVEL - 0.35 &&
+      Math.max(
+        ground(p.x - room, p.z),
+        ground(p.x + room, p.z),
+        ground(p.x, p.z - room),
+        ground(p.x, p.z + room),
+      ) <
+        WATER_LEVEL - 0.35;
+    this.waterMode = swim ? 'swimming' : wet && depth > 0 ? 'wading' : 'dry';
+    this.swimBlend = THREE.MathUtils.damp(this.swimBlend, swim ? 1 : 0, 8, dt);
+    this.body.height = P.height - this.swimBlend * 0.65;
+    if (this.flying) {
+      this.gliding = false;
+      this.fly(dt);
+    } else if (this.ctx.combat.alive) this.walk(dt);
+    this.arms.update(dt, this.swimBlend, this.speed, this.pitch);
     this.syncCamera();
   }
 
   private walk(dt: number): void {
     const { input } = this.ctx;
     const b = this.body;
-    const speed =
-      (input.held('sprint') ? P.sprintSpeed : P.walkSpeed) * (this.slowT > 0 ? this.slowFactor : 1);
+    const swim = this.waterMode === 'swimming';
+    const wade = this.waterMode === 'wading';
+    const drag = wade ? THREE.MathUtils.clamp(1 - (WATER_LEVEL - b.pos.y) * 0.42, 0.52, 0.86) : 1;
+    const pace = swim
+      ? P.swimSpeed * (input.held('sprint') ? 1.25 : 1)
+      : (input.held('sprint') ? P.sprintSpeed : P.walkSpeed) * drag;
+    const speed = pace * (this.slowT > 0 ? this.slowFactor : 1);
     // while shoved the body slides with the push; the player can't steer against it
     const accel = this.knockT > 0 ? 0 : b.onGround ? P.accelGround : P.accelAir;
     const tx = this.wish.x * speed;
     const tz = this.wish.z * speed;
     b.vel.x += THREE.MathUtils.clamp(tx - b.vel.x, -accel * dt, accel * dt);
     b.vel.z += THREE.MathUtils.clamp(tz - b.vel.z, -accel * dt, accel * dt);
+    if (swim) {
+      this.dashT = 0;
+      this.gliding = false;
+      this.airJumps = 0;
+      const buoyancy = THREE.MathUtils.clamp((WATER_LEVEL - 0.72 - b.pos.y) * 5, -2.5, 3.5);
+      b.vel.y = THREE.MathUtils.damp(Math.max(b.vel.y, -3), buoyancy, 9, dt);
+      this.ctx.scenes.active.physics.moveBody(b, dt);
+      return;
+    }
     if (b.onGround) this.airJumps = P.airJumps;
     if (input.pressed('jump')) {
       if (b.onGround) {
@@ -146,7 +199,7 @@ export class PlayerSystem implements System, PlayerApi {
     }
     b.vel.y -= P.gravity * dt;
     // paper plane: hold jump while falling to glide forward
-    this.gliding = !b.onGround && b.vel.y < 0 && input.held('jump') && this.ctx.state.inventory.glider;
+    this.gliding = !wade && !b.onGround && b.vel.y < 0 && input.held('jump') && this.ctx.state.inventory.glider;
     if (this.gliding) {
       b.vel.y = Math.max(b.vel.y, -P.glideFall);
       const fx = -Math.sin(this.yaw) * P.glideSpeed;
@@ -178,7 +231,7 @@ export class PlayerSystem implements System, PlayerApi {
 
   private syncCamera(): void {
     const cam = this.ctx.renderer.camera;
-    this.eye.set(this.body.pos.x, this.body.pos.y + P.eyeHeight, this.body.pos.z);
+    this.eye.set(this.body.pos.x, this.body.pos.y + P.eyeHeight - this.swimBlend * 0.62, this.body.pos.z);
     cam.position.copy(this.eye);
     // a little shake decays quickly; it never touches the aim the player sees in yaw/pitch
     this.shakeAmt = Math.max(0, this.shakeAmt - 1 / 30);
@@ -191,5 +244,9 @@ export class PlayerSystem implements System, PlayerApi {
     );
     cam.updateMatrixWorld();
     this.forward.set(0, 0, -1).applyQuaternion(cam.quaternion);
+  }
+
+  dispose(): void {
+    this.arms.dispose();
   }
 }

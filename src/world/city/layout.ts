@@ -335,7 +335,7 @@ export function generateCity(id: string, seed: number, chunks: number = TUNING.c
   const buildings: Building[] = [];
   const totalWeight = BUILDINGS.reduce((s, b) => s + b.weight, 0);
   const pickTemplate = (centrality: number): number => {
-    // towers cluster near the centre: boost the last template's weight by centrality
+    // The larger barns cluster near the centre.
     let r = rng.next() * (totalWeight + centrality * 6);
     for (let t = 0; t < BUILDINGS.length; t++) {
       r -= BUILDINGS[t]!.weight + (t === BUILDINGS.length - 1 ? centrality * 6 : 0);
@@ -404,17 +404,18 @@ export function generateCity(id: string, seed: number, chunks: number = TUNING.c
             Math.min(1, Math.hypot((x0 + x1) / 2 / cell - centre, (z0 + z1) / 2 / cell - centre) / (n / 2));
           const t = pickTemplate(centrality);
           const tpl = BUILDINGS[t]!;
-          const floors = rng.int(tpl.floors.min, tpl.floors.max);
-          const height = floors * cfg.lots.floorHeight;
+          const floors = rng.int(tpl.paintFloors.min, tpl.paintFloors.max);
+          const paintHeight = floors * cfg.lots.floorHeight;
+          const height = tpl.eaves + (floors - tpl.paintFloors.min) * 0.35;
           const chunk = chunkOf((minX + maxX) / 2, (minZ + maxZ) / 2);
           const wall = rng.pick(tpl.walls);
           const sx = x1 - x0;
           const sz = z1 - z0;
           const walls = {
-            px: addSurface('wall', chunk, wall, sz * height, x1, (z0 + z1) / 2),
-            nx: addSurface('wall', chunk, wall, sz * height, x0, (z0 + z1) / 2),
-            pz: addSurface('wall', chunk, wall, sx * height, (x0 + x1) / 2, z1),
-            nz: addSurface('wall', chunk, wall, sx * height, (x0 + x1) / 2, z0),
+            px: addSurface('wall', chunk, wall, sz * paintHeight, x1, (z0 + z1) / 2),
+            nx: addSurface('wall', chunk, wall, sz * paintHeight, x0, (z0 + z1) / 2),
+            pz: addSurface('wall', chunk, wall, sx * paintHeight, (x0 + x1) / 2, z1),
+            nz: addSurface('wall', chunk, wall, sx * paintHeight, (x0 + x1) / 2, z0),
           };
           const roof = addSurface('roof', chunk, rng.pick(tpl.roofs), sx * sz, (x0 + x1) / 2, (z0 + z1) / 2);
           // the door goes in the middle of the front-row run that actually touches the road

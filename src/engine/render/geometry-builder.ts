@@ -16,6 +16,14 @@ export class GeometryBuilder {
   private readonly nor: number[] = [];
   private readonly col: number[] = [];
   private readonly srf: number[] = [];
+  private readonly indices: number[] = [];
+  private indexedThrough = 0;
+
+  /** Quads and flat meshes between indexed meshes already arrive in triangle order. */
+  private indexLooseVertices(): void {
+    for (let i = this.indexedThrough; i < this.vertexCount; i++) this.indices.push(i);
+    this.indexedThrough = this.vertexCount;
+  }
 
   get vertexCount(): number {
     return this.pos.length / 3;
@@ -51,21 +59,21 @@ export class GeometryBuilder {
       this.vertex(p.x, p.y, p.z, normal.x, normal.y, normal.z, color, surface);
   }
 
-  /** Quad with a normal per corner (smooth surfaces such as rolling ground). */
+  /** Quad with a normal per corner and an optional colour code per corner. */
   quadSmooth(
     a: THREE.Vector3Like,
     b: THREE.Vector3Like,
     c: THREE.Vector3Like,
     d: THREE.Vector3Like,
     normals: readonly [THREE.Vector3Like, THREE.Vector3Like, THREE.Vector3Like, THREE.Vector3Like],
-    color: number,
+    color: number | readonly [number, number, number, number],
     surface = NO_SURFACE,
   ): void {
     const pts = [a, b, c, d];
     for (const k of [0, 1, 2, 0, 2, 3]) {
       const p = pts[k]!;
       const n = normals[k]!;
-      this.vertex(p.x, p.y, p.z, n.x, n.y, n.z, color, surface);
+      this.vertex(p.x, p.y, p.z, n.x, n.y, n.z, typeof color === 'number' ? color : color[k]!, surface);
     }
   }
 
@@ -122,23 +130,32 @@ export class GeometryBuilder {
     matrix: THREE.Matrix4,
     color: number,
     surface = NO_SURFACE,
+    colorOffsets?: readonly number[],
   ): void {
-    const g = geometry.index ? geometry.toNonIndexed() : geometry;
-    const p = g.getAttribute('position');
-    const nm = g.getAttribute('normal');
+    const p = geometry.getAttribute('position');
+    const nm = geometry.getAttribute('normal');
+    const offset = this.vertexCount;
+    if (geometry.index) this.indexLooseVertices();
     const normalMatrix = new THREE.Matrix3().getNormalMatrix(matrix);
     const v = new THREE.Vector3();
     const n = new THREE.Vector3();
     for (let i = 0; i < p.count; i++) {
       v.fromBufferAttribute(p, i).applyMatrix4(matrix);
       n.fromBufferAttribute(nm, i).applyMatrix3(normalMatrix).normalize();
-      this.vertex(v.x, v.y, v.z, n.x, n.y, n.z, color, surface);
+      this.vertex(v.x, v.y, v.z, n.x, n.y, n.z, color + (colorOffsets?.[i] ?? 0), surface);
     }
-    if (g !== geometry) g.dispose();
+    if (geometry.index) {
+      for (let i = 0; i < geometry.index.count; i++) this.indices.push(offset + geometry.index.getX(i));
+      this.indexedThrough = this.vertexCount;
+    }
   }
 
   build(): THREE.BufferGeometry {
     const g = new THREE.BufferGeometry();
+    if (this.indices.length) {
+      this.indexLooseVertices();
+      g.setIndex(this.indices);
+    }
     g.setAttribute('position', new THREE.Float32BufferAttribute(this.pos, 3));
     g.setAttribute('normal', new THREE.Float32BufferAttribute(this.nor, 3));
     g.setAttribute('aColor', new THREE.Float32BufferAttribute(this.col, 1));

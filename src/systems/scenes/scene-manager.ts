@@ -152,8 +152,7 @@ export class SceneManager implements SceneApi, System {
 
   private outsideOf(e: Entrance | undefined): { pos: THREE.Vector3; yaw: number } | null {
     if (!e) return null;
-    // in front of the tower door: clear of the widest tower base (8 m) and within 3.5 m of the
-    // door prompt for every tower size (7.5–10.5 m out), so F at a tower keeps cycling
+    // Outside every village porch, within reach of the door's travel prompt.
     const x = e.x + e.door[0] * 11;
     const z = e.z + e.door[1] * 11;
     this.wild.ensureAt(x, z);

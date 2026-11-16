@@ -8,10 +8,13 @@ import { Rng } from '@/world/math/rng';
 import { hashString } from '@/world/math/hash';
 import type { PigmentSource } from '@/world/wilderness/sources';
 
+import type { Wilderness } from '@/world/wilderness/generator';
+import { addPigmentFlowers } from './pigment-flowers';
+
 const ico = new THREE.IcosahedronGeometry(1, 0);
 const cube = new THREE.BoxGeometry(1, 1, 1);
 
-export function buildSource(src: PigmentSource): THREE.BufferGeometry {
+export function buildSource(src: PigmentSource, ground: Wilderness['heightAt']): THREE.BufferGeometry {
   const def = PIGMENT_SOURCES[src.kind]!;
   const g = new GeometryBuilder();
   const rng = new Rng(hashString(src.id));
@@ -24,12 +27,7 @@ export function buildSource(src: PigmentSource): THREE.BufferGeometry {
     );
   switch (def.key) {
     case 'flowers':
-      for (let i = 0; i < 9; i++) {
-        const x = rng.range(-1.6, 1.6);
-        const z = rng.range(-1.6, 1.6);
-        g.mesh(cube, at(x, 0.35, z, 0.08, 0.7, 0.08), def.base, ALWAYS_COLOR);
-        g.mesh(ico, at(x, 0.75, z, 0.28, 0.2, 0.28), src.color, ALWAYS_COLOR);
-      }
+      addPigmentFlowers(g, src, ground, rng);
       break;
     case 'berries':
       g.mesh(ico, at(0, 0.8, 0, 1.4, 1, 1.4, rng.next()), def.base, ALWAYS_COLOR);
@@ -62,6 +60,32 @@ export function buildSource(src: PigmentSource): THREE.BufferGeometry {
         const h = rng.range(1.2, 2.2);
         g.mesh(cube, at(x, h / 2, z, 0.07, h, 0.07), def.base, ALWAYS_COLOR);
         g.mesh(cube, at(x, h, z, 0.16, 0.4, 0.16), src.color, ALWAYS_COLOR);
+      }
+      break;
+    case 'shells':
+      for (let i = 0; i < 7; i++) {
+        const x = rng.range(-1.3, 1.3),
+          z = rng.range(-1, 1),
+          yaw = rng.next() * Math.PI * 2;
+        const ox = src.x + x,
+          oz = src.z + z,
+          y = ground(ox, oz) + 0.04,
+          size = rng.range(0.4, 0.78);
+        const hinge = new THREE.Vector3(ox, y, oz);
+        const rim = (rib: number) => {
+          const a = yaw + (rib - 4) * 0.29;
+          return new THREE.Vector3(
+            ox + size * Math.sin(a),
+            y + size * (rib % 2 ? 0.35 : 0.21),
+            oz + size * Math.cos(a),
+          );
+        };
+        for (let rib = 0; rib < 8; rib++) {
+          const left = rim(rib),
+            right = rim(rib + 1);
+          const normal = left.clone().sub(hinge).cross(right.clone().sub(hinge)).normalize();
+          g.quad(hinge, left, right, right, normal, rib % 2 ? src.color : def.base, ALWAYS_COLOR);
+        }
       }
       break;
     default:

@@ -55,6 +55,7 @@ export interface PlayerApi {
   pitch: number;
   flying: boolean;
   readonly gliding: boolean;
+  readonly waterMode: 'dry' | 'wading' | 'swimming';
   /** Push the player along a direction for a moment (dodges, dash attacks). */
   dash(dir: THREE.Vector3, distance: number, seconds: number): void;
   readonly dashing: boolean;

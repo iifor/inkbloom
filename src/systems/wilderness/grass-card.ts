@@ -1,14 +1,6 @@
-// The picture on a grass card: a dense layer of short blades along the bottom (so a clump is
-// solid at its base, not a row of spikes) and dozens of thin curved stalks above it, a few
-// carrying seed heads, painted once at start-up onto a canvas (no image files). Red holds light and dark
-// (stalks dark at the root, pale at the tip, seed heads palest); alpha cuts the card out.
-// Colour comes from the palette per clump, so one picture serves every season and biome.
 import * as THREE from 'three';
 
-/** Big enough that stalk edges stay smooth on the clumps right beside the player. */
-const SIZE = 512;
-
-/** A small deterministic random sequence, so every run paints the same card. */
+/** A small deterministic random sequence, so every run builds the same tuft. */
 function sequence(seed: number): () => number {
   let s = seed >>> 0;
   return () => {
@@ -17,102 +9,52 @@ function sequence(seed: number): () => number {
   };
 }
 
-export function makeGrassCard(): THREE.Texture {
-  const canvas = document.createElement('canvas');
-  canvas.width = SIZE;
-  canvas.height = SIZE;
-  const g = canvas.getContext('2d')!;
-  const rand = sequence(0x6b1d);
-  g.clearRect(0, 0, SIZE, SIZE);
-  /** One tapering blade from the bottom edge; returns where its tip ended up. */
-  const blade = (x0: number, h: number, lean: number, w: number): { x: number; y: number } => {
-    const top = { x: x0 + lean, y: SIZE - h };
-    const bend = { x: x0 + lean * 0.2, y: SIZE - h * 0.55 };
-    const shade = g.createLinearGradient(0, SIZE, 0, top.y);
-    const base = 40 + 30 * rand();
-    shade.addColorStop(0, `rgb(${base},${base},${base})`);
-    shade.addColorStop(1, `rgb(${200 + 40 * rand()},0,0)`);
-    g.fillStyle = shade;
-    // wide at the root, a point at the tip
-    g.beginPath();
-    g.moveTo(x0 - w, SIZE);
-    g.quadraticCurveTo(bend.x - w * 0.6, bend.y, top.x, top.y);
-    g.quadraticCurveTo(bend.x + w * 0.6, bend.y, x0 + w, SIZE);
-    g.closePath();
-    g.fill();
-    return top;
-  };
-  // the undergrowth: many short, broad blades side by side
-  for (let i = 0; i < 90; i++)
-    blade(
-      SIZE * (0.02 + 0.96 * rand()),
-      SIZE * (0.14 + 0.18 * rand()),
-      (rand() - 0.5) * SIZE * 0.2,
-      SIZE * (0.014 + 0.012 * rand()),
-    );
-  // the stalks above it: most medium, a few tall ones with seed heads
-  for (let i = 0; i < 80; i++) {
-    const tall = rand() < 0.25;
-    const h = SIZE * (tall ? 0.7 + 0.28 * rand() : 0.3 + 0.35 * rand());
-    const lean = (rand() - 0.5) * SIZE * 0.35;
-    const top = blade(SIZE * (0.06 + 0.88 * rand()), h, lean, SIZE * (0.008 + 0.01 * rand()));
-    if (tall && rand() < 0.7) {
-      // a seed head: a pale feathery oval at the tip
-      g.fillStyle = `rgb(${235 + 20 * rand()},0,0)`;
-      g.beginPath();
-      g.ellipse(
-        top.x,
-        top.y + SIZE * 0.035,
-        SIZE * 0.012,
-        SIZE * 0.045,
-        Math.atan2(lean, h) * 0.8,
-        0,
-        Math.PI * 2,
-      );
-      g.fill();
+/** One arching meadow tuft at every viewing distance, including directly overhead. */
+export function makeBladeClump(): THREE.BufferGeometry {
+  const rand = sequence(0x30a9);
+  const pos: number[] = [],
+    uv: number[] = [],
+    indices: number[] = [];
+  for (let i = 0; i < 10; i++) {
+    const angle = i * 2.4 + rand() * 0.7;
+    const dx = Math.cos(angle),
+      dz = Math.sin(angle);
+    const root = 0.035 + rand() * 0.14;
+    const height = 0.31 + rand() * 0.32;
+    const reach = 0.18 + rand() * 0.26;
+    const width = 0.024 + rand() * 0.017;
+    const curl = (rand() - 0.5) * 0.22;
+    const first = pos.length / 3;
+    for (const [t, breadth] of [
+      [0, 0.3],
+      [0.43, 1],
+      [0.83, 0.49],
+    ] as const) {
+      const along = root + reach * t * t;
+      const bend = curl * t * (1.8 - 1.7 * t);
+      for (const side of [-1, 1]) {
+        const lateral = bend + side * width * breadth;
+        pos.push(dx * along - dz * lateral, height * t * (1.72 - 0.88 * t), dz * along + dx * lateral);
+        uv.push((side + 1) / 2, t);
+      }
     }
-  }
-  const tex = new THREE.CanvasTexture(canvas);
-  tex.colorSpace = THREE.NoColorSpace;
-  tex.anisotropy = 4;
-  tex.needsUpdate = true;
-  return tex;
-}
-
-/**
- * A clump: `cards` cards crossed like an asterisk (three by default), each a quad `width` wide
- * and `height` tall
- * standing on the ground, with the attributes the ink material expects plus uv. Normals point
- * up so a clump shades like the meadow it grows from.
- */
-export function makeCardClump(width = 1, height = 0.8, cards = 3): THREE.BufferGeometry {
-  const pos: number[] = [];
-  const nor: number[] = [];
-  const uv: number[] = [];
-  for (let k = 0; k < cards; k++) {
-    const a = (k / cards) * Math.PI;
-    const dx = (Math.cos(a) * width) / 2;
-    const dz = (Math.sin(a) * width) / 2;
-    const corners: [number, number, number, number, number][] = [
-      [-dx, 0, -dz, 0, 0],
-      [dx, 0, dz, 1, 0],
-      [dx, height, dz, 1, 1],
-      [-dx, height, -dz, 0, 1],
-    ];
-    for (const i of [0, 1, 2, 0, 2, 3]) {
-      const [x, y, z, u, v] = corners[i]!;
-      pos.push(x, y, z);
-      nor.push(0, 1, 0);
-      uv.push(u, v);
+    pos.push(dx * (root + reach) - dz * curl * 0.1, height * 0.84, dz * (root + reach) + dx * curl * 0.1);
+    uv.push(0.5, 1);
+    for (let row = 0; row < 2; row++) {
+      const a = first + 2 * row;
+      indices.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
     }
+    indices.push(first + 4, first + 5, first + 6);
   }
-  const n = pos.length / 3;
+  const count = pos.length / 3;
+  const normals = new Float32Array(pos.length);
+  for (let i = 0; i < count; i++) normals[i * 3 + 1] = 1;
   const geo = new THREE.BufferGeometry();
+  geo.setIndex(indices);
   geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  geo.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+  geo.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
   geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
-  geo.setAttribute('aColor', new THREE.Float32BufferAttribute(new Array<number>(n).fill(0), 1));
-  // -1: colour follows the land around cities, like the ground
-  geo.setAttribute('aSurface', new THREE.Float32BufferAttribute(new Array<number>(n).fill(-1), 1));
+  geo.setAttribute('aColor', new THREE.BufferAttribute(new Float32Array(count), 1));
+  geo.setAttribute('aSurface', new THREE.BufferAttribute(new Float32Array(count).fill(-1), 1));
   return geo;
 }

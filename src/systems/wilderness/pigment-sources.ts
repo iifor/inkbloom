@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { PALETTE } from '@/content/palette';
 import { PIGMENT_SOURCES } from '@/content/pigment-sources';
 import { TUNING } from '@/content/tuning';
+import { makeInkMaterial } from '@/engine/render/ink-material';
 import type { GameContext } from '@/game/types';
 import { sourceReady } from '@/world/state';
 import type { PigmentSource } from '@/world/wilderness/sources';
@@ -16,6 +17,7 @@ interface Shown {
 
 export class WildSources {
   private readonly shown = new Map<string, Shown>();
+  private readonly flowerMaterial = makeInkMaterial({ side: THREE.DoubleSide });
   private checkT = 0;
 
   constructor(
@@ -27,7 +29,11 @@ export class WildSources {
   /** Show a chunk's sources. Returns a function that removes them again. */
   add(sources: readonly PigmentSource[]): () => void {
     const releases = sources.map((src) => {
-      const mesh = new THREE.Mesh(buildSource(src), this.material);
+      const flowers = PIGMENT_SOURCES[src.kind]!.key === 'flowers';
+      const mesh = new THREE.Mesh(
+        buildSource(src, this.ctx.wilderness.heightAt),
+        flowers ? this.flowerMaterial : this.material,
+      );
       mesh.visible = sourceReady(this.ctx.state, src.id);
       this.root.add(mesh);
       this.shown.set(src.id, { src, mesh });
@@ -84,5 +90,9 @@ export class WildSources {
 
   private refresh(): void {
     for (const { src, mesh } of this.shown.values()) mesh.visible = sourceReady(this.ctx.state, src.id);
+  }
+
+  dispose(): void {
+    this.flowerMaterial.dispose();
   }
 }

@@ -26,6 +26,8 @@ function fits(placement: Placement, h: number): boolean {
       return h > WATER_LEVEL + 0.75;
     case 'shore':
       return h >= WATER_LEVEL + 0.25 && h <= WATER_LEVEL + 1.75;
+    case 'shallows':
+      return h >= WATER_LEVEL - 0.55 && h <= WATER_LEVEL;
     case 'high':
       return h >= 8;
   }
@@ -39,11 +41,13 @@ export function sourcesInChunk(w: Wilderness, cx: number, cz: number): PigmentSo
   const entrances = w.entrancesNear((cx + 0.5) * size, (cz + 0.5) * size, 1);
   PIGMENT_SOURCES.forEach((def, kind) => {
     const roll = hashAt(w.seed, 'source', cx, cz, kind);
-    if (unit(roll) >= def.perChunk) return;
-    for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
+    const starterShells = def.key === 'shells' && cx === 0 && cz === 0;
+    if (!starterShells && unit(roll) >= def.perChunk) return;
+    for (let attempt = 0; attempt < (starterShells ? n * n : ATTEMPTS); attempt++) {
       const h = hashAt(w.seed, 'source-cell', cx, cz, kind, attempt);
-      const ix = h % n;
-      const iz = (h >>> 8) % n;
+      const cellIndex = starterShells ? (roll % (n * n) + attempt) % (n * n) : h;
+      const ix = cellIndex % n;
+      const iz = starterShells ? Math.floor(cellIndex / n) : (h >>> 8) % n;
       const x = cx * size + (ix + 0.5) * cell;
       const z = cz * size + (iz + 0.5) * cell;
       const biome = BIOMES[w.biomeAt(x, z)]!.key;

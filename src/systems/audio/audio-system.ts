@@ -231,17 +231,19 @@ export class AudioSystem implements System {
     this.loops().wind?.set(Math.max(player.gliding ? 1 : 0, Math.min(0.8, blow)));
     this.loops().rain?.set(w.rain);
     // footsteps
-    if (player.grounded && player.speed > 1.5 && !player.flying) {
+    const water = player.waterMode !== 'dry';
+    if ((player.grounded || water) && player.speed > 1.5 && !player.flying) {
       this.stepT -= dt;
       if (this.stepT <= 0) {
-        this.stepT = player.speed > 8 ? 0.3 : 0.44;
+        this.stepT = water ? 0.63 : player.speed > 8 ? 0.3 : 0.44;
         this.stepSide ^= 1;
         const city = this.ctx.scenes.active.ref.kind === 'city';
         this.synth.noise({
-          dur: 0.07,
+          dur: water ? 0.21 : 0.07,
           gain: 0.09,
-          type: city ? 'bandpass' : 'lowpass',
-          freq: city ? 900 + this.stepSide * 120 : 420 + this.stepSide * 60,
+          type: city || water ? 'bandpass' : 'lowpass',
+          freq: water ? 2200 : city ? 900 + this.stepSide * 120 : 420 + this.stepSide * 60,
+          freqEnd: water ? 520 : undefined,
           q: city ? 2 : 1,
         });
       }

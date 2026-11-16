@@ -1,20 +1,24 @@
 // The one material every world mesh uses. It writes a G-buffer the post pass turns into a
 // painting: R = light shade (sun facing, darkened where the sun's shadow map says something is
-// in the way), G = colour code, BA = view normal.
+// in the way), G = colour code, BA = view normal. Grass has an upward normal, so it uses
+// BA for a grass marker and the fraction of the pixel covered by the leaf.
+// Fish store diffuse pigment instead of the view normal: G = green, B = -2 - red, A = blue.
 //
 // Colour code = paletteIndex + 0.9 * saturation. Saturation comes from:
 //   aSurface >= 0  per-surface state texture (0 drained, 1 original, 2+n graffiti colour n)
 //   aSurface = -1  the derived wilderness drain (nearby cities' progress) times uSceneSat
 //   aSurface = -2  always full colour (pickups, markers: things that must stand out)
+// Negative colour codes belong to wilderness soil: -1 is a sandy riverbed, -2 is meadow.
 // Geometry provides aColor (original palette index) and aSurface per vertex. An InstancedMesh
 // with instance colours overrides the palette index per instance (red channel = index).
 import * as THREE from 'three';
-import { color } from '@/content/palette';
+import { color, MAX_COLORS } from '@/content/palette';
 import { TUNING } from '@/content/tuning';
 
 const CROWNS = new THREE.Vector3(color('leaf'), color('canopy'), color('cedar'));
 
 export const shared = {
+  uCanopyBrush: { value: null as THREE.Texture | null },
   uLightDir: { value: new THREE.Vector3(0, 1, 0) },
   /** xy = city position, z = progress (0..1), w unused. */
   uCities: { value: Array.from({ length: TUNING.drain.maxCities }, () => new THREE.Vector4()) },
@@ -36,16 +40,30 @@ export const shared = {
 /** Layer for things drawn but never shadow-casting (grass: it would speckle the ground). */
 export const NO_SHADOW_LAYER = 2;
 
-const vert = /* glsl */ `
-attribute float aColor;
-attribute float aSurface;
-uniform sampler2D uState;
-uniform int uStateWidth;
+export const wildernessDrainGLSL = /* glsl */ `
 uniform vec4 uCities[${TUNING.drain.maxCities}];
 uniform int uCityCount;
 uniform float uDrainInner;
 uniform float uDrainOuter;
 uniform float uSceneSat;
+float derivedSat(vec3 wp) {
+  float drain = 0.0;
+  for (int i = 0; i < ${TUNING.drain.maxCities}; i++) {
+    if (i >= uCityCount) break;
+    vec4 c = uCities[i];
+    float d = distance(wp.xz, c.xy);
+    float f = 1.0 - smoothstep(uDrainInner, uDrainOuter, d);
+    drain = max(drain, (1.0 - c.z) * f);
+  }
+  return 1.0 - drain;
+}`;
+
+const vert = /* glsl */ `
+attribute float aColor;
+attribute float aSurface;
+uniform sampler2D uState;
+uniform int uStateWidth;
+${wildernessDrainGLSL}
 uniform mat4 uShadowMatrix;
 uniform float uTime;
 uniform vec2 uWind;
@@ -57,51 +75,68 @@ varying vec4 vShadow;
 varying vec2 vCardUv;
 varying float vTip;
 varying float vGust;
+#ifdef TREE
+varying vec3 vTreePosition;
+varying vec3 vTreeView;
+#endif
 #ifdef FIELD
 uniform vec3 uField;
-uniform vec4 uFieldFade;
+uniform vec2 uFieldFade;
 uniform float uBloom;
+varying float vFieldCover;
+varying vec2 vPlantMark;
 #endif
-
-float derivedSat(vec3 wp) {
-  float drain = 0.0;
-  for (int i = 0; i < ${TUNING.drain.maxCities}; i++) {
-    if (i >= uCityCount) break;
-    vec4 c = uCities[i];
-    float d = distance(wp.xz, c.xy);
-    float f = 1.0 - smoothstep(uDrainInner, uDrainOuter, d);
-    drain = max(drain, (1.0 - c.z) * f);
-  }
-  return 1.0 - drain;
-}
-
 void main() {
   vec3 transformed = position;
   vec3 objectNormal = normal;
-  #ifdef USE_INSTANCING
-    #ifdef FIELD
-      // a field of plants around the player: each one's size follows its distance from them,
-      // so moving the player changes nothing on the CPU. Full size in the middle, thinning to
-      // a third at the rim (uFieldFade: reach, rim width), a little shorter right underfoot
-      // (between .z and .w metres), gone beyond the reach
-      float fd = distance(instanceMatrix[3].xz, uField.xz);
-      float rim = 1.0 - smoothstep(uFieldFade.x - uFieldFade.y, uFieldFade.x, fd);
-      float grow = step(fd, uFieldFade.x) * (0.35 + 0.65 * rim) * (0.6 + 0.4 * smoothstep(uFieldFade.z, uFieldFade.w, fd));
-      float shown = grow;
-      #ifdef USE_INSTANCING_COLOR
-        // flowers: green says how much of the season's bloom it needs, blue how high its head
-        // sits at full size (it sinks with the grass around it)
-        shown *= step(instanceColor.g, uBloom);
-      #endif
-      transformed *= shown;
-    #endif
-    transformed = (instanceMatrix * vec4(transformed, 1.0)).xyz;
-    objectNormal = mat3(instanceMatrix) * objectNormal;
-    #if defined(FIELD) && defined(USE_INSTANCING_COLOR)
-      transformed.y -= instanceColor.b * (1.0 - grow);
+  #ifdef FISH
+    vCardUv = uv;
+    #ifdef USE_INSTANCING_COLOR
+      // The two instance coefficients carry stroke phase and strength. The
+      // displacement grows toward the tail; its slope also turns the normals.
+      float tail = clamp((0.21 - position.x) / 0.89, 0.0, 1.0);
+      vec2 wave = vec2(cos(2.8 * tail), -sin(2.8 * tail));
+      float beat = dot(instanceColor.rg, wave);
+      transformed.z += tail * tail * beat;
+      float slope = -(2.0 * tail * beat + 2.8 * tail * tail * dot(instanceColor.rg, vec2(wave.y, -wave.x))) / 0.89;
+      objectNormal.x -= slope * objectNormal.z;
+      // Only the outer part of each pectoral fin extends this far from the midline.
+      float paddle = smoothstep(0.098, 0.174, abs(position.z)) * step(0.78, uv.y);
+      transformed.y += paddle * 0.15 * instanceColor.g;
     #endif
   #endif
+  #ifdef USE_INSTANCING
+    #ifdef FIELD
+      vec2 offset = instanceMatrix[3].xz - uField.xz;
+      float range = length(offset);
+      bool hidden = range >= uFieldFade.y;
+      #ifdef USE_INSTANCING_COLOR
+        hidden = hidden || instanceColor.g > uBloom;
+      #endif
+      if (hidden) {
+        gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
+        return;
+      }
+      // Only coverage fades at the outer streaming boundary. Size and wind use the rest pose.
+      vFieldCover = 1.0 - smoothstep(uFieldFade.x, uFieldFade.y, range);
+      vPlantMark = instanceMatrix[3].xz + position.xz + position.y * vec2(0.41, 0.73);
+    #endif
+    transformed = (instanceMatrix * vec4(transformed, 1.0)).xyz;
+    mat3 basis = mat3(instanceMatrix);
+    #if defined(TREE) || (defined(FIELD) && !defined(BLADES))
+      // Trees and meadow flowers scale independently in height and width.
+      objectNormal /= vec3(dot(basis[0], basis[0]), dot(basis[1], basis[1]), dot(basis[2], basis[2]));
+    #endif
+    objectNormal = basis * objectNormal;
+  #endif
   vec4 world = modelMatrix * vec4(transformed, 1.0);
+  #ifdef TREE
+    vTreePosition = world.xyz;
+    vTreeView = (viewMatrix * world).xyz;
+  #endif
+  #ifdef WATERWEED
+    world.xz += vec2(0.075, 0.038) * position.y * position.y * sin(1.25 * uTime + world.x * 0.43 + world.z * 0.35);
+  #endif
   #ifdef WIND
     // plants sway: the higher up the blade, the further; slow waves roll across the field
     // gusts: broad bands of wind rolling across the field, bending the grass further
@@ -111,7 +146,11 @@ void main() {
     // with the wind: about today's look at 3 m/s, storms bend the grass much further
     float ws = length(uWind);
     vec2 wdir = ws > 0.1 ? uWind / ws : vec2(0.85, 0.53);
-    world.xz += wdir * sway * 0.16 * clamp(0.3 + ws * 0.23, 0.3, 2.2) * max(position.y, 0.0);
+    float windHeight = max(position.y, 0.0);
+    #if defined(FIELD) && defined(USE_INSTANCING) && !defined(BLADES)
+      windHeight *= instanceMatrix[1].y;
+    #endif
+    world.xz += wdir * sway * 0.16 * clamp(0.3 + ws * 0.23, 0.3, 2.2) * windHeight;
     vTip = clamp(position.y / 0.4, 0.0, 1.0);
   #else
     vTip = 1.0;
@@ -127,9 +166,14 @@ void main() {
     }
   #endif
   float idx = aColor;
-  #ifdef USE_INSTANCING_COLOR
+  #if defined(USE_INSTANCING_COLOR) && !defined(FISH)
     // instanced particles carry their palette index in the red channel
     idx = instanceColor.r;
+    #if defined(FIELD) && !defined(BLADES)
+      // The petal template supplies a wash in the meadow range, the instance supplies its pigment.
+      // The calyx, stalk and pollen carry ordinary palette colours.
+      idx = aColor >= ${2 * MAX_COLORS}.0 ? aColor + idx : aColor;
+    #endif
   #endif
   float sat;
   if (aSurface >= 0.0) {
@@ -138,14 +182,15 @@ void main() {
     int st = int(state + 0.5);
     if (st == 0) sat = 0.0;
     else { sat = 1.0; if (st >= 2) idx = float(st - 2); }
-  } else if (aSurface < -1.5) {
+  } else if (aSurface < -1.5 || idx >= ${MAX_COLORS}.0) {
     sat = 1.0;
   } else {
     sat = derivedSat(world.xyz) * uSceneSat;
   }
-  vCode = idx + 0.9 * clamp(sat, 0.0, 1.0);
+  // Petals carry their pigment above the palette and a wash strength in the fraction.
+  vCode = idx < 0.0 || idx >= ${MAX_COLORS}.0 ? idx : idx + 0.9 * clamp(sat, 0.0, 1.0);
   vNormalV = normalize(normalMatrix * objectNormal);
-  #ifdef CARD
+  #ifdef BLADES
     vCardUv = uv;
   #endif
   // pushed out along the normal a little, so surfaces do not shadow themselves
@@ -156,6 +201,9 @@ void main() {
 
 const frag = /* glsl */ `
 precision highp float;
+#ifdef FISH
+uniform sampler2D uFishPaint;
+#endif
 uniform vec3 uLightDir;
 uniform float uShadeBias;
 uniform sampler2D uShadowMap;
@@ -167,6 +215,12 @@ varying vec4 vShadow;
 varying vec2 vCardUv;
 varying float vTip;
 varying float vGust;
+#ifdef TREE
+uniform vec3 uCrowns;
+uniform sampler2D uCanopyBrush;
+varying vec3 vTreePosition;
+varying vec3 vTreeView;
+#endif
 
 /**
  * 1 in sunlight, 0 in shadow, fading out at the map's edge. Eight taps on a ring turned by a
@@ -193,35 +247,74 @@ float sunlight() {
   return mix(1.0, sum / 9.0, smoothstep(0.0, 0.08, min(e.x, e.y)));
 }
 
-#ifdef CARD
-uniform sampler2D uCard;
+#ifdef FIELD
+varying float vFieldCover;
+varying vec2 vPlantMark;
 #endif
 
 void main() {
-  #ifdef CARD
-    // a card of painted stalks: cut out where the picture is empty
-    vec4 card = texture2D(uCard, vCardUv);
-    if (card.a < 0.45) discard;
+  #ifdef FIELD
+    if (vFieldCover < 1.0) {
+      // A mask attached to the plant lets the ground show through at long range.
+      // It remains in place while the camera moves and never shortens the blades.
+      vec3 h = fract(floor(vPlantMark * 48.0).xyx * vec3(0.1031, 0.1030, 0.0973));
+      h += dot(h, h.yzx + 33.33);
+      if (fract((h.x + h.y) * h.z) >= vFieldCover) discard;
+    }
+  #endif
+  #ifdef BLADES
+    // Feather the outermost pixel of the ribbon. Interior colour and depth stay opaque.
+    float halfWidth = 0.5 * clamp((1.0 - vCardUv.y) / 0.17, 0.0, 1.0);
+    float edge = halfWidth - abs(vCardUv.x - 0.5);
+    float coverage = smoothstep(0.0, max(0.06, 1.25 * fwidth(edge)), edge);
+    coverage *= mix(0.35, 1.0, smoothstep(0.0, 0.22, vCardUv.y));
   #endif
   vec3 n = normalize(vNormalV);
+  #ifdef TREE
+    // Break the outside of the foliage into little overlapping sprays. Where an outer
+    // leaf is missing the depth buffer sees the next branch or the real sky behind it.
+    float silhouette = abs(dot(n, normalize(vTreeView)));
+    if (-vTreeView.z < 40.0 && silhouette < 0.67 && floor(vCode) != ${color('bark')}.0) {
+      vec3 p = vTreePosition;
+      vec2 uv = vec2(p.x + 0.51 * p.z, p.y - 0.63 * p.z);
+      vec2 sprigs = texture2D(uCanopyBrush, uv * 0.64).rg;
+      float ink = floor(vCode) == uCrowns.z ? sprigs.g : sprigs.r;
+      float wash = texture2D(uCanopyBrush, vec2(p.z - 0.45 * p.x, p.y + 0.65 * p.x) * 0.81).b;
+      float cut = clamp(0.22 + 0.86 * (0.51 - ink) + 0.72 * (0.51 - wash), 0.0, 0.65);
+      if (silhouette < cut * (1.0 - smoothstep(27.0, 40.0, -vTreeView.z))) discard;
+    }
+  #endif
   #ifndef WIND
     // plants keep their upward normal on both sides; everything else shows its back face dark
     if (!gl_FrontFacing) n = -n;
   #endif
   float shade = clamp(dot(n, uLightDir) * 0.5 + 0.5 + uShadeBias, 0.0, 1.0);
+  #ifdef TREE
+    if (floor(vCode) == ${color('bark')}.0) {
+      // Long broken strokes turn around the taper and follow it into the forks.
+      vec2 grainUv = vec2(dot(vTreePosition.xz, vec2(1.4, 1.1)), vTreePosition.y * 0.16);
+      shade += (texture2D(uCanopyBrush, grainUv).b - 0.48) * 0.23;
+    }
+  #endif
   // in the shadow of something: as dark as a face turned away from the sun
   if (uShadowOn > 0.5) shade = mix(min(shade, 0.4), shade, sunlight());
   #ifdef WIND
     // a tuft is dark down among the stems and catches the light at the tips
     shade = clamp(shade * mix(0.62, 1.12, vTip), 0.0, 1.0);
-    #ifdef CARD
-      // the card's own light and dark: dark stems below, pale seed heads above
-      shade = clamp(shade * mix(0.55, 1.18, card.r), 0.0, 1.0);
+    #ifdef BLADES
+      shade *= mix(0.85, 1.00, vCardUv.y) * (0.90 + 0.10 * sin(vCardUv.x * 3.1416));
     #endif
     // a gust turns the blades over and a wave of light runs across the meadow
     shade = clamp(shade + vGust * vTip * 0.18, 0.0, 1.0);
   #endif
-  gl_FragColor = vec4(shade, vCode, n.x, n.y);
+  #ifdef FISH
+    vec3 pigment = texture2D(uFishPaint, vCardUv).rgb;
+    gl_FragColor = vec4(shade, pigment.g, -2.0 - pigment.r, pigment.b);
+  #elif defined(BLADES)
+    gl_FragColor = vec4(shade, vCode, 2.0, coverage);
+  #else
+    gl_FragColor = vec4(shade, vCode, n.x, n.y);
+  #endif
 }`;
 
 /** A 1×1 all-zero state texture for meshes that never use surfaces. */
@@ -235,14 +328,17 @@ function empty(): THREE.DataTexture {
 }
 
 export interface InkMaterialOptions {
+  tree?: boolean;
+  fishPaint?: THREE.Texture;
   state?: SurfaceStateTexture;
   side?: THREE.Side;
   shadeBias?: number;
   /** Sway in the wind by local height (grass, flowers). */
   wind?: boolean;
-  /** Alpha-tested card picture (grass stalks): red = light and dark, alpha = cut-out. Needs uv. */
-  card?: THREE.Texture;
-  /** Instanced plants sized by distance from a moving centre on the GPU; see FieldUniforms. */
+  waterweed?: boolean;
+  /** Shaped grass ribbons with a soft edge instead of a cutout texture. */
+  blades?: boolean;
+  /** A world-anchored field with a bounded drawing radius and seasonal flowers. */
   field?: FieldUniforms;
 }
 
@@ -250,8 +346,8 @@ export interface InkMaterialOptions {
 export interface FieldUniforms {
   /** The player's position: the field's middle. */
   readonly uField: { value: THREE.Vector3 };
-  /** Reach, rim width, and where underfoot shortening starts and ends (metres). */
-  readonly uFieldFade: { value: THREE.Vector4 };
+  /** Distances where the outer coverage fade begins and ends (metres). */
+  readonly uFieldFade: { value: THREE.Vector2 };
   /** The season's bloom, 0..1: flowers needing more than this are hidden. */
   readonly uBloom: { value: number };
 }
@@ -272,17 +368,21 @@ export function makeInkMaterial(opts: InkMaterialOptions = {}): THREE.ShaderMate
       uTime: shared.uTime,
       uWind: shared.uWind,
       uCrowns: { value: CROWNS },
+      uCanopyBrush: shared.uCanopyBrush,
       uState: { value: opts.state?.texture ?? empty() },
       uStateWidth: { value: opts.state?.width ?? 1 },
       uShadeBias: { value: opts.shadeBias ?? 0 },
-      uCard: { value: opts.card ?? null },
+      ...(opts.fishPaint ? { uFishPaint: { value: opts.fishPaint } } : {}),
       ...(opts.field ?? {}),
     },
     vertexShader: vert,
     fragmentShader: frag,
     defines: {
+      ...(opts.tree ? { TREE: '' } : {}),
+      ...(opts.fishPaint ? { FISH: '' } : {}),
+      ...(opts.waterweed ? { WATERWEED: '' } : {}),
       ...(opts.wind ? { WIND: '' } : {}),
-      ...(opts.card ? { CARD: '' } : {}),
+      ...(opts.blades ? { BLADES: '' } : {}),
       ...(opts.field ? { FIELD: '' } : {}),
     },
     side: opts.side ?? THREE.FrontSide,

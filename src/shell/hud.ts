@@ -276,7 +276,7 @@ export class Hud implements System {
       this.lastTool = this.belt.index;
     }
     this.shown('slots', this.el.slots, recall || t < this.slotsUntil);
-    const hud = this.belt.active?.hud();
+    const hud = this.ctx.player.waterMode === 'swimming' ? undefined : this.belt.active?.hud();
     const glide = this.ctx.player.gliding ? '\n纸飞机滑翔中' : '';
     this.set('lines', this.el.lines, (hud?.lines.join('\n') ?? '') + glide);
     const sw = hud?.swatch ?? null;

@@ -28,6 +28,7 @@ const SLOT_ACTIONS = ['slot1', 'slot2', 'slot3', 'slot4'] as const;
 export class ToolBelt implements System {
   readonly id = 'tools';
   index = 0;
+  private stowed = false;
 
   constructor(
     private readonly ctx: GameContext,
@@ -42,16 +43,22 @@ export class ToolBelt implements System {
 
   select(i: number): void {
     if (i === this.index || !this.tools[i]) return;
-    this.active?.onUnequip?.();
+    if (!this.stowed) this.active?.onUnequip?.();
     this.index = i;
-    this.active?.onEquip?.();
+    if (!this.stowed) this.active?.onEquip?.();
   }
 
   update(dt: number): void {
+    const swim = this.ctx.player.waterMode === 'swimming';
+    if (swim !== this.stowed) {
+      this.stowed = swim;
+      if (swim) this.active?.onUnequip?.();
+      else this.active?.onEquip?.();
+    }
     SLOT_ACTIONS.forEach((a, i) => {
       if (this.ctx.input.pressed(a)) this.select(i);
     });
     for (const t of this.tools) t.tick?.(dt);
-    this.active?.update(dt);
+    if (!this.stowed) this.active?.update(dt);
   }
 }

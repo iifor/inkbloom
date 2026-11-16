@@ -1,362 +1,219 @@
-// Grass and wildflowers around the player: clumps of painted stalks (crossed alpha cards, see
-// grass-card.ts) and dots of flowers on a fixed world grid (so they stay put as you walk).
-//
-// Every grid cell has a fixed instance slot in a window that wraps around (cell i lands in
-// slot i mod WINDOW), so when the player crosses a cell only the row or column coming into
-// range is written: a few hundred matrices, never the whole field. Thinning at the rim,
-// shortening underfoot and the season's flowers are all done on the GPU from uniforms
-// (ink material `field`), so nothing else changes as the player moves.
-// They sway in the wind (ink material `wind`), thin out towards the edge of the field, take
-// their colour from the land around cities like the ground does, and cast no shadows.
-// Drawing only: nothing collides with grass.
+// Grass and flowers are scattered in world-space cells. Each patch owns a compact
+// instance buffer; streaming and frustum culling work on patches, never on the
+// shape, density or scale of an individual plant.
 import * as THREE from 'three';
-import { BIOME_INDEX } from '@/content/biomes';
+import { climateBiome } from '@/content/biomes';
 import { color, type ColorKey } from '@/content/palette';
-import { GeometryBuilder } from '@/engine/render/geometry-builder';
 import { NO_SHADOW_LAYER, makeInkMaterial } from '@/engine/render/ink-material';
 import { hashInts, unit } from '@/world/math/hash';
-import { createNoise2D, type Noise2D } from '@/world/math/noise';
-import { WATER_LEVEL, type Wilderness } from '@/world/wilderness/generator';
-import { makeCardClump, makeGrassCard } from './grass-card';
+import { createNoise2D, smoothstep, type Noise2D } from '@/world/math/noise';
+import { BANK_HEIGHT, riverbedMeadow, WATER_LEVEL, type Wilderness } from '@/world/wilderness/generator';
+import { makeBladeClump } from './grass-card';
+import { meadowFlower } from './meadow-flower';
 
-/** Radius of the field around the player, metres. */
-const RADIUS = 40;
-/** Grid spacing between clumps. */
-const SPACING = 0.55;
-/** Rise over run where grass gives way to rock (the renderer paints rock from about here). */
+const RADIUS = 48;
 const ROCKY = 0.95;
-/** Close to the player a second, finer grid fills the gaps between clumps. */
-const NEAR = 7;
-const NEAR_SPACING = SPACING / 2;
-/** Cells across each grid's window around the player (covers its reach, with room). */
-const WINDOW = 160;
-const NEAR_WINDOW = 64;
-/** Flowers are sparse, so they get their own coarser grid (and fewer, mostly filled slots):
- * each flower cell covers this many grass cells' worth of ground. */
-const FLOWER_SPACING = SPACING * 2;
-const FLOWER_WINDOW = 80;
-const FLOWER_AREA = (FLOWER_SPACING / SPACING) ** 2;
-/** Height of a flower head above the ground at full size, as a share of its clump's size. */
 const FLOWER_LIFT = 0.5;
-
-/**
- * Everything about one grid point that does not depend on where the player stands, worked out
- * once so placing the field again only writes matrices. Kept in flat typed arrays indexed by
- * grid cell (wrapping around, like a ring buffer in two dimensions): walking allocates nothing,
- * so there is no garbage to collect and no pause.
- */
-const F = {
-  /** 1 if grass grows here. (Which grid cell a slot holds is kept apart, in `keys`.) */
-  GROWS: 0,
-  X: 1,
-  Y: 2,
-  Z: 3,
-  COS: 4,
-  SIN: 5,
-  /** Size before distance fading, and how much taller than wide. */
-  SIZE: 6,
-  TALL: 7,
-  /** Palette index of the blades. */
-  BLADE: 8,
-  /** A flower here if FLOWER_ROLL < FLOWER_CHANCE * season bloom. */
-  FLOWER_ROLL: 9,
-  FLOWER_CHANCE: 10,
-  FLOWER: 11,
-  FLOWER_SIZE: 12,
-} as const;
-const STRIDE = 13;
-const EMPTY = 0x7fffffff;
-
-class SpotCache {
-  readonly keys: Int32Array;
-  readonly data: Float32Array;
-  private readonly mask: number;
-
-  /** `side` (a power of two) cells across; must exceed the area kept around the player. */
-  constructor(readonly side: number) {
-    this.mask = side - 1;
-    this.keys = new Int32Array(side * side * 2).fill(EMPTY);
-    this.data = new Float32Array(side * side * STRIDE);
-  }
-
-  slot(i: number, k: number): number {
-    return (i & this.mask) * this.side + (k & this.mask);
-  }
-
-  holds(slot: number, i: number, k: number): boolean {
-    return this.keys[slot * 2] === i && this.keys[slot * 2 + 1] === k;
-  }
-}
-
-/** Per biome: chance of a tuft per grid point, chance of a flower, blade colours. */
-const COVER: Partial<Record<string, { tuft: number; flower: number; blades: readonly ColorKey[] }>> = {
+const DRIFT = 22;
+const COVER = {
   grassland: { tuft: 0.97, flower: 0.1, blades: ['grass', 'grass', 'sprout'] },
   forest: { tuft: 0.85, flower: 0.03, blades: ['grass', 'sprout', 'forest'] },
   mountain: { tuft: 0.85, flower: 0.04, blades: ['grass', 'sprout', 'forest'] },
-};
+} as const;
 const FLOWERS: readonly ColorKey[] = ['yellow', 'yellow', 'cream', 'cream', 'pink', 'sky', 'purple'];
-/** Metres across a drift of flowers. */
-const DRIFT = 22;
 
-function bake(geometry: THREE.BufferGeometry): THREE.BufferGeometry {
-  const b = new GeometryBuilder();
-  b.meshSmooth(geometry, new THREE.Matrix4(), 0);
-  geometry.dispose();
-  return b.build();
+interface Patch {
+  i: number;
+  k: number;
+  mesh: THREE.InstancedMesh;
 }
 
-/** The three grids: the grass field, the finer ring near the player, and the flowers. */
-type Kind = 'coarse' | 'near' | 'flower';
-
-/** One grid's window of instance slots and where it currently sits. */
-interface Window {
-  readonly kind: Kind;
-  readonly side: number;
-  readonly step: number;
-  readonly mesh: THREE.InstancedMesh;
-  /** First cell (i, k) of the window, or null before the first fill. */
-  i0: number | null;
-  k0: number | null;
+class Grid {
+  readonly patches = new Map<string, Patch>();
+  readonly spare: Patch[] = [];
+  lastI = Infinity;
+  lastK = Infinity;
+  constructor(
+    readonly kind: 'grass' | 'flower',
+    readonly step: number,
+    readonly cells: number,
+    readonly geometry: THREE.BufferGeometry,
+    readonly material: THREE.Material,
+  ) {}
 }
 
 export class GrassField {
-  private readonly card = makeGrassCard();
+  private readonly frustum = new THREE.Frustum();
+  private readonly viewProjection = new THREE.Matrix4();
   private readonly field = {
     uField: { value: new THREE.Vector3() },
-    uFieldFade: { value: new THREE.Vector4(RADIUS, RADIUS * 0.3, 0.8, 4) },
+    uFieldFade: { value: new THREE.Vector2(RADIUS - 8, RADIUS) },
     uBloom: { value: 1 },
   };
-  private readonly nearField = {
-    uField: this.field.uField,
-    uFieldFade: { value: new THREE.Vector4(NEAR, 2.5, 0.8, 4) },
-    uBloom: this.field.uBloom,
-  };
-  private readonly material = makeInkMaterial({
-    wind: true,
-    side: THREE.DoubleSide,
-    card: this.card,
-    field: this.field,
-  });
-  private readonly nearMaterial = makeInkMaterial({
-    wind: true,
-    side: THREE.DoubleSide,
-    card: this.card,
-    field: this.nearField,
-  });
-  private readonly flowerMaterial = makeInkMaterial({ wind: true, field: this.field });
-  private readonly windows: readonly Window[];
-  /** Grid points worked out so far, per grid. */
-  private readonly caches: Record<Kind, SpotCache> = {
-    coarse: new SpotCache(256),
-    near: new SpotCache(64),
-    flower: new SpotCache(128),
-  };
-  private readonly names = [...BIOME_INDEX].reduce<string[]>((a, [k, i]) => ((a[i] = k), a), []);
-  /** Where flowers gather in drifts, and which colour each drift is. */
+  private readonly grids = [
+    new Grid(
+      'grass',
+      0.67,
+      16,
+      makeBladeClump(),
+      makeInkMaterial({ wind: true, side: THREE.DoubleSide, blades: true, field: this.field }),
+    ),
+    new Grid(
+      'flower',
+      1.1,
+      12,
+      meadowFlower(),
+      makeInkMaterial({ wind: true, field: this.field, side: THREE.DoubleSide }),
+    ),
+  ];
   private readonly drifts: Noise2D;
   private readonly hues: Noise2D;
 
   constructor(
     private readonly wilderness: Wilderness,
-    root: THREE.Object3D,
+    private readonly root: THREE.Object3D,
+    private readonly camera: THREE.Camera,
   ) {
     this.drifts = createNoise2D(wilderness.seed ^ 0x51f0);
     this.hues = createNoise2D(wilderness.seed ^ 0x2b1d);
-    const instanced = (geometry: THREE.BufferGeometry, material: THREE.Material, count: number) => {
-      const mesh = new THREE.InstancedMesh(geometry, material, count);
-      mesh.frustumCulled = false;
-      mesh.layers.set(NO_SHADOW_LAYER);
-      // every slot starts empty (a zero matrix draws nothing)
-      (mesh.instanceMatrix.array as Float32Array).fill(0);
-      // palette index in red; flowers also use green (bloom needed) and blue (head height)
-      mesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(count * 3), 3);
-      root.add(mesh);
-      return mesh;
-    };
-    const clump = makeCardClump(1.25, 0.8);
-    const window = (kind: Kind, side: number, step: number, mesh: THREE.InstancedMesh): Window => ({
-      kind,
-      side,
-      step,
-      mesh,
-      i0: null,
-      k0: null,
-    });
-    this.windows = [
-      window('coarse', WINDOW, SPACING, instanced(clump, this.material, WINDOW * WINDOW)),
-      window(
-        'near',
-        NEAR_WINDOW,
-        NEAR_SPACING,
-        // four times as dense as the field: two cards a clump are plenty here, and a third
-        // fewer layers of grass to draw right where it fills the most screen
-        instanced(makeCardClump(1.25, 0.8, 2), this.nearMaterial, NEAR_WINDOW ** 2),
-      ),
-      window(
-        'flower',
-        FLOWER_WINDOW,
-        FLOWER_SPACING,
-        instanced(bake(new THREE.TetrahedronGeometry(0.08, 0)), this.flowerMaterial, FLOWER_WINDOW ** 2),
-      ),
-    ];
   }
 
-  /** `flowers`: how many wildflowers the season brings, 0..1 (see content/seasons.ts). */
   update(at: THREE.Vector3, flowers = 1): void {
     this.field.uField.value.copy(at);
     this.field.uBloom.value = flowers;
-    for (const win of this.windows) this.slide(win, at);
-  }
-
-  /**
-   * Keep a window centred on the player: write the columns and rows of cells that have come
-   * into it since last time (all of it after a long jump), nothing else.
-   */
-  private slide(win: Window, at: THREE.Vector3): void {
-    const half = win.side >> 1;
-    const i0 = Math.floor(at.x / win.step) - half;
-    const k0 = Math.floor(at.z / win.step) - half;
-    if (win.i0 === i0 && win.k0 === k0) return;
-    const side = win.side;
-    const changed: number[] = [];
-    if (
-      win.i0 === null ||
-      win.k0 === null ||
-      Math.abs(i0 - win.i0) >= side ||
-      Math.abs(k0 - win.k0) >= side
-    ) {
-      for (let i = i0; i < i0 + side; i++) changed.push(...this.column(win, i, k0, k0 + side));
-    } else {
-      // columns entering on the i side, over the new k range
-      const iFrom = i0 > win.i0 ? win.i0 + side : i0;
-      const iTo = i0 > win.i0 ? i0 + side : win.i0;
-      for (let i = iFrom; i < iTo; i++) changed.push(...this.column(win, i, k0, k0 + side));
-      // rows entering on the k side, for the columns that were already there
-      const kFrom = k0 > win.k0 ? win.k0 + side : k0;
-      const kTo = k0 > win.k0 ? k0 + side : win.k0;
-      const iKeep0 = Math.max(i0, win.i0);
-      const iKeep1 = Math.min(i0 + side, win.i0 + side);
-      for (let i = iKeep0; i < iKeep1; i++) changed.push(...this.column(win, i, kFrom, kTo));
-    }
-    win.i0 = i0;
-    win.k0 = k0;
-    this.upload(win.mesh, changed, 16, 3);
-  }
-
-  /**
-   * Write cells i, k0..k1-1 into their slots; returns the slot ranges touched as [start, end)
-   * pairs (a column's slots run on, except where the window wraps).
-   */
-  private column(win: Window, i: number, k0: number, k1: number): number[] {
-    if (k1 <= k0) return [];
-    const side = win.side;
-    const mi = ((i % side) + side) % side;
-    const D = this.caches[win.kind].data;
-    const m = win.mesh.instanceMatrix.array as Float32Array;
-    const c = win.mesh.instanceColor!.array as Float32Array;
-    const ranges: number[] = [];
-    let runStart = -1;
-    let last = -2;
-    for (let k = k0; k < k1; k++) {
-      const mk = ((k % side) + side) % side;
-      const slot = mi * side + mk;
-      if (slot !== last + 1) {
-        if (runStart >= 0) ranges.push(runStart, last + 1);
-        runStart = slot;
+    this.camera.updateMatrixWorld();
+    this.frustum.setFromProjectionMatrix(
+      this.viewProjection.multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse),
+    );
+    for (const grid of this.grids) {
+      this.stream(grid, at);
+      const width = grid.step * grid.cells;
+      for (const { i, k, mesh } of grid.patches.values()) {
+        const dx = Math.max(i * width - at.x, at.x - (i + 1) * width, 0);
+        const dz = Math.max(k * width - at.z, at.z - (k + 1) * width, 0);
+        mesh.visible =
+          mesh.count > 0 &&
+          dx * dx + dz * dz < RADIUS * RADIUS &&
+          this.frustum.intersectsBox(mesh.boundingBox!);
       }
-      last = slot;
-      const o = this.spot(i, k, win.kind);
-      if (o < 0) {
-        m.fill(0, slot * 16, slot * 16 + 16);
-        continue;
-      }
-      const size = D[o + F.SIZE]!;
-      if (win.kind !== 'flower') {
-        put(m, slot, D, o, size, size * D[o + F.TALL]!, D[o + F.Y]!);
-        c[slot * 3] = D[o + F.BLADE]!;
-        continue;
-      }
-      const fs = D[o + F.FLOWER_SIZE]!;
-      const lift = FLOWER_LIFT * size + 0.04;
-      put(m, slot, D, o, fs, fs * 0.8, D[o + F.Y]! + lift);
-      c[slot * 3] = D[o + F.FLOWER]!;
-      // shown while the season's bloom is at least roll / chance
-      c[slot * 3 + 1] = D[o + F.FLOWER_ROLL]! / D[o + F.FLOWER_CHANCE]!;
-      c[slot * 3 + 2] = lift - 0.04;
     }
-    if (runStart >= 0) ranges.push(runStart, last + 1);
-    return ranges;
   }
 
-  /** Send just the touched slot ranges of a mesh's buffers to the GPU. */
-  private upload(
-    mesh: THREE.InstancedMesh,
-    ranges: readonly number[],
-    matrixStride: number,
-    colourStride: number,
-  ): void {
-    if (!ranges.length) return;
-    const m = mesh.instanceMatrix;
-    const c = mesh.instanceColor!;
-    m.clearUpdateRanges();
-    c.clearUpdateRanges();
-    for (let r = 0; r < ranges.length; r += 2) {
-      const a = ranges[r]!;
-      const b = ranges[r + 1]!;
-      m.addUpdateRange(a * matrixStride, (b - a) * matrixStride);
-      c.addUpdateRange(a * colourStride, (b - a) * colourStride);
+  private stream(grid: Grid, at: THREE.Vector3): void {
+    const ci = Math.floor(at.x / grid.step),
+      ck = Math.floor(at.z / grid.step);
+    if (ci === grid.lastI && ck === grid.lastK) return;
+    grid.lastI = ci;
+    grid.lastK = ck;
+    const width = grid.cells * grid.step;
+    // Include the whole player cell so no tuft enters the circular field before its patch exists.
+    const x = (ci + 0.5) * grid.step,
+      z = (ck + 0.5) * grid.step;
+    const reach = RADIUS + grid.step;
+    const minI = Math.floor((x - reach) / width),
+      maxI = Math.floor((x + reach) / width);
+    const minK = Math.floor((z - reach) / width),
+      maxK = Math.floor((z + reach) / width);
+    for (const [key, patch] of grid.patches) {
+      if (patch.i >= minI - 1 && patch.i <= maxI + 1 && patch.k >= minK - 1 && patch.k <= maxK + 1) continue;
+      grid.patches.delete(key);
+      patch.mesh.visible = false;
+      grid.spare.push(patch);
     }
-    m.needsUpdate = true;
-    c.needsUpdate = true;
+    for (let i = minI; i <= maxI; i++) {
+      const dx = Math.max(i * width - x, x - (i + 1) * width, 0);
+      for (let k = minK; k <= maxK; k++) {
+        const dz = Math.max(k * width - z, z - (k + 1) * width, 0);
+        if (dx * dx + dz * dz > reach * reach) continue;
+        const key = `${i},${k}`;
+        if (grid.patches.has(key)) continue;
+        const patch = grid.spare.pop() ?? this.createPatch(grid);
+        patch.i = i;
+        patch.k = k;
+        this.fill(grid, patch);
+        grid.patches.set(key, patch);
+      }
+    }
   }
 
-  /** The data offset of grid point (i, k), worked out on first use; -1 if nothing grows. */
-  private spot(i: number, k: number, kind: Kind): number {
-    const cache = this.caches[kind];
-    const slot = cache.slot(i, k);
-    const o = slot * STRIDE;
-    const D = cache.data;
-    if (cache.holds(slot, i, k)) return D[o + F.GROWS] ? o : -1;
-    cache.keys[slot * 2] = i;
-    cache.keys[slot * 2 + 1] = k;
-    D[o + F.GROWS] = 0;
+  private createPatch(grid: Grid): Patch {
+    const count = grid.cells ** 2;
+    const mesh = new THREE.InstancedMesh(grid.geometry, grid.material, count);
+    mesh.name = grid.kind === 'grass' ? 'grass-tufts' : 'wildflowers';
+    mesh.layers.set(NO_SHADOW_LAYER);
+    // A flat patch's sphere reaches far above its grass. Cull against its wind-padded box instead.
+    mesh.frustumCulled = false;
+    mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    mesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(count * 3), 3).setUsage(
+      THREE.DynamicDrawUsage,
+    );
+    this.root.add(mesh);
+    return { i: 0, k: 0, mesh };
+  }
+
+  private fill(grid: Grid, { mesh, i: pi, k: pk }: Patch): void {
+    const matrices = mesh.instanceMatrix.array as Float32Array;
+    const colors = mesh.instanceColor!.array as Float32Array;
+    const seed = this.wilderness.seed ^ (grid.kind === 'flower' ? 0x1f3d : 0x6a55);
     const w = this.wilderness;
-    const salt = kind === 'near' ? 0x3c71 : kind === 'flower' ? 0x1f3d : 0x6a55;
-    /** Independent 0..1 numbers for this grid point. */
-    const r = (n: number): number => unit(hashInts(w.seed ^ salt, i, k, n));
-    const step = kind === 'near' ? NEAR_SPACING : kind === 'flower' ? FLOWER_SPACING : SPACING;
-    const x = (i + r(0) * 0.9) * step;
-    const z = (k + r(1) * 0.9) * step;
-    const cover = COVER[this.names[w.biomeAt(x, z)] ?? ''];
-    if (!cover || r(2) > cover.tuft) return -1;
-    const y = w.heightAt(x, z);
-    const slope = Math.max(Math.abs(w.heightAt(x + 0.7, z) - y), Math.abs(w.heightAt(x, z + 0.7) - y)) / 0.7;
-    // nothing grows under water or where the hillside turns to bare rock
-    if (y <= WATER_LEVEL + 0.1 || slope > ROCKY) return -1;
-    const a = r(4) * Math.PI * 2;
-    // flowers gather in drifts of mostly one colour, with a few strays between them
-    const drift = THREE.MathUtils.smoothstep(this.drifts(x / DRIFT, z / DRIFT), 0.25, 0.6);
-    // a flower cell stands for several grass cells' worth of ground, so its chance is theirs together
-    const chance = kind === 'flower' ? Math.min(0.95, FLOWER_AREA * cover.flower * (0.25 + 4 * drift)) : 0;
-    if (kind === 'flower' && r(7) >= chance) return -1;
-    D[o + F.GROWS] = 1;
-    D[o + F.X] = x;
-    D[o + F.Y] = y;
-    D[o + F.Z] = z;
-    D[o + F.COS] = Math.cos(a);
-    D[o + F.SIN] = Math.sin(a);
-    D[o + F.SIZE] = 0.7 + 0.5 * r(3);
-    // some clumps stand tall, most are knee-high
-    D[o + F.TALL] = 0.65 + 0.7 * r(5) * r(5);
-    D[o + F.BLADE] = color(cover.blades[Math.floor(r(6) * cover.blades.length)]!);
-    D[o + F.FLOWER_ROLL] = r(7);
-    D[o + F.FLOWER_CHANCE] = chance;
-    D[o + F.FLOWER] = color(this.flowerColour(x, z, r(9)));
-    D[o + F.FLOWER_SIZE] = 0.8 + 0.5 * r(8);
-    return o;
+    let count = 0;
+    for (let i = pi * grid.cells; i < (pi + 1) * grid.cells; i++) {
+      for (let k = pk * grid.cells; k < (pk + 1) * grid.cells; k++) {
+        const r = (n: number) => unit(hashInts(seed, i, k, n));
+        const x = (i + r(0) * 0.9) * grid.step,
+          z = (k + r(1) * 0.9) * grid.step;
+        const y = w.heightAt(x, z);
+        if (y <= WATER_LEVEL) continue;
+        const climate = w.climate(x, z);
+        const biome = climateBiome(climate);
+        const cover = COVER[biome === 'water' ? 'grassland' : biome];
+        const meadow = riverbedMeadow(climate) * smoothstep(0, BANK_HEIGHT, y - WATER_LEVEL);
+        if (r(2) >= cover.tuft * meadow) continue;
+        const dx = (w.heightAt(x + 0.4, z) - y) / 0.4,
+          dz = (w.heightAt(x, z + 0.4) - y) / 0.4;
+        if (Math.max(Math.abs(dx), Math.abs(dz)) > ROCKY) continue;
+        const size = (0.7 + 0.5 * r(3)) * (0.45 + 0.55 * meadow);
+        const angle = r(4) * Math.PI * 2;
+        if (grid.kind === 'flower') {
+          const drift = THREE.MathUtils.smoothstep(this.drifts(x / DRIFT, z / DRIFT), 0.25, 0.6);
+          const chance = Math.min(0.95, 4 * cover.flower * (0.25 + 4 * drift));
+          const roll = r(7);
+          if (roll >= chance) continue;
+          const fs = 0.8 + 0.5 * r(8);
+          put(matrices, count, x, y, z, angle, fs, FLOWER_LIFT * size + 0.04, 0, 0);
+          colors[count * 3] = color(this.flowerColour(x, z, r(9)));
+          colors[count * 3 + 1] = roll / chance;
+        } else {
+          const tall = r(5);
+          put(
+            matrices,
+            count,
+            x,
+            y - 0.035 * size,
+            z,
+            angle,
+            size,
+            size * (0.65 + 0.7 * tall * tall),
+            dx,
+            dz,
+          );
+          colors[count * 3] = color(cover.blades[Math.floor(r(6) * cover.blades.length)]!);
+        }
+        count++;
+      }
+    }
+    mesh.visible = count > 0;
+    mesh.count = count;
+    if (!count) return;
+    for (const attr of [mesh.instanceMatrix, mesh.instanceColor!]) {
+      attr.clearUpdateRanges();
+      attr.addUpdateRange(0, count * attr.itemSize);
+      attr.needsUpdate = true;
+    }
+    mesh.computeBoundingBox();
+    mesh.boundingBox!.expandByScalar(0.5);
   }
 
-  /** A drift's own colour most of the time, now and then any other. */
   private flowerColour(x: number, z: number, roll: number): ColorKey {
     if (roll < 0.15) return FLOWERS[Math.floor((roll / 0.15) * FLOWERS.length)]!;
     const h = (this.hues(x / (DRIFT * 1.3), z / (DRIFT * 1.3)) + 1) / 2;
@@ -364,45 +221,46 @@ export class GrassField {
   }
 
   dispose(): void {
-    for (const { mesh } of this.windows) {
-      mesh.removeFromParent();
-      mesh.geometry.dispose();
-      mesh.dispose();
+    for (const grid of this.grids) {
+      for (const { mesh } of [...grid.patches.values(), ...grid.spare]) {
+        mesh.removeFromParent();
+        mesh.dispose();
+      }
+      grid.geometry.dispose();
+      grid.material.dispose();
+      grid.patches.clear();
+      grid.spare.length = 0;
     }
-    this.material.dispose();
-    this.nearMaterial.dispose();
-    this.flowerMaterial.dispose();
-    this.card.dispose();
   }
 }
 
-/** Write a scale-rotate-translate matrix straight into slot `n` of an instance buffer. */
+/** Static yaw, scale and slope-following roots. Stems remain upright on a bank. */
 function put(
   m: Float32Array,
-  n: number,
-  D: Float32Array,
-  o: number,
+  index: number,
+  x: number,
+  y: number,
+  z: number,
+  angle: number,
   sx: number,
   sy: number,
-  y: number,
+  dx: number,
+  dz: number,
 ): void {
-  const c = D[o + F.COS]!;
-  const sn = D[o + F.SIN]!;
-  const at = n * 16;
+  const c = Math.cos(angle),
+    s = Math.sin(angle),
+    at = index * 16;
   m[at] = sx * c;
-  m[at + 1] = 0;
-  m[at + 2] = -sx * sn;
-  m[at + 3] = 0;
+  m[at + 1] = sx * (c * dx - s * dz);
+  m[at + 2] = -sx * s;
   m[at + 4] = 0;
   m[at + 5] = sy;
   m[at + 6] = 0;
-  m[at + 7] = 0;
-  m[at + 8] = sx * sn;
-  m[at + 9] = 0;
+  m[at + 8] = sx * s;
+  m[at + 9] = sx * (s * dx + c * dz);
   m[at + 10] = sx * c;
-  m[at + 11] = 0;
-  m[at + 12] = D[o + F.X]!;
+  m[at + 12] = x;
   m[at + 13] = y;
-  m[at + 14] = D[o + F.Z]!;
+  m[at + 14] = z;
   m[at + 15] = 1;
 }
