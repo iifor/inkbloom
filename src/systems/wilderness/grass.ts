@@ -1,5 +1,6 @@
-// Grass and wildflowers around the player: tufts of blades and dots of flowers on a fixed world
-// grid (so they stay put as you walk), placed again whenever the player moves a few metres.
+// Grass and wildflowers around the player: clumps of painted stalks (crossed alpha cards, see
+// grass-card.ts) and dots of flowers on a fixed world grid (so they stay put as you walk),
+// placed again whenever the player moves a few metres.
 // They sway in the wind (ink material `wind`), thin out towards the edge of the field, take
 // their colour from the land around cities like the ground does, and cast no shadows.
 // Drawing only: nothing collides with grass.
@@ -11,11 +12,12 @@ import { NO_SHADOW_LAYER, makeInkMaterial } from '@/engine/render/ink-material';
 import { hashInts, unit } from '@/world/math/hash';
 import { createNoise2D, type Noise2D } from '@/world/math/noise';
 import { WATER_LEVEL, type Wilderness } from '@/world/wilderness/generator';
+import { makeCardClump, makeGrassCard } from './grass-card';
 
 /** Radius of the field around the player, metres. */
-const RADIUS = 34;
-/** Grid spacing between tufts. */
-const SPACING = 0.6;
+const RADIUS = 40;
+/** Grid spacing between clumps. */
+const SPACING = 0.55;
 /** The field is placed again after the player moves this far. */
 const REPLACE = 3;
 /** Rise over run where grass gives way to rock (the renderer paints rock from about here). */
@@ -25,35 +27,13 @@ const MAX = PER_SIDE * PER_SIDE;
 
 /** Per biome: chance of a tuft per grid point, chance of a flower, blade colours. */
 const COVER: Partial<Record<string, { tuft: number; flower: number; blades: readonly ColorKey[] }>> = {
-  grassland: { tuft: 0.9, flower: 0.1, blades: ['grass', 'grass', 'green'] },
-  forest: { tuft: 0.6, flower: 0.03, blades: ['grass', 'green', 'forest'] },
-  mountain: { tuft: 0.7, flower: 0.04, blades: ['grass', 'green', 'forest'] },
+  grassland: { tuft: 0.97, flower: 0.1, blades: ['grass', 'grass', 'green'] },
+  forest: { tuft: 0.85, flower: 0.03, blades: ['grass', 'green', 'forest'] },
+  mountain: { tuft: 0.85, flower: 0.04, blades: ['grass', 'green', 'forest'] },
 };
 const FLOWERS: readonly ColorKey[] = ['yellow', 'yellow', 'cream', 'cream', 'pink', 'sky', 'purple'];
 /** Metres across a drift of flowers. */
 const DRIFT = 22;
-
-/** A tuft of seven blades fanning out, normals pointing up so it shades like the ground. */
-function tuftGeometry(): THREE.BufferGeometry {
-  const pos: number[] = [];
-  const nor: number[] = [];
-  for (let i = 0; i < 7; i++) {
-    const a = (i / 7) * Math.PI * 2 + i * 0.7;
-    const lean = 0.08 + 0.06 * (i % 2);
-    const h = 0.45 + (0.18 * ((i * 37) % 5)) / 4;
-    const cx = Math.cos(a) * 0.06;
-    const cz = Math.sin(a) * 0.06;
-    const w = 0.03;
-    const px = -Math.sin(a) * w;
-    const pz = Math.cos(a) * w;
-    pos.push(cx - px, 0, cz - pz, cx + px, 0, cz + pz, cx + Math.cos(a) * lean, h, cz + Math.sin(a) * lean);
-    for (let k = 0; k < 3; k++) nor.push(0, 1, 0);
-  }
-  const g = new THREE.BufferGeometry();
-  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
-  return g;
-}
 
 function bake(geometry: THREE.BufferGeometry): THREE.BufferGeometry {
   const b = new GeometryBuilder();
@@ -65,7 +45,9 @@ function bake(geometry: THREE.BufferGeometry): THREE.BufferGeometry {
 export class GrassField {
   private readonly tufts: THREE.InstancedMesh;
   private readonly flowers: THREE.InstancedMesh;
-  private readonly material = makeInkMaterial({ wind: true, side: THREE.DoubleSide });
+  private readonly card = makeGrassCard();
+  private readonly material = makeInkMaterial({ wind: true, side: THREE.DoubleSide, card: this.card });
+  private readonly flowerMaterial = makeInkMaterial({ wind: true });
   private centre: { x: number; z: number } | null = null;
   private readonly m = new THREE.Matrix4();
   private readonly q = new THREE.Quaternion();
@@ -85,9 +67,9 @@ export class GrassField {
   ) {
     this.drifts = createNoise2D(wilderness.seed ^ 0x51f0);
     this.hues = createNoise2D(wilderness.seed ^ 0x2b1d);
-    this.tufts = new THREE.InstancedMesh(bake(tuftGeometry()), this.material, MAX);
+    this.tufts = new THREE.InstancedMesh(makeCardClump(1.25, 0.8), this.material, MAX);
     const head = new THREE.OctahedronGeometry(0.075, 0);
-    this.flowers = new THREE.InstancedMesh(bake(head), this.material, MAX);
+    this.flowers = new THREE.InstancedMesh(bake(head), this.flowerMaterial, MAX);
     for (const mesh of [this.tufts, this.flowers]) {
       mesh.count = 0;
       mesh.frustumCulled = false;
@@ -139,9 +121,12 @@ export class GrassField {
         if (y <= WATER_LEVEL + 0.1) continue;
         // thin out towards the rim so the field has no hard edge
         const fade = THREE.MathUtils.smoothstep(RADIUS - d, 0, RADIUS * 0.3);
-        const size = (0.6 + 0.45 * r(3)) * (0.35 + 0.65 * fade);
+        // short right around the player's feet, so the nearest clumps do not fill the view
+        const underfoot = THREE.MathUtils.smoothstep(d, 1.5, 6);
+        const size = (0.7 + 0.5 * r(3)) * (0.35 + 0.65 * fade) * (0.45 + 0.55 * underfoot);
         this.q.setFromAxisAngle(this.up, r(4) * Math.PI * 2);
-        this.s.set(size * 1.2, size * (0.75 + 0.4 * r(5)), size * 1.2);
+        // some clumps stand tall, most are knee-high
+        this.s.set(size, size * (0.65 + 0.7 * r(5) * r(5)), size);
         this.m.compose(this.p.set(x, y, z), this.q, this.s);
         this.tufts.setMatrixAt(nt, this.m);
         const blade = cover.blades[Math.floor(r(6) * cover.blades.length)]!;
@@ -152,7 +137,7 @@ export class GrassField {
         if (r(7) < cover.flower * (0.25 + 4 * drift)) {
           const fs = 0.8 + 0.5 * r(8);
           this.m.compose(
-            this.p.set(x + 0.05, y + 0.3 * size + 0.04, z),
+            this.p.set(x + 0.05, y + 0.5 * size + 0.04, z),
             this.q,
             this.s.set(fs, fs * 0.8, fs),
           );
@@ -185,5 +170,7 @@ export class GrassField {
       mesh.dispose();
     }
     this.material.dispose();
+    this.flowerMaterial.dispose();
+    this.card.dispose();
   }
 }

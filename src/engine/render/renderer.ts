@@ -196,6 +196,8 @@ void main() {
       float steep = 1.0 - smoothstep(0.62, 0.74, wn.y + (big - 0.5) * 0.18 + (leaf - 0.5) * 0.08);
       base = mix(base, paletteColor(float(uRock)), steep);
       tex = mix(tex, 0.7, steep);
+      // the meadow floor is mostly seen between the grass, down in its shade
+      base *= mix(0.78, 1.0, steep);
     }
     float mott = ((big - 0.5) * 0.3 + (leaf - 0.5) * 0.35) * tex + (stroke - 0.5) * 0.06;
     base *= 1.0 + mott * near;
@@ -323,6 +325,82 @@ uniform sampler2D tGlow;
 uniform float uStrength;
 void main() { gl_FragColor = vec4(texture2D(tGlow, vUv).rgb * uStrength, 1.0); }`;
 
+/**
+ * The brush pass: turns the rendered frame into strokes of paint, then grades it like a
+ * painting. A smooth Kuwahara filter looks at eight wedges of a circle around each pixel and
+ * keeps the colour of the calmest ones, so areas break into rounded patches of paint with soft
+ * edges while outlines stay sharp. Then: warm lift and a gentle S-curve, a little more colour, a
+ * warm vignette, and a canvas weave with fine grain over everything.
+ */
+const brushFrag = /* glsl */ `
+precision highp float;
+varying vec2 vUv;
+uniform sampler2D tSrc;
+uniform vec2 uTexel;
+uniform float uSpread;
+uniform float uAspect;
+uniform float uTime;
+const float PI = 3.14159265;
+
+/** Mean and spread of colour in one wedge of the circle around the pixel: the centre plus
+ * two rings of three rays, 15 degrees apart. dir is the wedge's middle direction. */
+void wedge(vec2 dir, vec3 centre, out vec3 mean, out float variance) {
+  // ±15 degrees, without trigonometry per tap
+  const float C = 0.9659258;
+  const float S = 0.2588190;
+  vec2 rays[3];
+  rays[0] = vec2(dir.x * C - dir.y * S, dir.x * S + dir.y * C);
+  rays[1] = dir;
+  rays[2] = vec2(dir.x * C + dir.y * S, -dir.x * S + dir.y * C);
+  vec3 sum = centre;
+  vec3 sum2 = centre * centre;
+  for (int ring = 1; ring <= 2; ring++)
+    for (int ray = 0; ray < 3; ray++) {
+      vec3 c = texture2D(tSrc, vUv + rays[ray] * (float(ring) * 1.5 * uSpread) * uTexel).rgb;
+      sum += c;
+      sum2 += c * c;
+    }
+  mean = sum / 7.0;
+  vec3 v = abs(sum2 / 7.0 - mean * mean);
+  variance = v.r + v.g + v.b;
+}
+
+float hash(vec2 p) { p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }
+
+void main() {
+  vec3 centre = texture2D(tSrc, vUv).rgb;
+  vec3 acc = vec3(0.0);
+  float total = 0.0;
+  for (int k = 0; k < 8; k++) {
+    vec3 mean;
+    float variance;
+    float ang = float(k) * (PI / 4.0);
+    wedge(vec2(cos(ang), sin(ang)), centre, mean, variance);
+    // calmer wedges count for much more (smooth rather than winner-takes-all, so no blocks)
+    float w = 1.0 / (variance * 400.0 + 1e-3);
+    w *= w;
+    acc += mean * w;
+    total += w;
+  }
+  vec3 col = acc / total;
+
+  // grade like a painting: warm lift, gentle S-curve, a little more colour
+  col = clamp(col * vec3(1.03, 1.0, 0.95) + vec3(0.022, 0.016, 0.004), 0.0, 1.0);
+  col = mix(col, col * col * (3.0 - 2.0 * col), 0.22);
+  float l = dot(col, vec3(0.3, 0.59, 0.11));
+  col = mix(vec3(l), col, 1.1);
+  // warm vignette
+  vec2 q = vUv - 0.5;
+  q.x *= uAspect;
+  col *= mix(vec3(0.8, 0.76, 0.72), vec3(1.0), smoothstep(0.95, 0.38, length(q)));
+  // canvas weave and fine grain
+  vec2 pp = gl_FragCoord.xy;
+  float weave = sin(pp.x * 1.7) * sin(pp.y * 1.7) * 0.012 + (hash(floor(pp / 3.0)) - 0.5) * 0.02;
+  float grain = (hash(pp + fract(uTime * 7.0) * 113.0) - 0.5) * 0.025;
+  col *= 1.0 + weave + grain;
+  gl_FragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
+}`;
+
 /** How strongly bright light blooms over its surroundings. */
 const GLOW_STRENGTH = 0.32;
 
@@ -344,6 +422,12 @@ export class InkRenderer {
   private readonly glowAdd: THREE.ShaderMaterial;
   private readonly glowScene = new THREE.Scene();
   private readonly glowQuad: THREE.Mesh;
+  /** The frame after the brush pass, before FXAA. */
+  private readonly brushRt: THREE.WebGLRenderTarget;
+  private readonly brush: THREE.ShaderMaterial;
+  private readonly brushScene = new THREE.Scene();
+  /** Pixels between brush-filter taps at 900 px tall (scaled with the frame); quality sets it. */
+  private brushSpread = 2;
   private readonly postCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
   private readonly clearColor = new THREE.Color(1, 0, 0);
   private pixelRatio: number;
@@ -509,6 +593,29 @@ export class InkRenderer {
     });
     this.glowQuad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this.glowBlur);
     this.glowScene.add(this.glowQuad);
+    this.brushRt = new THREE.WebGLRenderTarget(2, 2, {
+      minFilter: THREE.LinearFilter,
+      magFilter: THREE.LinearFilter,
+      depthBuffer: false,
+      stencilBuffer: false,
+      generateMipmaps: false,
+    });
+    this.brush = new THREE.ShaderMaterial({
+      uniforms: {
+        tSrc: { value: this.paintRt.texture },
+        uTexel: { value: new THREE.Vector2() },
+        uSpread: { value: 1 },
+        uAspect: { value: 1 },
+        uTime: { value: 0 },
+      },
+      vertexShader: postVert,
+      fragmentShader: brushFrag,
+      depthTest: false,
+      depthWrite: false,
+    });
+    this.brushScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this.brush));
+    // FXAA smooths the brushed frame, not the raw one
+    this.fxaa.uniforms.tDiffuse!.value = this.brushRt.texture;
     this.resize();
   }
 
@@ -520,6 +627,8 @@ export class InkRenderer {
 
   setQuality(quality: 'high' | 'low'): void {
     this.pixelRatio = Math.min(window.devicePixelRatio || 1, quality === 'high' ? 1.5 : 1);
+    // smaller strokes on the faster setting (the filter cost does not change, the look does)
+    this.brushSpread = quality === 'high' ? 2 : 1.4;
     this.resize();
   }
 
@@ -533,6 +642,11 @@ export class InkRenderer {
     const rh = Math.floor(h * this.pixelRatio);
     this.rt.setSize(rw, rh);
     this.paintRt.setSize(rw, rh);
+    this.brushRt.setSize(rw, rh);
+    const bu = this.brush.uniforms;
+    bu.uTexel!.value.set(1 / rw, 1 / rh);
+    bu.uSpread!.value = this.brushSpread * Math.max(1, rh / 900);
+    bu.uAspect!.value = w / h;
     this.glowA.setSize(Math.max(2, rw >> 2), Math.max(2, rh >> 2));
     this.glowB.setSize(Math.max(2, rw >> 2), Math.max(2, rh >> 2));
     this.camera.aspect = w / h;
@@ -566,6 +680,9 @@ export class InkRenderer {
     shared.uTime.value = u.uTime!.value;
     r.setRenderTarget(this.paintRt);
     r.render(this.postScene, this.postCam);
+    this.brush.uniforms.uTime!.value = u.uTime!.value;
+    r.setRenderTarget(this.brushRt);
+    r.render(this.brushScene, this.postCam);
     r.setRenderTarget(null);
     r.render(this.fxaaScene, this.postCam);
     this.renderGlow();
@@ -634,6 +751,9 @@ export class InkRenderer {
     this.shadowRt.dispose();
     this.shadowMaterial.dispose();
     this.paintRt.dispose();
+    this.brushRt.dispose();
+    this.brush.dispose();
+    disposeTree(this.brushScene);
     this.glowA.dispose();
     this.glowB.dispose();
     this.glowBlur.dispose();

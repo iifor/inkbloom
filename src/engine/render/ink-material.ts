@@ -46,6 +46,7 @@ uniform float uTime;
 varying vec3 vNormalV;
 varying float vCode;
 varying vec4 vShadow;
+varying vec2 vCardUv;
 varying float vTip;
 varying float vGust;
 
@@ -100,6 +101,9 @@ void main() {
   }
   vCode = idx + 0.9 * clamp(sat, 0.0, 1.0);
   vNormalV = normalize(normalMatrix * objectNormal);
+  #ifdef CARD
+    vCardUv = uv;
+  #endif
   // pushed out along the normal a little, so surfaces do not shadow themselves
   vec3 wn = normalize(mat3(modelMatrix) * objectNormal);
   vShadow = uShadowMatrix * vec4(world.xyz + wn * 0.12, 1.0);
@@ -116,6 +120,7 @@ uniform float uShadowOn;
 varying vec3 vNormalV;
 varying float vCode;
 varying vec4 vShadow;
+varying vec2 vCardUv;
 varying float vTip;
 varying float vGust;
 
@@ -138,7 +143,16 @@ float sunlight() {
   return mix(1.0, sum / 9.0, smoothstep(0.0, 0.08, min(e.x, e.y)));
 }
 
+#ifdef CARD
+uniform sampler2D uCard;
+#endif
+
 void main() {
+  #ifdef CARD
+    // a card of painted stalks: cut out where the picture is empty
+    vec4 card = texture2D(uCard, vCardUv);
+    if (card.a < 0.45) discard;
+  #endif
   vec3 n = normalize(vNormalV);
   #ifndef WIND
     // plants keep their upward normal on both sides; everything else shows its back face dark
@@ -150,6 +164,10 @@ void main() {
   #ifdef WIND
     // a tuft is dark down among the stems and catches the light at the tips
     shade = clamp(shade * mix(0.62, 1.12, vTip), 0.0, 1.0);
+    #ifdef CARD
+      // the card's own light and dark: dark stems below, pale seed heads above
+      shade = clamp(shade * mix(0.55, 1.18, card.r), 0.0, 1.0);
+    #endif
     // a gust turns the blades over and a wave of light runs across the meadow
     shade = clamp(shade + vGust * vTip * 0.18, 0.0, 1.0);
   #endif
@@ -172,6 +190,8 @@ export interface InkMaterialOptions {
   shadeBias?: number;
   /** Sway in the wind by local height (grass, flowers). */
   wind?: boolean;
+  /** Alpha-tested card picture (grass stalks): red = light and dark, alpha = cut-out. Needs uv. */
+  card?: THREE.Texture;
 }
 
 export function makeInkMaterial(opts: InkMaterialOptions = {}): THREE.ShaderMaterial {
@@ -191,10 +211,11 @@ export function makeInkMaterial(opts: InkMaterialOptions = {}): THREE.ShaderMate
       uState: { value: opts.state?.texture ?? empty() },
       uStateWidth: { value: opts.state?.width ?? 1 },
       uShadeBias: { value: opts.shadeBias ?? 0 },
+      uCard: { value: opts.card ?? null },
     },
     vertexShader: vert,
     fragmentShader: frag,
-    defines: opts.wind ? { WIND: '' } : {},
+    defines: { ...(opts.wind ? { WIND: '' } : {}), ...(opts.card ? { CARD: '' } : {}) },
     side: opts.side ?? THREE.FrontSide,
   });
 }
