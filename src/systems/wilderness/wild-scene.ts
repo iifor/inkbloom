@@ -88,7 +88,6 @@ export class WildScene implements GameScene {
       if (Math.max(Math.abs(cx - pcx), Math.abs(cz - pcz)) > W.unloadRadius) this.unload(key, item);
     }
     this.grass.update(p);
-    this.grass.warm();
     this.sources.update(dt);
     this.monsters.update(dt);
     this.ruins.update(dt);

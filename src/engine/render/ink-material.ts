@@ -26,6 +26,8 @@ export const shared = {
   uShadowOn: { value: 0 },
   /** Seconds, for wind. */
   uTime: { value: 0 },
+  /** Wind, metres per second along +x and +z (set from the weather each frame). */
+  uWind: { value: new THREE.Vector2(2.4, 1.5) },
 };
 
 /** Layer for things drawn but never shadow-casting (grass: it would speckle the ground). */
@@ -43,12 +45,18 @@ uniform float uDrainOuter;
 uniform float uSceneSat;
 uniform mat4 uShadowMatrix;
 uniform float uTime;
+uniform vec2 uWind;
 varying vec3 vNormalV;
 varying float vCode;
 varying vec4 vShadow;
 varying vec2 vCardUv;
 varying float vTip;
 varying float vGust;
+#ifdef FIELD
+uniform vec3 uField;
+uniform vec4 uFieldFade;
+uniform float uBloom;
+#endif
 
 float derivedSat(vec3 wp) {
   float drain = 0.0;
@@ -66,8 +74,27 @@ void main() {
   vec3 transformed = position;
   vec3 objectNormal = normal;
   #ifdef USE_INSTANCING
+    #ifdef FIELD
+      // a field of plants around the player: each one's size follows its distance from them,
+      // so moving the player changes nothing on the CPU. Full size in the middle, thinning to
+      // a third at the rim (uFieldFade: reach, rim width), a little shorter right underfoot
+      // (between .z and .w metres), gone beyond the reach
+      float fd = distance(instanceMatrix[3].xz, uField.xz);
+      float rim = 1.0 - smoothstep(uFieldFade.x - uFieldFade.y, uFieldFade.x, fd);
+      float grow = step(fd, uFieldFade.x) * (0.35 + 0.65 * rim) * (0.6 + 0.4 * smoothstep(uFieldFade.z, uFieldFade.w, fd));
+      float shown = grow;
+      #ifdef USE_INSTANCING_COLOR
+        // flowers: green says how much of the season's bloom it needs, blue how high its head
+        // sits at full size (it sinks with the grass around it)
+        shown *= step(instanceColor.g, uBloom);
+      #endif
+      transformed *= shown;
+    #endif
     transformed = (instanceMatrix * vec4(transformed, 1.0)).xyz;
     objectNormal = mat3(instanceMatrix) * objectNormal;
+    #if defined(FIELD) && defined(USE_INSTANCING_COLOR)
+      transformed.y -= instanceColor.b * (1.0 - grow);
+    #endif
   #endif
   vec4 world = modelMatrix * vec4(transformed, 1.0);
   #ifdef WIND
@@ -76,7 +103,10 @@ void main() {
     vGust = smoothstep(0.55, 1.0, sin(uTime * 0.9 + world.x * 0.045 - world.z * 0.06) * 0.5 + 0.5);
     float sway = sin(uTime * 1.6 + world.x * 0.31 + world.z * 0.23) * 0.6
                + sin(uTime * 0.7 + world.x * 0.05 - world.z * 0.07) * 0.5 + vGust * 0.9;
-    world.xz += vec2(0.8, 0.5) * sway * 0.16 * max(position.y, 0.0);
+    // with the wind: about today's look at 3 m/s, storms bend the grass much further
+    float ws = length(uWind);
+    vec2 wdir = ws > 0.1 ? uWind / ws : vec2(0.85, 0.53);
+    world.xz += wdir * sway * 0.16 * clamp(0.3 + ws * 0.23, 0.3, 2.2) * max(position.y, 0.0);
     vTip = clamp(position.y / 0.4, 0.0, 1.0);
   #else
     vTip = 1.0;
@@ -192,6 +222,18 @@ export interface InkMaterialOptions {
   wind?: boolean;
   /** Alpha-tested card picture (grass stalks): red = light and dark, alpha = cut-out. Needs uv. */
   card?: THREE.Texture;
+  /** Instanced plants sized by distance from a moving centre on the GPU; see FieldUniforms. */
+  field?: FieldUniforms;
+}
+
+/** Shared, live uniforms for a field of plants (the owner updates the values each frame). */
+export interface FieldUniforms {
+  /** The player's position: the field's middle. */
+  readonly uField: { value: THREE.Vector3 };
+  /** Reach, rim width, and where underfoot shortening starts and ends (metres). */
+  readonly uFieldFade: { value: THREE.Vector4 };
+  /** The season's bloom, 0..1: flowers needing more than this are hidden. */
+  readonly uBloom: { value: number };
 }
 
 export function makeInkMaterial(opts: InkMaterialOptions = {}): THREE.ShaderMaterial {
@@ -208,14 +250,20 @@ export function makeInkMaterial(opts: InkMaterialOptions = {}): THREE.ShaderMate
       uShadowTexel: shared.uShadowTexel,
       uShadowOn: shared.uShadowOn,
       uTime: shared.uTime,
+      uWind: shared.uWind,
       uState: { value: opts.state?.texture ?? empty() },
       uStateWidth: { value: opts.state?.width ?? 1 },
       uShadeBias: { value: opts.shadeBias ?? 0 },
       uCard: { value: opts.card ?? null },
+      ...(opts.field ?? {}),
     },
     vertexShader: vert,
     fragmentShader: frag,
-    defines: { ...(opts.wind ? { WIND: '' } : {}), ...(opts.card ? { CARD: '' } : {}) },
+    defines: {
+      ...(opts.wind ? { WIND: '' } : {}),
+      ...(opts.card ? { CARD: '' } : {}),
+      ...(opts.field ? { FIELD: '' } : {}),
+    },
     side: opts.side ?? THREE.FrontSide,
   });
 }
