@@ -51,7 +51,7 @@ function listen(scene: Scene): { birds: number; crickets: number; owls: number; 
     const newSound = !last || t.pos !== last.pos;
     last = t;
     if (!newSound) continue;
-    if (t.type === 'sawtooth') counts.frogs++;
+    if ((t.freq ?? 0) < 250) counts.frogs++;
     else if (t.freq === 400) counts.owls++;
     else if (t.dur === 0.018) counts.crickets++;
     else counts.birds++;

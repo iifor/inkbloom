@@ -11,7 +11,8 @@ import { seasonBlend } from '@/world/climate/calendar';
 import { smoothstep } from '@/world/math/noise';
 import { influenceOf, saturationAt } from '@/world/wilderness/drain';
 
-const BPM = 76;
+/** Slow and unhurried: the music is a bed under the world, not a tune to follow. */
+const BPM = 64;
 const EIGHTH = 60 / BPM / 2;
 /** Chord roots (semitones from the key) per bar, and whether each chord is minor. */
 const BRIGHT = [
@@ -114,33 +115,33 @@ export class Music {
     const b = this.brightness;
 
     if (e === 0) {
-      // pad: the chord, soft and long
+      // pad: the chord, swelling in slowly and overlapping the next one
       for (const iv of [0, third, 7])
         s.tone({
           freq: midi(chordRoot + iv),
-          dur: EIGHTH * 8,
-          gain: (0.025 + 0.02 * b) * this.loud,
-          type: 'triangle',
+          dur: EIGHTH * 10,
+          gain: (0.03 + 0.02 * b) * this.loud,
+          type: 'sine',
           at: t,
-          attack: 0.4 / this.tempo,
+          attack: 0.9 / this.tempo,
           bus: 'music',
         });
       s.tone({
         freq: midi(chordRoot - 12),
-        dur: EIGHTH * 6,
-        gain: 0.06 * this.loud,
+        dur: EIGHTH * 7,
+        gain: 0.05 * this.loud,
         type: 'sine',
         at: t,
-        attack: 0.05,
+        attack: 0.25,
         bus: 'music',
       });
     }
-    // melody: a gentle random walk on the scale; busier when the land has colour
-    const density = this.tide ? 0.35 + 0.45 * b : (0.15 + 0.45 * b) * this.density;
+    // melody: a gentle random walk on the scale, mostly by step; busier when the land has colour
+    const density = this.tide ? 0.3 + 0.35 * b : (0.1 + 0.32 * b) * this.density;
     if (Math.random() < density && e % (b > 0.3 ? 1 : 2) === 0) {
       this.walk = Math.max(
         0,
-        Math.min(9, this.walk + (Math.random() < 0.5 ? -1 : 1) * (Math.random() < 0.3 ? 2 : 1)),
+        Math.min(8, this.walk + (Math.random() < 0.5 ? -1 : 1) * (Math.random() < 0.15 ? 2 : 1)),
       );
       const deg = this.walk;
       // winter: an octave up, a pure tone left to ring like a bell
@@ -148,25 +149,28 @@ export class Music {
       const pitch = KEY + 12 + scale[deg % 5]! + 12 * Math.floor(deg / 5) + (bell ? 12 : 0);
       s.tone({
         freq: midi(pitch),
-        dur: EIGHTH * (bell ? 4 : 1.6),
-        gain: (0.05 + 0.03 * b) * (this.tide ? 1 : this.loud) * (bell ? 0.8 : 1),
+        // long, overlapping notes with a soft start, so the line flows instead of plinking
+        dur: EIGHTH * (bell ? 4.5 : 2.6),
+        gain: (0.04 + 0.025 * b) * (this.tide ? 1 : this.loud) * (bell ? 0.8 : 1),
         type: bell || !bright ? 'sine' : 'triangle',
         at: t,
+        attack: 0.05,
         bus: 'music',
       });
     }
     if (this.tide) {
-      // tension: a low pulse on every beat and a ticking hat
+      // tension, but no harshness: a low heartbeat pulse and a soft tick
       if (e % 2 === 0)
         s.tone({
           freq: midi(KEY - 24),
           dur: EIGHTH * 0.9,
-          gain: 0.12,
-          type: 'sawtooth',
+          gain: 0.09,
+          type: 'triangle',
           at: t,
+          attack: 0.02,
           bus: 'music',
         });
-      s.tone({ freq: 8000, dur: 0.03, gain: 0.015, type: 'square', at: t, bus: 'music' });
+      s.tone({ freq: 1800, dur: 0.04, gain: 0.01, type: 'sine', at: t, bus: 'music' });
     }
   }
 

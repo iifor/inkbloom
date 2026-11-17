@@ -44,18 +44,18 @@ export class AudioSystem implements System {
         s.noise({ dur: 0.05, gain: 0.25, type: 'highpass', freq: 2200, delay: 0.25 });
       }),
       on('blast', ({ at, radius }) => {
-        s.noise({ dur: 0.7, gain: 0.9, freq: 900, freqEnd: 90, pos: at });
+        s.noise({ dur: 0.7, gain: 0.7, freq: 700, freqEnd: 90, pos: at });
         s.tone({ freq: 90, freqEnd: 35 * (radius > 5 ? 0.8 : 1), dur: 0.6, gain: 0.5, pos: at });
       }),
       on('shot:hit', ({ killed, heavy }) => {
-        s.tone({ freq: killed ? 1400 : 2200, dur: killed ? 0.12 : 0.05, gain: 0.08, type: 'square' });
+        s.tone({ freq: killed ? 1100 : 1600, dur: killed ? 0.14 : 0.06, gain: 0.07, type: 'triangle' });
         // a kill lands with a low thump; a heavy blow with a dull knock
         if (killed) s.tone({ freq: 110, freqEnd: 45, dur: 0.22, gain: 0.35, type: 'sine' });
         else if (heavy) s.noise({ dur: 0.06, gain: 0.3, type: 'lowpass', freq: 500 });
       }),
       on('monster:interrupted', ({ at }) => {
         // a sharp crack: the attack breaks
-        s.noise({ dur: 0.05, gain: 0.5, type: 'highpass', freq: 2400, pos: at });
+        s.noise({ dur: 0.05, gain: 0.3, type: 'bandpass', freq: 1800, pos: at });
         s.tone({ freq: 880, freqEnd: 330, dur: 0.15, gain: 0.18, type: 'triangle', pos: at });
       }),
       on('shot:impact', ({ at }) =>
@@ -65,7 +65,7 @@ export class AudioSystem implements System {
         s.noise({ dur: 0.09, gain: 0.35, type: 'bandpass', freq: 650, q: 3, pos: at }),
       ),
       on('monster:died', ({ at }) => {
-        s.noise({ dur: 0.35, gain: 0.6, freq: 1400, freqEnd: 180, pos: at });
+        s.noise({ dur: 0.35, gain: 0.45, freq: 1200, freqEnd: 180, pos: at });
         s.tone({ freq: 240, freqEnd: 60, dur: 0.3, gain: 0.2, type: 'triangle', pos: at });
       }),
       on('monster:spit', ({ at }) => {
@@ -104,7 +104,7 @@ export class AudioSystem implements System {
       on('tide:warning', ({ at }) => {
         for (const d of [0, 0.9])
           for (const f of [110, 116.5])
-            s.tone({ freq: f, dur: 0.8, gain: 0.18, type: 'sawtooth', delay: d, pos: at });
+            s.tone({ freq: f, dur: 0.8, gain: 0.16, type: 'triangle', delay: d, pos: at });
       }),
       on('tide:start', () => {
         this.loops().rumble?.set(1);
@@ -160,7 +160,7 @@ export class AudioSystem implements System {
     const delay = distance / 343;
     const near = 1 - Math.min(1, distance / 900);
     if (distance < 250)
-      s.noise({ dur: 0.25, gain: 0.5 * near, type: 'highpass', freq: 1800, freqEnd: 600, delay });
+      s.noise({ dur: 0.25, gain: 0.35 * near, type: 'bandpass', freq: 1400, freqEnd: 500, delay });
     s.noise({
       dur: 2.2 + 1.5 * (1 - near),
       gain: 0.25 + 0.6 * near,
@@ -187,7 +187,7 @@ export class AudioSystem implements System {
       this.wind = this.synth.noiseLoop({ type: 'bandpass', freq: 700, q: 0.6, gain: 0.35 });
       this.rumble = this.synth.noiseLoop({ type: 'lowpass', freq: 160, gain: 0.5 });
       // a soft hiss of rain on leaves and ground
-      this.rain = this.synth.noiseLoop({ type: 'bandpass', freq: 3200, q: 0.4, gain: 0.3 });
+      this.rain = this.synth.noiseLoop({ type: 'bandpass', freq: 2200, q: 0.4, gain: 0.24 });
     }
     return { brush: this.brush, wind: this.wind, rumble: this.rumble, rain: this.rain };
   }
@@ -203,7 +203,7 @@ export class AudioSystem implements System {
     const s = this.synth;
     switch (key) {
       case 'sniper':
-        s.noise({ dur: 0.35, gain: 0.8, type: 'bandpass', freq: 1500, freqEnd: 180, q: 0.6 });
+        s.noise({ dur: 0.35, gain: 0.6, type: 'bandpass', freq: 1200, freqEnd: 180, q: 0.6 });
         s.tone({ freq: 120, freqEnd: 50, dur: 0.25, gain: 0.35 });
         break;
       case 'staff':
@@ -218,7 +218,7 @@ export class AudioSystem implements System {
         s.noise({ dur: 0.18, gain: 0.3, type: 'highpass', freq: 1500, freqEnd: 5000 });
         break;
       default:
-        s.noise({ dur: 0.16, gain: 0.55, type: 'bandpass', freq: 1200, freqEnd: 260, q: 0.7 });
+        s.noise({ dur: 0.16, gain: 0.45, type: 'bandpass', freq: 1000, freqEnd: 260, q: 0.7 });
     }
   }
 

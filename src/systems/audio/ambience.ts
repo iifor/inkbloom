@@ -35,9 +35,9 @@ export class Ambience {
   private loops(): void {
     if (this.cicada || !this.synth.ctx) return;
     const s = this.synth;
-    this.cicada = s.noiseLoop({ type: 'bandpass', freq: 4800, q: 6, gain: 0.12 });
+    this.cicada = s.noiseLoop({ type: 'bandpass', freq: 4200, q: 3, gain: 0.05 });
     this.stream = s.noiseLoop({ type: 'bandpass', freq: 900, q: 0.7, gain: 0.22 });
-    this.leaves = s.noiseLoop({ type: 'highpass', freq: 3000, gain: 0.16 });
+    this.leaves = s.noiseLoop({ type: 'highpass', freq: 2400, gain: 0.12 });
   }
 
   private sample(): void {
@@ -135,7 +135,7 @@ export class Ambience {
       // a quick trill
       const f = 3600 + Math.random() * 1400;
       for (let i = 0, n = 6 + Math.floor(Math.random() * 6); i < n; i++, t += 0.045)
-        s.tone({ freq: f, freqEnd: f * 0.85, dur: 0.03, gain: 0.035, at: t, pos, bus: 'ambience' });
+        s.tone({ freq: f, freqEnd: f * 0.85, dur: 0.03, gain: 0.025, at: t, pos, bus: 'ambience' });
     } else {
       // a short whistled phrase, each note sliding up or down
       const base = 2000 + Math.random() * 1600;
@@ -162,7 +162,7 @@ export class Ambience {
     const pos = this.around(4, 20, 0.3);
     const f = 4300 + Math.random() * 600;
     for (let i = 0; i < 3; i++)
-      s.tone({ freq: f, dur: 0.018, gain: 0.03, at: s.now + 0.02 + i * 0.04, pos, bus: 'ambience' });
+      s.tone({ freq: f, dur: 0.018, gain: 0.02, at: s.now + 0.02 + i * 0.04, pos, bus: 'ambience' });
   }
 
   /** An owl in the woods: a short hoot, then a long one. */
@@ -194,7 +194,7 @@ export class Ambience {
         freqEnd: f * 0.85,
         dur: 0.11,
         gain: 0.04,
-        type: 'sawtooth',
+        type: 'triangle',
         at: s.now + 0.02 + i * 0.2,
         pos,
         bus: 'ambience',

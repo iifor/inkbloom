@@ -1,5 +1,7 @@
 // Procedural Web Audio: every sound is synthesised from noise and oscillators, no assets.
-// Three buses (sfx, music, ambience) feed a master gain and a compressor. Sounds can be placed
+// Three buses (sfx, music, ambience) feed a master gain, a soft top-end rolloff and a gentle
+// compressor, and send some of themselves to a hall reverb (an impulse made of decaying noise,
+// so still no assets): the mix is meant to be calm and soft. Sounds can be placed
 // in the world: they fade with distance and pan by the listener's right vector.
 // Ported in spirit from doodle-game's audio.js; the recipes live in systems/audio.
 
@@ -42,6 +44,9 @@ export interface Loop {
   stop(): void;
 }
 
+/** How much of each bus goes into the hall reverb. */
+const HALL_SEND: Record<string, number> = { sfx: 0.12, music: 0.35, ambience: 0.3 };
+
 export class Synth {
   ctx: AudioContext | null = null;
   private master: GainNode | null = null;
@@ -56,15 +61,38 @@ export class Synth {
     const AC = window.AudioContext;
     if (!AC) return;
     const ctx = (this.ctx = new AC());
+    // a gentle mix: a soft, wide-kneed compressor, and the top end rolled off so nothing hisses
+    // or clicks sharply
     const comp = ctx.createDynamicsCompressor();
-    comp.threshold.value = -14;
-    comp.ratio.value = 4;
+    comp.threshold.value = -18;
+    comp.knee.value = 20;
+    comp.ratio.value = 3;
     comp.connect(ctx.destination);
+    const soften = ctx.createBiquadFilter();
+    soften.type = 'lowpass';
+    soften.frequency.value = 7000;
+    soften.Q.value = 0.5;
+    soften.connect(comp);
     this.master = ctx.createGain();
-    this.master.connect(comp);
+    this.master.connect(soften);
+    // a soft hall everything sits in, more for music and ambience than for effects
+    const hall = ctx.createConvolver();
+    hall.buffer = this.hallImpulse(ctx, 2.6);
+    const hallTone = ctx.createBiquadFilter();
+    hallTone.type = 'lowpass';
+    hallTone.frequency.value = 4000;
+    const hallOut = ctx.createGain();
+    hallOut.gain.value = 0.7;
+    hall.connect(hallTone);
+    hallTone.connect(hallOut);
+    hallOut.connect(this.master);
     for (const name of ['sfx', 'music', 'ambience']) {
       const g = ctx.createGain();
       g.connect(this.master);
+      const send = ctx.createGain();
+      send.gain.value = HALL_SEND[name]!;
+      g.connect(send);
+      send.connect(hall);
       this.buses.set(name, g);
     }
     const len = ctx.sampleRate * 2;
@@ -72,6 +100,17 @@ export class Synth {
     const d = this.noiseBuf.getChannelData(0);
     for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
     this.applyVolumes();
+  }
+
+  /** A reverb tail: stereo noise fading out over `seconds`, no recording needed. */
+  private hallImpulse(ctx: AudioContext, seconds: number): AudioBuffer {
+    const len = Math.floor(ctx.sampleRate * seconds);
+    const buf = ctx.createBuffer(2, len, ctx.sampleRate);
+    for (let c = 0; c < 2; c++) {
+      const d = buf.getChannelData(c);
+      for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 3);
+    }
+    return buf;
   }
 
   async resume(): Promise<void> {
@@ -95,8 +134,9 @@ export class Synth {
     if (!this.ctx || !this.master) return;
     const t = this.ctx.currentTime;
     this.master.gain.setTargetAtTime(this.volumes.master, t, 0.05);
-    this.buses.get('sfx')!.gain.setTargetAtTime(this.volumes.sfx, t, 0.05);
-    this.buses.get('ambience')!.gain.setTargetAtTime(this.volumes.sfx, t, 0.05);
+    // effects and ambience sit a little back, so the whole game sounds calm
+    this.buses.get('sfx')!.gain.setTargetAtTime(this.volumes.sfx * 0.75, t, 0.05);
+    this.buses.get('ambience')!.gain.setTargetAtTime(this.volumes.sfx * 0.8, t, 0.05);
     this.buses.get('music')!.gain.setTargetAtTime(this.volumes.music * 0.5, t, 0.05);
   }
 
