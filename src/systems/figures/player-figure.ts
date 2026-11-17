@@ -108,11 +108,26 @@ function body(b: RigBuilder, o: BodyOpts) {
   const [legL, shinL] = leg(-1);
   const [legR, shinR] = leg(1);
   const torso = b.joint(hips, 0, 0.02, 0);
-  b.blob(torso, 0, 0.27, 0, o.chest[0], o.chest[1], o.chest[2], 'coat');
+  // a chest over a narrower waist, so the body tapers instead of being one egg
+  b.blob(torso, 0, 0.32, 0, o.chest[0], o.chest[1] * 0.78, o.chest[2], 'coat');
+  b.blob(torso, 0, 0.12, 0, o.chest[0] * 0.86, o.chest[1] * 0.55, o.chest[2] * 0.92, 'coat');
   const arm = (sx: number): [THREE.Object3D, THREE.Object3D] => {
+    // a rounded shoulder joins the arm to the chest
+    b.blob(torso, sx * o.shoulder, 0.44, 0, o.arm * 1.3, o.arm * 1.2, o.arm * 1.3, o.sleeve);
     const up = b.limb(torso, sx * o.shoulder, 0.46, 0, 0.29, o.arm, o.sleeve);
     const fore = b.limb(up.joint, 0, up.end, 0, 0.27, o.arm * 0.88, o.forearm);
-    b.blob(fore.joint, 0, fore.end - 0.03, 0, o.hand, o.hand * 1.15, o.hand, o.handPaint);
+    // a mitten of a hand with a thumb on the inside
+    b.blob(fore.joint, 0, fore.end - 0.03, 0, o.hand * 0.85, o.hand * 1.2, o.hand * 0.7, o.handPaint);
+    b.blob(
+      fore.joint,
+      -sx * o.hand * 0.55,
+      fore.end - 0.01,
+      -o.hand * 0.35,
+      o.hand * 0.35,
+      o.hand * 0.5,
+      o.hand * 0.35,
+      o.handPaint,
+    );
     return [up.joint, fore.joint];
   };
   const [armL, foreL] = arm(-1);
@@ -120,6 +135,10 @@ function body(b: RigBuilder, o: BodyOpts) {
   b.blob(torso, 0, 0.5, 0, 0.06, 0.06, 0.06, 'skin');
   const head = b.joint(torso, 0, 0.53, 0);
   b.blob(head, 0, 0.15, 0, 0.14, 0.16, 0.145, 'skin');
+  // a rounder chin, a small nose for the profile, ears
+  b.blob(head, 0, 0.09, -0.025, 0.115, 0.085, 0.115, 'skin');
+  b.blob(head, 0, 0.13, -0.148 - o.faceZ, 0.02, 0.022, 0.022, 'skin');
+  for (const sx of [-1, 1]) b.blob(head, sx * 0.138, 0.15, 0.005, 0.022, 0.038, 0.03, 'skin');
   for (const sx of [-1, 1]) {
     // big enough to survive the brush pass a few metres away
     b.blob(head, sx * 0.052, 0.16, -0.132 - o.faceZ, 0.027, 0.038, 0.018, 'eye');
@@ -254,11 +273,69 @@ function ranger(b: RigBuilder) {
   return { ...j, trails };
 }
 
+/** 船夫: a broad conical straw hat, a short raincoat, a coil of rope, a towel at the belt. */
+function boatman(b: RigBuilder) {
+  const j = body(b, { ...BASE, sleeve: 'accent', forearm: 'skin' });
+  const trails: Trail[] = [];
+  // the raincoat is the accent: over the chest, flaring at the hips
+  b.blob(j.torso, 0, 0.3, 0, 0.215, 0.24, 0.145, 'accent');
+  const hem = trail(b, j.hips, [0, 0.02, 0], [0, 0, 0], 0.25);
+  b.blob(hem.node, 0, -0.06, 0, 0.22, 0.13, 0.155, 'accent');
+  trails.push(hem);
+  for (const arm of [j.armL, j.armR]) b.blob(arm, 0, -0.27, 0, 0.068, 0.045, 0.068, 'accent');
+  // hair at the back under the hat
+  b.blob(j.head, 0, 0.13, 0.07, 0.13, 0.1, 0.09, 'hair');
+  // the hat: a broad flat brim and a low peak, wider than the shoulders
+  const hat = b.joint(j.head, 0, 0.27, 0);
+  b.blob(hat, 0, 0, 0, 0.32, 0.035, 0.32, 'hat');
+  b.blob(hat, 0, 0.05, 0, 0.17, 0.07, 0.17, 'hat');
+  b.blob(hat, 0, 0.1, 0, 0.06, 0.04, 0.06, 'hat');
+  // a coil of rope over the left shoulder
+  const coil = b.joint(j.torso, -0.12, 0.38, 0.1);
+  coil.rotation.set(0.2, 0.3, 0.6);
+  b.blob(coil, 0, 0, 0, 0.14, 0.14, 0.035, 'rope');
+  // a towel tucked into the belt, swinging
+  const towel = trail(b, j.torso, [0.16, 0.05, -0.08], [0, 0, 0], 0.5);
+  b.limb(towel.node, 0, 0, 0, 0.26, 0.055, 'towel', 0.012);
+  trails.push(towel);
+  return { ...j, trails };
+}
+
+/** 园丁: a big straw sun hat with a flower, a long apron, a braid over the shoulder. */
+function gardener(b: RigBuilder) {
+  const j = body(b, { ...BASE, chest: [0.19, 0.27, 0.13] });
+  const trails: Trail[] = [];
+  // the apron is the accent: a bib on the chest and a long skirt that sways from the hips
+  b.blob(j.torso, 0, 0.3, -0.105, 0.15, 0.2, 0.04, 'accent');
+  for (const sx of [-1, 1]) b.limb(j.torso, sx * 0.12, 0.52, -0.06, 0.2, 0.022, 'accent', 0.01);
+  const apron = trail(b, j.hips, [0, 0.02, -0.12], [0, 0, 0], 0.3);
+  b.limb(apron.node, 0, 0, 0, 0.62, 0.17, 'accent', 0.03);
+  trails.push(apron);
+  // hair and a braid over the right shoulder, tied with a ribbon
+  b.blob(j.head, 0, 0.2, 0.02, 0.15, 0.12, 0.15, 'hair');
+  const braid = trail(b, j.head, [0.1, 0.12, 0.05], [0.15, 0, 0.25], 0.5);
+  b.blob(braid.node, 0, -0.08, 0, 0.04, 0.09, 0.04, 'hair');
+  b.blob(braid.node, 0, -0.19, 0, 0.035, 0.08, 0.035, 'hair');
+  b.blob(braid.node, 0, -0.27, 0, 0.03, 0.03, 0.03, 'accent');
+  trails.push(braid);
+  // a straw sun hat, tipped a little, its band in the accent and a flower on the side
+  const hat = b.joint(j.head, 0, 0.27, 0);
+  hat.rotation.z = 0.08;
+  b.blob(hat, 0, 0, 0, 0.26, 0.025, 0.25, 'hat');
+  b.blob(hat, 0, 0.05, 0, 0.15, 0.07, 0.15, 'hat');
+  b.blob(hat, 0, 0.03, 0, 0.152, 0.02, 0.152, 'accent');
+  b.blob(hat, 0.1, 0.05, -0.12, 0.045, 0.045, 0.02, 'petal');
+  b.blob(hat, 0.1, 0.05, -0.135, 0.018, 0.018, 0.012, 'bud');
+  return { ...j, trails };
+}
+
 const BUILD: Record<CharacterKey, (b: RigBuilder) => Omit<Rig, 'parts' | 'hipsY'>> = {
   courier,
   mason,
   apprentice,
   ranger,
+  boatman,
+  gardener,
 };
 
 /** A character's rig at rest. Exported for tests. */

@@ -1,9 +1,12 @@
 // Page entry: load or create the world save, start the open world, and drive the menus and
 // pointer lock. URL options: ?world=<id> picks a save slot, ?seed=<n> seeds a new world.
+import { PALETTE } from './content/palette';
 import { startOpenWorld, type OpenWorld } from './modes/open-world';
 import { Menu } from './shell/menu';
 import { installDevTools } from './shell/dev-tools';
+import { CharacterPreview } from './systems/figures/preview';
 import { hashString } from './world/math/hash';
+import { loadProfile, saveProfile } from './world/profile';
 import { loadSettings, saveSettings, type Settings } from './world/settings';
 import { SaveError, createWorldState, type WorldState } from './world/state';
 import { KeyValueStore, browserKeyValue } from './world/store';
@@ -78,6 +81,9 @@ async function boot(): Promise<void> {
   };
   apply(settings);
 
+  let profile = loadProfile(kv);
+  const preview = new CharacterPreview(game.ctx);
+  const world = state;
   const input = game.ctx.input;
   const menu = new Menu(overlay, state, {
     async play() {
@@ -112,6 +118,13 @@ async function boot(): Promise<void> {
       a.click();
       setTimeout(() => URL.revokeObjectURL(a.href), 1000);
     },
+    profile: () => profile,
+    saveProfile(p) {
+      saveProfile(kv, p);
+      profile = loadProfile(kv);
+    },
+    preview: (look) => preview.show(look),
+    accents: () => world.unlocked.filter((c) => PALETTE[c]?.paintable),
   });
   menu.show('main');
   input.onLockChange = (locked) => {

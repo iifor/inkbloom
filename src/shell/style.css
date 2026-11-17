@@ -692,3 +692,83 @@ body {
 .hud-title span:empty {
   display: none;
 }
+
+/* character screen: the card on the left, the chosen look standing in the world on the right */
+#overlay.side {
+  align-items: flex-start;
+  padding-left: max(16px, 4vw);
+  background: linear-gradient(
+    to right,
+    rgba(248, 241, 222, 0.7),
+    rgba(248, 241, 222, 0.35) 38%,
+    transparent 55%
+  );
+}
+#overlay.side .menu-body {
+  width: min(460px, 100%);
+}
+.menu-body .chars {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  width: 100%;
+}
+#overlay .menu-body .chars button {
+  margin: 0;
+  padding: 8px 10px;
+  font-size: 18px;
+  text-align: left;
+  line-height: 1.2;
+}
+#overlay .menu-body .chars button small {
+  margin-top: 3px;
+  opacity: 0.85;
+  font-size: 11px;
+}
+#overlay .menu-body .chars button.on {
+  background: linear-gradient(#7fb46c, var(--leaf));
+  border-color: var(--leaf-dark);
+  box-shadow:
+    inset 0 2px 0 rgba(255, 255, 255, 0.3),
+    0 4px 0 var(--leaf-dark);
+}
+.menu-body .swatches {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+}
+.menu-body .swatches span {
+  width: 4em;
+  text-align: left;
+  font-size: 15px;
+  color: var(--ink-soft);
+}
+#overlay .menu-body button.swatch {
+  width: 28px;
+  height: 28px;
+  margin: 0;
+  padding: 0;
+  border-radius: 50%;
+  border: 2px solid var(--wood-dark);
+  box-shadow: none;
+}
+#overlay .menu-body button.swatch.on {
+  outline: 3px solid var(--leaf);
+  outline-offset: 2px;
+}
+.menu-body p.hint {
+  margin: 2px 0;
+  font-size: 13px;
+  text-align: left;
+}
+.menu-body input[type='text'] {
+  flex: 1;
+  font: inherit;
+  padding: 4px 8px;
+  border: 1.5px solid var(--wood);
+  border-radius: 8px;
+  background: var(--paper);
+  color: var(--ink);
+}
