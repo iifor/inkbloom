@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { Synth, ToneOptions } from '@/engine/audio/synth';
 import type { GameContext } from '@/game/types';
 import { Ambience } from '@/systems/audio/ambience';
@@ -16,8 +16,13 @@ interface Scene {
   beds?: boolean;
 }
 
-/** Counts what an Ambience plays over a minute in a given scene, with a synth that only listens. */
+/** Counts what an Ambience plays over a minute in a given scene, with a synth that only listens.
+ * The ambience rolls dice for each call; they are seeded here so every run hears the same minute. */
 function listen(scene: Scene): { birds: number; crickets: number; owls: number; frogs: number } {
+  let seed = 0x2545f491;
+  const dice = vi
+    .spyOn(Math, 'random')
+    .mockImplementation(() => (seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 4294967296);
   const tones: ToneOptions[] = [];
   const loop = { set: () => {}, stop: () => {} };
   const synth = {
@@ -47,6 +52,7 @@ function listen(scene: Scene): { birds: number; crickets: number; owls: number; 
   } as unknown as GameContext;
   const a = new Ambience(synth, ctx);
   for (let i = 0; i < 60 * 30; i++) a.update(1 / 30);
+  dice.mockRestore();
   // every sound is a run of tones; count each one by its first tone
   const counts = { birds: 0, crickets: 0, owls: 0, frogs: 0 };
   let last: ToneOptions | null = null;
