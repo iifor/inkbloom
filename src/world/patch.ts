@@ -18,6 +18,7 @@ import { WEAPONS } from '@/content/weapons';
 import type { PigmentSource } from './wilderness/sources';
 import type { WildMonster } from './wilderness/wild-monsters';
 import type { Ruin } from './wilderness/ruins';
+import { type InkWell, wellOfGuard } from './wilderness/ink-wells';
 
 export type Patch =
   | { readonly kind: 'restore'; readonly city: string; readonly surface: number }
@@ -33,6 +34,8 @@ export type Patch =
   | { readonly kind: 'defeat'; readonly city: string; readonly monster: number }
   /** A wilderness monster was defeated: pay its ink; it comes back after a while. */
   | { readonly kind: 'hunt'; readonly monster: string }
+  /** Cleanse an ink well whose guards are down: it runs clear for good. */
+  | { readonly kind: 'cleanse'; readonly well: string }
   /** The player died here: drop a share of held ink at this spot. */
   | {
       readonly kind: 'death';
@@ -80,6 +83,11 @@ export interface PatchContext {
   wildMonsterOf(id: string): WildMonster | null;
   /** A ruin by id, or null. */
   ruinOf(id: string): Ruin | null;
+  /** An ink well by id as the land is now: whether it seeps, and its guards; null if none.
+   * (Left out where no wells are in play, as in some tests: then nothing can be cleansed.) */
+  inkWellOf?(
+    id: string,
+  ): { readonly well: InkWell; readonly seeping: boolean; readonly guards: readonly WildMonster[] } | null;
 }
 
 const fail = (reason: string): PatchResult => ({ ok: false, reason });
@@ -197,9 +205,26 @@ function applyRules(state: WorldState, patch: Patch, ctx: PatchContext): PatchRe
       const m = ctx.wildMonsterOf(patch.monster);
       if (!m) return fail('这里没有墨怪');
       if (!wildMonsterBack(state, m.id)) return fail('已经打败了');
+      // a cleansed well has no guards any more
+      const kept = wellOfGuard(m.id);
+      if (kept && state.cleansed.has(kept)) return fail('这里没有墨怪');
       state.hunted.set(m.id, state.clock);
       inv.ink += ENEMIES[m.type]?.ink ?? 0;
       state.growth.xp += XP.monster;
+      return OK;
+    }
+    case 'cleanse': {
+      const found = ctx.inkWellOf?.(patch.well);
+      if (!found) return fail('这里没有墨泉');
+      if (state.cleansed.has(found.well.id)) return fail('已经净化过了');
+      if (!found.seeping) return fail('墨泉已经干了');
+      const standing = found.guards.filter((g) => wildMonsterBack(state, g.id)).length;
+      if (standing) return fail(`还有 ${standing} 只墨怪守着墨泉`);
+      const W = TUNING.combat.wells;
+      state.cleansed.set(found.well.id, state.clock);
+      inv.ink += W.ink;
+      inv.generic += W.pigment;
+      state.growth.xp += XP.wellCleansed;
       return OK;
     }
     case 'death': {

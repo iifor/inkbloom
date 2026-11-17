@@ -8,6 +8,7 @@ import type { Patch } from '@/world/patch';
 import { createWorldState } from '@/world/state';
 import { type Entrance, createWilderness } from '@/world/wilderness/generator';
 import { type PigmentSource, sourcesInChunk } from '@/world/wilderness/sources';
+import { inkWellsNear, wellGuards } from '@/world/wilderness/ink-wells';
 
 const SEED = 7;
 const LOOK = defaultLook('courier');
@@ -109,6 +110,30 @@ describe('world host: patches', () => {
       deserializeSlice(h.sliceOf(b)!).inventory.generic,
     );
     expect(h.patch(b, { kind: 'harvest', source: src.id }).ok).toBe(false);
+  });
+
+  it('an ink well is cleansed once, for everyone, after its guards are down', () => {
+    const w = createWilderness(SEED);
+    const well = inkWellsNear(w, 0, 0, 3000).find((x) => wellGuards(w, x, 0).length > 0)!;
+    const h = host();
+    const a = joined(h, 1, well.x, well.z);
+    const b = joined(h, 2, well.x, well.z);
+    expect(h.patch(a, { kind: 'cleanse', well: well.id })).toMatchObject({
+      ok: false,
+      fix: { cleansed: [[well.id, null]] },
+    });
+    for (const g of wellGuards(w, well, 0)) expect(h.patch(a, { kind: 'hunt', monster: g.id }).ok).toBe(true);
+    const r = h.patch(a, { kind: 'cleanse', well: well.id });
+    expect(r).toMatchObject({ ok: true, shared: true, fix: { cleansed: [[well.id, h.state.clock]] } });
+    const no = h.patch(b, { kind: 'cleanse', well: well.id });
+    expect(no).toMatchObject({ ok: false, fix: { cleansed: [[well.id, h.state.clock]] } });
+    // a kill the server will not take is answered too, so the client brings the monster back
+    expect(h.patch(a, { kind: 'hunt', monster: `${well.cx},${well.cz}:99` })).toMatchObject({
+      ok: false,
+      fix: { hunted: [[`${well.cx},${well.cz}:99`, null]] },
+    });
+    const far = joined(h, 3, well.x + NEAR * 3, well.z);
+    expect(h.patch(far, { kind: 'cleanse', well: well.id }).ok).toBe(false);
   });
 
   it('only acts near where the sender stands', () => {

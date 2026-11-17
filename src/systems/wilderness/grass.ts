@@ -9,6 +9,7 @@ import { makeWindMap } from '@/engine/render/wind-map';
 import { hashInts, unit } from '@/world/math/hash';
 import { createNoise2D, smoothstep, type Noise2D } from '@/world/math/noise';
 import { BANK_HEIGHT, riverbedMeadow, WATER_LEVEL, type Wilderness } from '@/world/wilderness/generator';
+import { bloomOf, type FlowerSea, patchMask, SEA_FLOWERS, seasNear } from '@/world/wilderness/groves';
 import { springsNear } from '@/world/wilderness/landmarks';
 import { pathsOf } from '@/world/wilderness/paths';
 import { makeBladeClump } from './grass-card';
@@ -39,7 +40,7 @@ class Grid {
   lastI = Infinity;
   lastK = Infinity;
   constructor(
-    readonly kind: 'grass' | 'flower',
+    readonly kind: 'grass' | 'flower' | 'sea',
     readonly step: number,
     readonly cells: number,
     readonly geometry: THREE.BufferGeometry,
@@ -53,6 +54,10 @@ export class GrassField {
   private readonly viewProjection = new THREE.Matrix4();
   private readonly grassDensity = { value: 1 };
   private readonly flowerDensity = { value: 1 };
+  private readonly seaDensity = { value: 1 };
+  /** How far each kind of flower sea is in bloom (SEA_FLOWERS order): a sea's flowers are all
+   * planted, and the shader shows that share of them, so nothing is rebuilt as the season turns. */
+  private readonly seaBloom = { value: new THREE.Vector4() };
   private readonly field = {
     uField: { value: new THREE.Vector3() },
     uFieldFade: { value: new THREE.Vector2(RADIUS - 8, RADIUS) },
@@ -92,14 +97,30 @@ export class GrassField {
           field: { ...this.field, uDensity: this.flowerDensity },
         }),
       ),
+      // flower seas: one kind of flower packed close over a whole field (see groves.ts)
+      new Grid(
+        'sea',
+        0.46,
+        24,
+        meadowFlower(),
+        makeInkMaterial({
+          wind: this.windMap,
+          side: THREE.DoubleSide,
+          field: { ...this.field, uDensity: this.seaDensity, uBloom: this.seaBloom },
+        }),
+      ),
     ];
     root.add(this.coverRoot);
     this.drifts = createNoise2D(wilderness.seed ^ 0x51f0);
     this.hues = createNoise2D(wilderness.seed ^ 0x2b1d);
   }
 
-  update(at: THREE.Vector3, flowers = 1, grass = 1): void {
-    this.coverRoot.visible = grass > 0;
+  update(at: THREE.Vector3, flowers = 1, grass = 1, yearPhase = 0): void {
+    // the seas bloom on their own calendar, even where the meadow is still bare
+    const b = this.seaBloom.value.set(
+      ...([0, 1, 2, 3].map((k) => bloomOf(k, yearPhase)) as [number, number, number, number]),
+    );
+    this.coverRoot.visible = grass > 0 || Math.max(b.x, b.y, b.z, b.w) > 0;
     if (!this.coverRoot.visible) return;
     this.grassDensity.value = grass;
     this.flowerDensity.value = Math.min(flowers, grass);
@@ -162,7 +183,7 @@ export class GrassField {
   private createPatch(grid: Grid): Patch {
     const count = grid.cells ** 2;
     const mesh = new THREE.InstancedMesh(grid.geometry, grid.material, count);
-    mesh.name = grid.kind === 'grass' ? 'grass-tufts' : 'wildflowers';
+    mesh.name = { grass: 'grass-tufts', flower: 'wildflowers', sea: 'flower-sea' }[grid.kind];
     mesh.layers.set(NO_SHADOW_LAYER);
     // A flat patch's sphere reaches far above its grass. Cull against its wind-padded box instead.
     mesh.frustumCulled = false;
@@ -177,10 +198,16 @@ export class GrassField {
   private fill(grid: Grid, { mesh, i: pi, k: pk }: Patch): void {
     const matrices = mesh.instanceMatrix.array as Float32Array;
     const colors = mesh.instanceColor!.array as Float32Array;
-    const seed = this.wilderness.seed ^ (grid.kind === 'flower' ? 0x1f3d : 0x6a55);
+    const seed = this.wilderness.seed ^ { grass: 0x6a55, flower: 0x1f3d, sea: 0x3c71 }[grid.kind];
     const w = this.wilderness;
     const paths = pathsOf(w);
     let count = 0;
+    if (grid.kind === 'sea') {
+      const width = grid.cells * grid.step;
+      const seas = seasNear(w, (pi + 0.5) * width, (pk + 0.5) * width, width * 0.71);
+      if (seas.length) count = this.fillSea(grid, pi, pk, seas, matrices, colors);
+      return this.finish(mesh, count);
+    }
     for (let i = pi * grid.cells; i < (pi + 1) * grid.cells; i++) {
       for (let k = pk * grid.cells; k < (pk + 1) * grid.cells; k++) {
         const r = (n: number) => unit(hashInts(seed, i, k, n));
@@ -238,6 +265,66 @@ export class GrassField {
         count++;
       }
     }
+    this.finish(mesh, count);
+  }
+
+  /** A flower sea's share of a patch: packed close where the sea is thick, each flower with its
+   * sea's kind and its place in the bloom (green channel: kind + 0.9 × place). */
+  private fillSea(
+    grid: Grid,
+    pi: number,
+    pk: number,
+    seas: readonly FlowerSea[],
+    matrices: Float32Array,
+    colors: Float32Array,
+  ): number {
+    const w = this.wilderness;
+    const paths = pathsOf(w);
+    const seed = w.seed ^ 0x3c71;
+    let count = 0;
+    for (let i = pi * grid.cells; i < (pi + 1) * grid.cells; i++)
+      for (let k = pk * grid.cells; k < (pk + 1) * grid.cells; k++) {
+        const r = (n: number) => unit(hashInts(seed, i, k, n));
+        const x = (i - 0.25 + r(0) * 1.5) * grid.step,
+          z = (k - 0.25 + r(1) * 1.5) * grid.step;
+        let sea: FlowerSea | null = null;
+        let thick = 0;
+        for (const s of seas) {
+          const m = patchMask(s, x, z);
+          if (m > thick) [sea, thick] = [s, m];
+        }
+        // thinning out raggedly toward the edge
+        const limit = thick * (0.75 + 0.25 * this.drifts(x / 7 + 13, z / 7 + 5));
+        if (!sea || r(2) >= limit) continue;
+        const y = w.heightAt(x, z);
+        if (y <= WATER_LEVEL + 0.2 || w.townAt(x, z, 1) || paths.edgeDistance(x, z) < 0.2) continue;
+        const dx = (w.heightAt(x + 0.4, z) - y) / 0.4,
+          dz = (w.heightAt(x, z + 0.4) - y) / 0.4;
+        if (Math.max(Math.abs(dx), Math.abs(dz)) > ROCKY) continue;
+        const kind = SEA_FLOWERS[sea.kind]!;
+        const size = 0.9 + 0.5 * r(3);
+        put(
+          matrices,
+          count,
+          x,
+          y,
+          z,
+          r(4) * Math.PI * 2,
+          size,
+          FLOWER_LIFT * size + 0.05 + 0.15 * r(5),
+          0,
+          0,
+        );
+        colors[count * 3] = r(6) < 0.1 ? kind.dot : kind.colour;
+        // which flowers open first: the shader shows those whose place is below the sea's bloom
+        colors[count * 3 + 1] = sea.kind + 0.9 * (r(2) / limit);
+        colors[count * 3 + 2] = r(10);
+        count++;
+      }
+    return count;
+  }
+
+  private finish(mesh: THREE.InstancedMesh, count: number): void {
     mesh.visible = count > 0;
     mesh.count = count;
     if (!count) return;

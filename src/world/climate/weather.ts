@@ -32,6 +32,11 @@ export interface Weather {
   readonly snowCover: number;
   /** Thunderstorm, 0..1: only heavy rain on a hot day. */
   readonly thunder: number;
+  /** A rainbow could show, 0..1: rain has just passed and the cloud is breaking up. Whether it
+   * does is the sun's business (it must be low enough, and up): the renderer decides that. */
+  readonly rainbow: number;
+  /** Hoar frost on the grass, 0..1: a cold, clear, still spell with no snow lying. */
+  readonly frost: number;
 }
 
 /** The parts of the land the weather reads. */
@@ -44,6 +49,8 @@ const WET_STEP = 75;
 /** Look-back for fresh snow: 8 samples, 150 s apart (20 minutes). */
 const SNOW_STEP = 150;
 const LOOKBACK = 8;
+/** Wetness look-back steps that count as "just rained" for a rainbow (up to 5 minutes). */
+const RAINBOW_STEPS = 4;
 /** Steps in the precomputed path of the air over one year. */
 const PATH_STEPS = 512;
 
@@ -133,9 +140,13 @@ export function createWeather(land: WeatherLand): WeatherAt {
 
     let wetness = 0;
     let fresh = 0;
+    let shower = 0;
     for (let k = 0; k < LOOKBACK; k++) {
       const tw = clock - k * WET_STEP;
-      wetness = Math.max(wetness, precipOf(humidity(tw, x, z, c.moisture)) * 0.8 ** k);
+      const fell = precipOf(humidity(tw, x, z, c.moisture));
+      wetness = Math.max(wetness, fell * 0.8 ** k);
+      // rain in the last few minutes (not now): what a rainbow is made of
+      if (k > 0 && k <= RAINBOW_STEPS) shower = Math.max(shower, fell);
       const ts = clock - k * SNOW_STEP;
       const fall = precipOf(humidity(ts, x, z, c.moisture)) * smoothstep(2, -1, temperature(ts, height));
       fresh = Math.max(fresh, fall * 0.9 ** k);
@@ -163,7 +174,21 @@ export function createWeather(land: WeatherLand): WeatherAt {
     const fog = Math.max(smoothstep(0.35, 0.8, damp) * morning * (1 - smoothstep(3, 8, speed)), 0.4 * precip);
 
     const thunder = smoothstep(0.55, 1, precip) * smoothstep(19, 27, temp);
-    return { cloud, precip, snow, wind, temp, fog, wetness, snowCover: cover, thunder };
+    // the shower has moved off and the sun is breaking through behind it
+    const rainbow =
+      smoothstep(0.5, 0.8, shower) *
+      (1 - smoothstep(0.01, 0.08, precip)) *
+      smoothstep(0.92, 0.7, cloud) *
+      smoothstep(0, 3, temp);
+    // rime on a cold, clear, still night: the temperature carries the day's swing, so it forms
+    // in the small hours and goes as the morning warms; wind and cloud keep it off
+    const frost =
+      smoothstep(3, -1, temp) *
+      smoothstep(0.9, 0.5, cloud) *
+      (1 - smoothstep(6, 12, speed)) *
+      (1 - smoothstep(0.3, 0.7, cover)) *
+      (1 - precip);
+    return { cloud, precip, snow, wind, temp, fog, wetness, snowCover: cover, thunder, rainbow, frost };
   };
 }
 

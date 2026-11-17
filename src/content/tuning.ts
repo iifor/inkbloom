@@ -154,6 +154,10 @@ export const TUNING = {
     wild: { drainedBelow: 0.35, greyBelow: 0.75, drained: [4, 7], grey: [1, 3] },
     /** Seconds of play before a defeated wilderness monster comes back. */
     wildRespawnSeconds: 900,
+    /** Ink wells (墨泉) in grey land: the chance a chunk near an unrestored town has one, its
+     * guards ([min, max]), what cleansing it pays, metres round it the colour comes back
+     * (`bloom`), and how close a player must stand to cleanse it (`reach`). */
+    wells: { chance: 0.16, guards: [2, 3], ink: 20, pigment: 8, bloom: 45, reach: 4 },
     /** How hits feel. design: docs/game-design.md section 8 */
     feel: {
       /** Hitting a monster while it winds up breaks the attack (破招), if the hit is at least

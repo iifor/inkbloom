@@ -536,6 +536,56 @@ function greatWood(distant: boolean): THREE.BufferGeometry {
   return mesh.geometry();
 }
 
+/**
+ * A clump of bamboo, in clump heights (y) and spreads (x, z): culms rising from a tight base and
+ * arching outward, slender and tapering, with feathery banks of leaves strung along their upper
+ * halves. Far off, fewer culms and fewer, rounder banks.
+ */
+function bamboo(distant: boolean): { wood: THREE.BufferGeometry; leaves: THREE.BufferGeometry } {
+  const wood = new TreeMesh();
+  const lumps: Lump[] = [];
+  const culms = distant ? 4 : 7;
+  for (let i = 0; i < culms; i++) {
+    const a = (TAU * i) / culms + 0.7 * Math.sin(i * 2.9);
+    const dx = Math.cos(a),
+      dz = Math.sin(a);
+    const base = 0.1 + 0.16 * ((i * 0.618) % 1);
+    const lean = 0.35 + 0.35 * ((i * 0.382 + 0.3) % 1);
+    const tall = 0.78 + 0.22 * ((i * 0.727 + 0.5) % 1);
+    // out along the culm: it leans more the higher it gets, so it arches over
+    const at = (t: number): [number, number, number] => {
+      const out = base + lean * t * t;
+      return [dx * out, tall * t, dz * out];
+    };
+    limbOf(
+      wood,
+      [0, 0.25, 0.5, 0.75, 1].map((t): Section => [...at(t), 0.02 * (1 - 0.6 * t)]),
+      distant ? 3 : 6,
+    );
+    const banks = distant ? 2 : 5;
+    for (let k = 0; k < banks; k++) {
+      const t = 0.45 + (0.55 * (k + 0.5)) / banks;
+      const [x, y, z] = at(t);
+      // thin, flat sprays hanging off alternate sides of the culm, the top ones out past its tip
+      const side = (k % 2 ? 1 : -1) * (0.14 + 0.06 * Math.sin(i + k));
+      const reach = 0.1 + 0.18 * t;
+      const size = distant ? 1.3 : 1.15 - 0.4 * (t - 0.45);
+      lumps.push([
+        x + dx * reach - dz * side,
+        y - 0.025 * t,
+        z + dz * reach + dx * side,
+        0.3 * size,
+        0.028 * size,
+      ]);
+    }
+  }
+  const leaves = new TreeMesh();
+  foliage(leaves, lumps, distant ? 'far' : 'mid', [0, 0.72, 0], NORMAL_TRANSFER, false);
+  return { wood: wood.geometry(), leaves: leaves.geometry() };
+}
+
+const bamboos = { near: bamboo(false), far: bamboo(true) };
+
 const great = {
   crown: greatCrown(false),
   far: greatCrown(true),
@@ -562,8 +612,8 @@ const position = new THREE.Vector3(),
   scale = new THREE.Vector3();
 
 export function treePalette(t: Tree): number {
-  // great trees are broadleaved, camphor-like, never a cedar
-  if (t.kind === 'great') return t.color;
+  // great trees are broadleaved, camphor-like, never a cedar; bamboo keeps its own green
+  if (t.kind) return t.color;
   return roll(t.x, t.z) < (t.color === color('canopy') ? 0.4 : 0.12) ? color('cedar') : t.color;
 }
 
@@ -581,6 +631,12 @@ export function appendTree(
   distant: boolean,
   kind: Tree['kind'] = undefined,
 ): void {
+  if (kind === 'bamboo') {
+    const clump = distant ? bamboos.far : bamboos.near;
+    g.meshSmooth(clump.wood, transform, color('green'));
+    g.meshSmooth(clump.leaves, transform, palette);
+    return;
+  }
   if (kind === 'great') {
     // drawn whole in its own units: heights up, crown radii across
     g.meshSmooth(distant ? great.farWood : great.wood, transform, color('bark'));

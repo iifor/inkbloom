@@ -10,6 +10,7 @@ export const XP = {
   ruinFound: 25,
   request: 40,
   monster: 4,
+  wellCleansed: 35,
 } as const;
 
 /** Total experience needed to reach each level; index 0 is level 1. design: levels 1–10 */

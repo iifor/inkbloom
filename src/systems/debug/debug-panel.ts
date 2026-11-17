@@ -75,6 +75,7 @@ export class DebugPanel implements System {
     return [
       `${w.temp.toFixed(1)}°C · 云 ${n(w.cloud)} · ${falling} · 雷 ${n(w.thunder)} · 雾 ${n(w.fog)}`,
       `风 ${Math.hypot(...w.wind).toFixed(1)} m/s (${w.wind[0].toFixed(1)}, ${w.wind[1].toFixed(1)}) · 湿 ${n(w.wetness)} · 积雪 ${n(w.snowCover)}`,
+      `虹 ${n(w.rainbow)} · 霜 ${n(w.frost)}`,
     ];
   }
 

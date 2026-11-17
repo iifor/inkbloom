@@ -130,6 +130,30 @@ describe('weather', () => {
     expect(windy / dry).toBeLessThan(0.5);
   });
 
+  it('a rainbow can follow a shower, never while it still pours; frost only on cold, snowless ground', () => {
+    let bows = 0;
+    let frosts = 0;
+    for (let t = 1500; t < YEAR; t += 13) {
+      const w = weatherAt(t, -1200, 800);
+      if (w.rainbow > 0.3) {
+        bows++;
+        expect(w.precip).toBeLessThan(0.08);
+        let rained = false;
+        for (let back = 60; back <= 300 && !rained; back += 15)
+          if (weatherAt(t - back, -1200, 800).precip > 0.4) rained = true;
+        expect(rained).toBe(true);
+      }
+      if (w.frost > 0.3) {
+        frosts++;
+        expect(w.temp).toBeLessThan(3);
+        expect(w.snowCover).toBeLessThan(0.7);
+        expect(calendarAt(t).season).not.toBe(1);
+      }
+    }
+    expect(bows).toBeGreaterThan(10);
+    expect(frosts).toBeGreaterThan(10);
+  });
+
   it('the wind blows from the north-west in autumn and the north in winter', () => {
     const autumn = weatherAt(YEAR * 0.625, 0, 0).wind;
     const winter = weatherAt(YEAR * 0.875, 0, 0).wind;

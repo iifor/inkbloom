@@ -15,12 +15,19 @@ import * as THREE from 'three';
 import { color, MAX_COLORS } from '@/content/palette';
 import { TUNING } from '@/content/tuning';
 
+/** Cleansed ink wells the drain shader knows about at once (the nearest). */
+export const MAX_WELLS = 4;
+
 export const shared = {
   uCanopyBrush: { value: null as THREE.Texture | null },
   uLightDir: { value: new THREE.Vector3(0, 1, 0) },
   /** xy = town centre, z = progress (0..1), w = half the town's side. */
   uCities: { value: Array.from({ length: TUNING.drain.maxCities }, () => new THREE.Vector4()) },
   uCityCount: { value: 0 },
+  /** Cleansed ink wells near by (x, z, radius of the colour round it): the land there keeps its
+   * colour however grey the town (see world/wilderness/ink-wells.ts). */
+  uWells: { value: Array.from({ length: MAX_WELLS }, () => new THREE.Vector4()) },
+  uWellCount: { value: 0 },
   uDrainInner: { value: TUNING.drain.innerRadius as number },
   uDrainOuter: { value: TUNING.drain.outerRadius as number },
   uSceneSat: { value: 1 },
@@ -48,6 +55,8 @@ export const NO_SHADOW_LAYER = 2;
 export const wildernessDrainGLSL = /* glsl */ `
 uniform vec4 uCities[${TUNING.drain.maxCities}];
 uniform int uCityCount;
+uniform vec4 uWells[${MAX_WELLS}];
+uniform int uWellCount;
 uniform float uDrainInner;
 uniform float uDrainOuter;
 uniform float uSceneSat;
@@ -61,6 +70,12 @@ float derivedSat(vec3 wp) {
     float d = length(max(abs(wp.xz - c.xy) - c.w, 0.0));
     float f = 1.0 - smoothstep(uDrainInner, uDrainOuter, d);
     drain = max(drain, (1.0 - c.z) * f);
+  }
+  // round a cleansed ink well the colour has come back (drain.ts saturationAt does the same)
+  for (int i = 0; i < ${MAX_WELLS}; i++) {
+    if (i >= uWellCount) break;
+    vec4 wl = uWells[i];
+    drain *= smoothstep(wl.z * 0.55, wl.z, length(wp.xz - wl.xy));
   }
   if (uArena.w > 0.0) drain *= smoothstep(uArena.z - 4.0, uArena.z + 2.0, length(wp.xz - uArena.xy));
   return 1.0 - drain;
@@ -103,6 +118,9 @@ varying vec3 vCloth;
 uniform vec3 uField;
 uniform vec2 uFieldFade;
 uniform float uDensity;
+#ifdef SEA
+uniform vec4 uBloom;
+#endif
 varying float vFieldCover;
 varying vec2 vPlantMark;
 #endif
@@ -142,7 +160,14 @@ void main() {
       float range = length(offset);
       bool hidden = range >= uFieldFade.y;
       #ifdef USE_INSTANCING_COLOR
-        hidden = hidden || instanceColor.g >= uDensity;
+        #ifdef SEA
+          // a flower sea: green carries its kind and the flower's place in its bloom
+          float sea = floor(instanceColor.g);
+          float bloom = sea < 0.5 ? uBloom.x : sea < 1.5 ? uBloom.y : sea < 2.5 ? uBloom.z : uBloom.w;
+          hidden = hidden || fract(instanceColor.g) / 0.9 >= bloom;
+        #else
+          hidden = hidden || instanceColor.g >= uDensity;
+        #endif
       #endif
       if (hidden) {
         gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
@@ -435,6 +460,8 @@ export interface FieldUniforms {
   readonly uFieldFade: { value: THREE.Vector2 };
   /** Share of this plant population visible this season, 0..1. */
   readonly uDensity: { value: number };
+  /** A flower sea's field instead: how far each kind is in bloom (see grass.ts). */
+  readonly uBloom?: { value: THREE.Vector4 };
 }
 
 export function makeInkMaterial(opts: InkMaterialOptions = {}): THREE.ShaderMaterial {
@@ -443,6 +470,8 @@ export function makeInkMaterial(opts: InkMaterialOptions = {}): THREE.ShaderMate
       uLightDir: shared.uLightDir,
       uCities: shared.uCities,
       uCityCount: shared.uCityCount,
+      uWells: shared.uWells,
+      uWellCount: shared.uWellCount,
       uDrainInner: shared.uDrainInner,
       uDrainOuter: shared.uDrainOuter,
       uSceneSat: shared.uSceneSat,
@@ -473,6 +502,7 @@ export function makeInkMaterial(opts: InkMaterialOptions = {}): THREE.ShaderMate
       ...(opts.reeds ? { REEDS: '' } : {}),
       ...(opts.blades ? { BLADES: '' } : {}),
       ...(opts.field ? { FIELD: '' } : {}),
+      ...(opts.field?.uBloom ? { SEA: '' } : {}),
       ...(opts.cloth ? { CLOTH: '' } : {}),
     },
     side: opts.side ?? THREE.FrontSide,

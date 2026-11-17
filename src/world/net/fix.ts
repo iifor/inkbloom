@@ -22,9 +22,13 @@ export interface CityFix {
 
 export interface Fix {
   readonly city?: CityFix;
-  /** Wilderness source / monster id -> clock time it was harvested / hunted. */
+  /** Wilderness source / monster id -> clock time it was harvested / hunted (for a monster,
+   * null: not hunted, so a kill the server refused comes back). */
   readonly harvested?: [string, number][];
-  readonly hunted?: [string, number][];
+  readonly hunted?: [string, number | null][];
+  /** Ink well id -> clock time it was cleansed, or null: not cleansed (a refused cleanse is
+   * taken back). Wells, unlike sources and monsters, never come back by themselves. */
+  readonly cleansed?: [string, number | null][];
 }
 
 const ARRAYS = ['states', 'stains', 'defeated', 'coloredOnce', 'requestsDone'] as const;
@@ -102,6 +106,12 @@ export function applyFix(state: WorldState, fix: Fix | null | undefined): Change
   for (const [k, t] of fix.harvested ?? [])
     if (typeof k === 'string' && Number.isFinite(t)) state.harvested.set(k, t);
   for (const [k, t] of fix.hunted ?? [])
-    if (typeof k === 'string' && Number.isFinite(t)) state.hunted.set(k, t);
+    if (typeof k !== 'string') continue;
+    else if (t === null) state.hunted.delete(k);
+    else if (Number.isFinite(t)) state.hunted.set(k, t);
+  for (const [k, t] of fix.cleansed ?? [])
+    if (typeof k !== 'string') continue;
+    else if (t === null) state.cleansed.delete(k);
+    else if (Number.isFinite(t)) state.cleansed.set(k, t);
   return changed;
 }

@@ -6,6 +6,7 @@
 import { SEASONS } from '@/content/seasons';
 import { TUNING } from '@/content/tuning';
 import { dayHours } from '@/engine/render/daylight';
+import { SEA_SLOTS } from '@/engine/render/paint-shader';
 import { STEAM_SPRINGS } from '@/engine/render/steam';
 import type { GameContext, System } from '@/game/types';
 import { calendarAt, seasonBlend } from '@/world/climate/calendar';
@@ -14,6 +15,8 @@ import { type WeatherAt, boltsAt, createWeather } from '@/world/climate/weather'
 import { smoothstep } from '@/world/math/noise';
 import { influenceOf, saturationAt } from '@/world/wilderness/drain';
 import { WATER_LEVEL } from '@/world/wilderness/generator';
+import { bloomOf, SEA_FLOWERS, seasNear } from '@/world/wilderness/groves';
+import { cleansedNear } from '@/world/wilderness/ink-wells';
 import { springLevel, springsNear } from '@/world/wilderness/landmarks';
 
 /** Gloom while a tide is announced, and while it rolls. */
@@ -34,6 +37,9 @@ interface WeatherLook {
   windZ: number;
   /** Petals or leaves blowing about (spring and autumn, in the wild). */
   litter: number;
+  /** A rainbow could show (the renderer checks the sun), and hoar frost on the ground. */
+  rainbow: number;
+  frost: number;
 }
 const look = (): WeatherLook => ({
   cloud: 0,
@@ -45,6 +51,8 @@ const look = (): WeatherLook => ({
   windX: 0,
   windZ: 0,
   litter: 0,
+  rainbow: 0,
+  frost: 0,
 });
 
 export class AtmosphereSystem implements System {
@@ -91,7 +99,7 @@ export class AtmosphereSystem implements System {
     if (ref.kind === 'city') return cities.progress(ref.id);
     const p = player.position;
     const near = wilderness.entrancesNear(p.x, p.z, 1).map((e) => influenceOf(e, cities.progress(e.cityId)));
-    return saturationAt(p.x, p.z, near);
+    return saturationAt(p.x, p.z, near, cleansedNear(wilderness, p.x, p.z, this.ctx.state.cleansed));
   }
 
   /** Where the weather is read: where the player stands, towns included. */
@@ -115,6 +123,8 @@ export class AtmosphereSystem implements System {
     t.freshSnow = Math.max(0, w.snowCover - settled);
     t.windX = w.wind[0];
     t.windZ = w.wind[1];
+    t.rainbow = w.rainbow;
+    t.frost = w.frost;
     // blossom and leaves come off in the wind, not in a downpour; there are no trees in a city
     const year = seasonBlend(calendarAt(clock).yearPhase);
     const litter =
@@ -179,6 +189,23 @@ export class AtmosphereSystem implements System {
     this.springs(dt, cal.hour, now);
   }
 
+  /** Flower seas in bloom within sight, for the paint pass's far wash of colour. */
+  private seas(year: number): void {
+    const { player, scenes, wilderness, renderer } = this.ctx;
+    const near =
+      scenes.active.ref.kind === 'wild'
+        ? seasNear(wilderness, player.position.x, player.position.z, 450)
+            .map((s) => ({ s, bloom: bloomOf(s.kind, year) }))
+            .filter((o) => o.bloom > 0.02)
+            .slice(0, SEA_SLOTS)
+        : [];
+    renderer.flowerSeas.forEach((v, i) => {
+      const o = near[i];
+      v.set(o?.s.x ?? 0, o?.s.z ?? 0, o?.s.r ?? 0, o ? SEA_FLOWERS[o.s.kind]!.colour + o.bloom * 0.9 : 0);
+      renderer.flowerSeaLobes[i]!.set(o?.s.lobes[0] ?? 0, o?.s.lobes[1] ?? 0, 0, 0);
+    });
+  }
+
   /**
    * Hot springs near the player: their steam (thicker the colder the air at the pool, and in
    * the small hours) and the nearest one's warm patch where snow will not lie.
@@ -188,6 +215,7 @@ export class AtmosphereSystem implements System {
     this.springT -= dt;
     if (this.springT > 0) return;
     this.springT = 0.5;
+    this.seas(renderer.atmosphere.year);
     const wild = scenes.active.ref.kind === 'wild';
     const near = wild
       ? springsNear(wilderness, player.position.x, player.position.z, 220).slice(0, STEAM_SPRINGS)
@@ -202,7 +230,8 @@ export class AtmosphereSystem implements System {
     renderer.steam.set(sources, 0.3 + 0.7 * smoothstep(20, 2, air), w.windX, w.windZ);
   }
 
-  /** Fireflies on warm nights, butterflies on fair days; both only in coloured wild land. */
+  /** Fireflies on warm nights, butterflies on fair days, both only in coloured wild land; and
+   * birds overhead by day. */
   private critters(dt: number, hour: number, declination: number, year: number, w: WeatherLook): void {
     const { player, scenes, wilderness, renderer } = this.ctx;
     const len = dayHours(declination);
@@ -224,6 +253,20 @@ export class AtmosphereSystem implements System {
       player.position.z,
       (x, z) => Math.max(WATER_LEVEL, wilderness.heightAt(x, z)),
       { fireflies, butterflies, windX: w.windX, windZ: w.windZ },
+    );
+    // birds go to roost at dusk and keep off in rain and gales; fewer over grey land
+    const gale = 1 - smoothstep(9, 16, Math.hypot(w.windX, w.windZ));
+    const birds =
+      day *
+      (1 - Math.min(1, 1.5 * (w.rain + w.snowfall))) *
+      gale *
+      (0.35 + 0.65 * smoothstep(0.3, 0.8, this.colour));
+    renderer.birds.update(
+      dt,
+      player.position.x,
+      player.position.z,
+      (x, z) => Math.max(WATER_LEVEL, wilderness.heightAt(x, z)),
+      birds,
     );
   }
 

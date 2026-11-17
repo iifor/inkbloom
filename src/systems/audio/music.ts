@@ -13,6 +13,7 @@ import type { GameContext } from '@/game/types';
 import { seasonBlend } from '@/world/climate/calendar';
 import { smoothstep } from '@/world/math/noise';
 import { influenceOf, saturationAt } from '@/world/wilderness/drain';
+import { cleansedNear } from '@/world/wilderness/ink-wells';
 
 /** Slow and unhurried: the music is a bed under the world, not a tune to follow. */
 const BPM = 64;
@@ -72,7 +73,7 @@ export class Music {
     if (ref.kind === 'city') return cities.progress(ref.id);
     const p = player.position;
     const near = wilderness.entrancesNear(p.x, p.z, 1).map((e) => influenceOf(e, cities.progress(e.cityId)));
-    return saturationAt(p.x, p.z, near);
+    return saturationAt(p.x, p.z, near, cleansedNear(wilderness, p.x, p.z, this.ctx.state.cleansed));
   }
 
   update(dt: number): void {

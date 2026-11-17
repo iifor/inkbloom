@@ -1,6 +1,7 @@
 // The infinite wilderness. Streams chunks around the player (one build per frame so walking
 // never hitches), owns their colliders (and, while they stand, the towns'), registers each
-// pigment source as an interactable, and hosts the monsters that roam drained land.
+// pigment source as an interactable, and hosts the monsters that roam drained land (and guard
+// its ink wells) and the deer that graze the rest.
 import * as THREE from 'three';
 import { SEASONS } from '@/content/seasons';
 import { TUNING } from '@/content/tuning';
@@ -21,6 +22,8 @@ import { WildMarks } from './marks';
 import { WildFish } from './fish';
 import { Waterweed } from './waterweed';
 import { GrassField } from './grass';
+import { WildDeer } from './deer';
+import { WildInkWells } from './ink-wells';
 
 interface Loaded {
   readonly mesh: THREE.Mesh;
@@ -48,6 +51,8 @@ export class WildScene implements GameScene {
   readonly monsters: WildMonsterCamps;
   private readonly ruins: WildRuins;
   private readonly marks: WildMarks;
+  private readonly deer: WildDeer;
+  private readonly wells: WildInkWells;
   private readonly grass: GrassField;
   private readonly fish = new WildFish(this.root, (x, z) => this.ctx.renderer.ripple(x, z, false));
   private readonly weed = new Waterweed(this.root);
@@ -66,6 +71,8 @@ export class WildScene implements GameScene {
     this.monsters = new WildMonsterCamps(ctx, this.physics, this.root, this.material);
     this.ruins = new WildRuins(ctx, this.material, this.root);
     this.marks = new WildMarks(ctx, this.material, this.root);
+    this.deer = new WildDeer(ctx, this.root, this.material);
+    this.wells = new WildInkWells(ctx, this.material, this.root);
     this.offStroke = ctx.events.on('player:stroke', ({ hands }) => {
       for (const h of hands) ctx.renderer.ripple(h.x, h.z, true);
     });
@@ -124,7 +131,7 @@ export class WildScene implements GameScene {
     const year = seasonBlend(phase);
     this.trees.update(p);
     const flowers = SEASONS[year.from]!.flowers * (1 - year.t) + SEASONS[year.to]!.flowers * year.t;
-    this.grass.update(p, flowers, grassCoverAt(phase));
+    this.grass.update(p, flowers, grassCoverAt(phase), phase);
     const t = this.ctx.state.clock;
     this.fish.update(t, p, dt);
     // a swimmer's wake comes from the strokes (see the constructor); a wader's from each step
@@ -136,6 +143,8 @@ export class WildScene implements GameScene {
     this.sources.update(dt);
     this.monsters.update(dt);
     this.ruins.update(dt);
+    this.deer.update(dt);
+    this.wells.update(dt);
     this.drainT -= dt;
     if (this.drainT <= 0) {
       this.drainT = 0.5;
@@ -195,6 +204,7 @@ export class WildScene implements GameScene {
     release.push(this.ruins.add(chunk.ruins));
     release.push(this.sources.add(chunk.sources));
     release.push(this.monsters.add(chunk));
+    release.push(this.wells.add(chunk));
     yield;
     release.push(this.fish.add(chunk, this.ctx.wilderness));
     release.push(this.weed.add(chunk, this.ctx.wilderness));
@@ -231,6 +241,8 @@ export class WildScene implements GameScene {
     this.sources.dispose();
     this.monsters.dispose();
     this.marks.dispose();
+    this.deer.dispose();
+    this.wells.dispose();
     this.grass.dispose();
     this.fish.dispose();
     this.weed.dispose();

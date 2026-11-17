@@ -62,6 +62,8 @@ export interface WorldState {
   drop: InkDrop | null;
   /** Wilderness monster id -> clock time it was defeated. */
   hunted: Map<string, number>;
+  /** Ink well id -> clock time it was cleansed (for good: it never seeps again). */
+  cleansed: Map<string, number>;
   growth: Growth;
   /** Ruins already found, by id. */
   discovered: string[];
@@ -172,6 +174,7 @@ export function createWorldState(id: string, seed: number, name = '新世界'): 
     harvested: new Map(),
     drop: null,
     hunted: new Map(),
+    cleansed: new Map(),
     growth: createGrowth(),
     discovered: [],
     marks: [],
@@ -322,6 +325,7 @@ interface WorldJson {
   harvested?: Record<string, number>;
   drop?: InkDrop | null;
   hunted?: Record<string, number>;
+  cleansed?: Record<string, number>;
   growth?: Growth;
   discovered?: string[];
   marks?: InkMark[];
@@ -389,6 +393,7 @@ export function serializeWorld(state: WorldState): string {
     clock: state.clock,
     drop: state.drop,
     hunted: Object.fromEntries([...state.hunted].filter(([id]) => !wildMonsterBack(state, id))),
+    cleansed: Object.fromEntries(state.cleansed),
     growth: state.growth,
     discovered: state.discovered,
     marks: state.marks,
@@ -482,6 +487,9 @@ export function deserializeWorld(text: string): WorldState {
     nextMark: Number.isInteger(json.nextMark) ? json.nextMark! : 1,
     hunted: new Map(
       Object.entries(json.hunted ?? {}).filter((e): e is [string, number] => Number.isFinite(e[1])),
+    ),
+    cleansed: new Map(
+      Object.entries(json.cleansed ?? {}).filter((e): e is [string, number] => Number.isFinite(e[1])),
     ),
     drop:
       json.drop && [json.drop.x, json.drop.y, json.drop.z, json.drop.ink].every(Number.isFinite)

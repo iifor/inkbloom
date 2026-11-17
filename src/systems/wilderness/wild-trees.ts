@@ -8,8 +8,9 @@ import { appendTree, treeMatrix, treePalette } from './tree-geometry';
 
 const ENTER = 31,
   LEAVE = 39;
-/** Added to a palette to key great trees' batches apart from ordinary trees of that colour. */
-const GREAT_LOOK = 1000;
+/** Added to a palette to key great trees' and bamboo's batches apart from ordinary trees. */
+const KIND_LOOK = { great: 1000, bamboo: 2000 } as const;
+const LOOK_SPAN = 1000;
 
 class TreeBatch {
   private readonly close: THREE.InstancedMesh;
@@ -94,7 +95,7 @@ export class WildTrees {
     // batched by look: a palette, and whether a great tree
     const byLook = new Map<number, THREE.Matrix4[]>();
     for (const tree of chunk.trees) {
-      const look = treePalette(tree) + (tree.kind === 'great' ? GREAT_LOOK : 0);
+      const look = treePalette(tree) + (tree.kind ? KIND_LOOK[tree.kind] : 0);
       let group = byLook.get(look);
       if (!group) byLook.set(look, (group = []));
       group.push(treeMatrix(tree));
@@ -103,10 +104,10 @@ export class WildTrees {
     for (const [look, transforms] of byLook) {
       let templates = this.templates.get(look);
       if (!templates) {
-        const great = look >= GREAT_LOOK;
+        const kind = (['great', 'bamboo'] as const).find((k) => KIND_LOOK[k] === look - (look % LOOK_SPAN));
         templates = [false, true].map((distant) => {
           const g = new GeometryBuilder();
-          appendTree(g, look % GREAT_LOOK, new THREE.Matrix4(), distant, great ? 'great' : undefined);
+          appendTree(g, look % LOOK_SPAN, new THREE.Matrix4(), distant, kind);
           return g.build();
         });
         this.templates.set(look, templates);

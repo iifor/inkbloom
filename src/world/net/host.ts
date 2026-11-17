@@ -224,12 +224,15 @@ export class WorldHost {
   /** The true state of whatever this patch touches in the shared world. */
   private truth(patch: Patch): Fix | null {
     const city = 'city' in patch ? this.state.cities.get(patch.city) : undefined;
-    const fix: { city?: Fix['city']; harvested?: [string, number][]; hunted?: [string, number][] } = {};
+    const fix: { -readonly [K in keyof Fix]?: Fix[K] } = {};
     if (city && 'city' in patch) fix.city = cityFix(patch.city, undefined, city);
     if (patch.kind === 'harvest' && this.state.harvested.has(patch.source))
       fix.harvested = [[patch.source, this.state.harvested.get(patch.source)!]];
-    if (patch.kind === 'hunt' && this.state.hunted.has(patch.monster))
-      fix.hunted = [[patch.monster, this.state.hunted.get(patch.monster)!]];
+    // always: a kill the server would not take has to come back to life on the client (an ink
+    // well's guard left dead there would let it try to cleanse the well for a quarter of an hour)
+    if (patch.kind === 'hunt') fix.hunted = [[patch.monster, this.state.hunted.get(patch.monster) ?? null]];
+    // always: a client that cleansed a well the server would not has to put it back
+    if (patch.kind === 'cleanse') fix.cleansed = [[patch.well, this.state.cleansed.get(patch.well) ?? null]];
     return Object.keys(fix).length ? fix : null;
   }
 
@@ -264,7 +267,7 @@ export class WorldHost {
     if (patch.kind === 'tideHeld') this.tidesHeld.set(patch.city, this.state.clock);
     this.dirty = true;
     // what the shared world ended with (stamped with the server's clock, where it matters)
-    const fix: { city?: Fix['city']; harvested?: [string, number][]; hunted?: [string, number][] } = {};
+    const fix: { -readonly [K in keyof Fix]?: Fix[K] } = {};
     const city = 'city' in patch ? this.state.cities.get(patch.city) : undefined;
     if (city && 'city' in patch) {
       const c = cityFix(patch.city, cityBefore, city);
@@ -272,6 +275,7 @@ export class WorldHost {
     }
     if (patch.kind === 'harvest') fix.harvested = [[patch.source, this.state.harvested.get(patch.source)!]];
     if (patch.kind === 'hunt') fix.hunted = [[patch.monster, this.state.hunted.get(patch.monster)!]];
+    if (patch.kind === 'cleanse') fix.cleansed = [[patch.well, this.state.cleansed.get(patch.well)!]];
     return { ok: true, shared: SHARED_KINDS.has(patch.kind), fix: Object.keys(fix).length ? fix : null };
   }
 
@@ -295,7 +299,9 @@ export class WorldHost {
         ? { map: this.state.harvested, key: patch.source }
         : patch.kind === 'hunt'
           ? { map: this.state.hunted, key: patch.monster }
-          : null;
+          : patch.kind === 'cleanse'
+            ? { map: this.state.cleansed, key: patch.well }
+            : null;
     const timedBefore = timed?.map.get(timed.key);
     let result: PatchResult;
     try {

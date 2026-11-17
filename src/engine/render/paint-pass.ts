@@ -45,6 +45,9 @@ export interface PaintInputs {
   readonly drift: THREE.Vector2;
   readonly year: number;
   readonly seaTemp: number;
+  /** Flower seas near by and their edges' lobes (SEA_SLOTS each; see paint-shader.ts). */
+  readonly seas: readonly THREE.Vector4[];
+  readonly seaLobes: readonly THREE.Vector4[];
 }
 
 export function makePaintMaterial(o: PaintInputs): THREE.ShaderMaterial {
@@ -89,6 +92,8 @@ export function makePaintMaterial(o: PaintInputs): THREE.ShaderMaterial {
       uSand: { value: color('sand') },
       uCities: shared.uCities,
       uCityCount: shared.uCityCount,
+      uWells: shared.uWells,
+      uWellCount: shared.uWellCount,
       uDrainInner: shared.uDrainInner,
       uDrainOuter: shared.uDrainOuter,
       uSceneSat: shared.uSceneSat,
@@ -114,6 +119,10 @@ export function makePaintMaterial(o: PaintInputs): THREE.ShaderMaterial {
       uFreshSnow: { value: 0 },
       uDrift: { value: o.drift },
       uCloudShade: { value: 0 },
+      uRainbow: { value: 0 },
+      uFrost: { value: 0 },
+      uSeas: { value: o.seas },
+      uSeaLobes: { value: o.seaLobes },
       uWarm: { value: new THREE.Vector4() },
       uSkySat: { value: 1 },
       uGloom: { value: 0 },

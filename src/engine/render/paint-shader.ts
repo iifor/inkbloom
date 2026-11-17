@@ -7,6 +7,9 @@ import { wildernessDrainGLSL } from './ink-material';
 import { skyGLSL } from './sky-paint';
 import { WAKE_COUNT, riverGLSL, wakeGLSL, waterGLSL } from './water-paint';
 
+/** Flower seas the paint pass washes in at once (the nearest). */
+export const SEA_SLOTS = 6;
+
 /** Cells on a side of the value-noise lattice (see makeNoise); the pattern repeats this often. */
 export const NOISE_SIZE = 256;
 /** The brush's colours come first in the palette; walls and doors are painted in them. */
@@ -67,6 +70,13 @@ uniform float uWet;
 uniform float uFreshSnow;
 uniform vec2 uDrift;
 uniform float uCloudShade;
+/** How bright a rainbow is (0 none), and how much hoar frost lies on the ground. */
+uniform float uRainbow;
+uniform float uFrost;
+/** Flower seas near by (world/wilderness/groves.ts): x, z, radius (0 for none), and the palette
+ * index of their colour plus how far in bloom (0..1) times 0.9; then their edge's lobe phases. */
+uniform vec4 uSeas[${SEA_SLOTS}];
+uniform vec4 uSeaLobes[${SEA_SLOTS}];
 /** A warm spot (a hot spring): x, z, radius; snow will not lie within a few metres of it. */
 uniform vec4 uWarm;
 uniform float uSkySat;
@@ -185,6 +195,7 @@ void main() {
     vec3 painted = skyPaint(rd);
     vec4 ranges = farRanges(rd);
     painted = mix(painted, ranges.rgb, ranges.w * (1.0 - uNight * 0.5));
+    if (uRainbow > 0.0) painted = withRainbow(painted, rainbowOf(rd) * vec4(1.0, 1.0, 1.0, uRainbow));
     // drained: an overcast grey version of the same sky
     col = mix(drainedAt(painted), painted, skySat);
   } else {
@@ -301,6 +312,28 @@ void main() {
         tex = mix(textureOf(float(uSand)), tex, meadow);
       }
     }
+    // a flower sea: close by its flowers stand on their own over the meadow; further off they
+    // melt into a broken wash of their colour (the same lobed edge as groves.ts patchMask)
+    if ((ground || grassBlade) && uSeas[0].z > 0.0) {
+      float bloom = 0.0;
+      float hue = 0.0;
+      for (int i = 0; i < ${SEA_SLOTS}; i++) {
+        vec4 sea = uSeas[i];
+        if (sea.z <= 0.0) continue;
+        vec2 o = wpos.xz - sea.xy;
+        float dd = length(o);
+        if (dd > sea.z * 1.3) continue;
+        float a = atan(o.y, o.x);
+        float edge = sea.z * (1.0 + 0.16 * sin(3.0 * a + uSeaLobes[i].x) + 0.09 * sin(5.0 * a + uSeaLobes[i].y));
+        float m = smoothstep(edge, edge * 0.7, dd) * fract(sea.w) / 0.9;
+        if (m > bloom) { bloom = m; hue = floor(sea.w); }
+      }
+      if (bloom > 0.0) {
+        float blot = smoothstep(0.25, 0.65, leaf + (big - 0.5) * 0.9);
+        float far = mix(0.35, 0.8, smoothstep(10.0, 60.0, d));
+        base = mix(base, paletteColor(hue) * mix(0.85, 1.08, leaf), bloom * blot * far * (ground ? meadow : 0.7));
+      }
+    }
     // snow lies on what faces up wherever the day's mean temperature is below freezing (colder
     // higher up), in patches at first, then over everything
     float cover = max(smoothstep(1.0, -3.0, uSeaTemp - uLapse * wpos.y), uFreshSnow);
@@ -311,6 +344,15 @@ void main() {
       float snow = smoothstep(th, th + 0.06, lie) * near;
       base = mix(base, paletteColor(float(uSnow)), snow);
       tex = mix(tex, 0.3, snow);
+    }
+    // hoar frost: a pale rime on what faces up, in a fine broken film; it lasts in the shade
+    // after the sunlit ground has thawed
+    if (uFrost > 0.0 && !fish && indexOf(s.g) != uWater && indexOf(s.g) != uGlass) {
+      float sunny = smoothstep(-0.1, 0.4, s.r * 2.0 - 1.0);
+      float rime = uFrost * mix(1.0, 0.3, sunny) * (1.0 - cover) * smoothstep(0.25, 0.7, wn.y);
+      rime *= smoothstep(0.25, 0.6, leaf + (big - 0.5) * 0.6) * (crown ? 0.55 : 1.0);
+      base = mix(base, paletteColor(float(uSnow)) * vec3(0.93, 0.97, 1.04), rime * 0.75 * near);
+      tex = mix(tex, 0.35, rime);
     }
     // rain darkens what faces the sky; on paving and bare earth it pools in puddles that
     // mirror the sky (drawn in once the light is worked out)
@@ -421,6 +463,8 @@ ${waterGLSL}
     haze = mix(drainedAt(haze), haze, skySat);
     // mist and rain thicken it and pull it close
     col = mix(col, haze, (1.0 - exp(-d * (0.0042 + uFog * 0.035))) * mix(0.85, 0.97, uFog));
+    // a rainbow stands in the rain between here and far hills, not on what is close by
+    if (uRainbow > 0.0) col = withRainbow(col, rainbowOf(rd) * vec4(1.0, 1.0, 1.0, uRainbow * smoothstep(60.0, 300.0, d) * skySat));
   }
   // a faint canvas grain so flat colour reads as paint
   col *= 0.985 + 0.03 * vnoise(pp * 0.7);

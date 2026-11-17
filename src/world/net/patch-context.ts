@@ -1,5 +1,5 @@
 // What applyPatch needs to know about the world, worked out from the seed alone: town layouts,
-// pigment sources, ruins and wilderness monsters. The client uses the layouts it has already
+// pigment sources, ruins, ink wells and wilderness monsters. The client uses the layouts it has already
 // made; the world server makes them on demand, so it can judge a patch in a town nobody has
 // sent it the layout of.
 import { TUNING } from '@/content/tuning';
@@ -8,6 +8,7 @@ import type { PatchContext } from '../patch';
 import type { Entrance, Wilderness } from '../wilderness/generator';
 import { ruinById } from '../wilderness/ruins';
 import { sourceById } from '../wilderness/sources';
+import { inkWellById, wellGuards, wellSeeping } from '../wilderness/ink-wells';
 import { chunkSaturation, wildMonsterById } from '../wilderness/wild-monsters';
 
 /** A town's entrance from its id ("c<cx>_<cz>", the chunk its tower stands in). */
@@ -36,6 +37,12 @@ export function worldPatchContext(
       if (!m) return null;
       const sat = chunkSaturation(wilderness, Number(m[1]), Number(m[2]), progressOf);
       return wildMonsterById(wilderness, id, sat);
+    },
+    inkWellOf: (id) => {
+      const well = inkWellById(wilderness, id);
+      if (!well) return null;
+      const sat = chunkSaturation(wilderness, well.cx, well.cz, progressOf);
+      return { well, seeping: wellSeeping(sat), guards: wellGuards(wilderness, well, sat) };
     },
   };
 }

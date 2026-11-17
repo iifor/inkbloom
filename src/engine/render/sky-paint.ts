@@ -50,6 +50,36 @@ vec3 skyPaint(vec3 rd) {
 }
 
 /**
+ * A rainbow round the point opposite the sun: the primary bow 40–42.5° out, violet inside and
+ * red outside, the sky a little brighter within it, and a fainter secondary bow at 50–54° with
+ * its colours the other way round. Washed in unevenly, like paint. Returns the bow's colour and,
+ * in w, how much of it to lay over the sky.
+ */
+vec3 bowColour(float t) {
+  vec3 c = clamp(abs(fract((1.0 - t) * 0.8 + vec3(0.0, 2.0 / 3.0, 1.0 / 3.0)) * 6.0 - 3.0) - 1.0, 0.0, 1.0);
+  return mix(c, vec3(0.85), 0.1);
+}
+vec4 rainbowOf(vec3 rd) {
+  float a = degrees(acos(clamp(dot(rd, -uSun), -1.0, 1.0)));
+  if (a < 30.0 || a > 56.0) return vec4(0.0);
+  float t1 = (a - 39.8) / 2.8;
+  float t2 = (54.2 - a) / 3.8;
+  float band1 = smoothstep(0.0, 0.18, t1) * smoothstep(1.0, 0.82, t1);
+  float band2 = smoothstep(0.0, 0.18, t2) * smoothstep(1.0, 0.82, t2) * 0.3;
+  vec3 c = band1 > band2 ? bowColour(clamp(t1, 0.0, 1.0)) : bowColour(clamp(t2, 0.0, 1.0));
+  // the sky is a little brighter inside the bow
+  float inside = 0.12 * smoothstep(30.0, 38.0, a) * smoothstep(40.5, 39.0, a);
+  // thicker in some stretches of the arc than others, and gone into the ground
+  float wash = clamp(0.35 + 0.9 * fbm2(rd.xz * 2.2 + rd.y * 3.0 + 5.0), 0.0, 1.0);
+  float body = max(band1, band2) * 0.55 * wash;
+  return vec4(mix(vec3(1.0), c, body / max(body + inside, 1e-4)), (body + inside) * smoothstep(-0.03, 0.04, rd.y));
+}
+/** A rainbow laid over a colour: the bow's own hue, not a pale wash added on top. */
+vec3 withRainbow(vec3 c, vec4 bow) {
+  return mix(c, c * 0.55 + bow.rgb * 0.62, bow.a);
+}
+
+/**
  * Far mountain ranges painted along the horizon behind everything: two layers of ridges, the
  * far one pale and hazy, the near one bluer and darker. Sampled around a circle so there is no
  * seam. Returns the colour and, in w, how much of it covers the sky here.

@@ -14,6 +14,7 @@ import { type Daylight, daylightAt } from './daylight';
 import { ResolutionGovernor } from './resolution';
 import { Critters } from './critters';
 import { Steam } from './steam';
+import { Birds } from './birds';
 import { Precipitation } from './precipitation';
 import { makeCanopyBrush } from './canopy-brush';
 import { disposeTree } from '../resources';
@@ -21,6 +22,7 @@ import { NO_SHADOW_LAYER, shared } from './ink-material';
 import { makeBrushMaterial } from './brush-pass';
 import { GlowPass } from './glow';
 import { makeNoise, makePaintMaterial } from './paint-pass';
+import { SEA_SLOTS } from './paint-shader';
 import { PassTimer } from './pass-timer';
 import { SunShadows } from './sun-shadows';
 import { RIVER_SAMPLES, RiverTable, WAKE_COUNT } from './water-paint';
@@ -97,6 +99,9 @@ export class InkRenderer {
       /** Petals or leaves blowing about, and which season's colours they are. */
       litter: 0,
       litterSeason: 0,
+      /** A rainbow could show (shown only while the sun is up and low enough), hoar frost. */
+      rainbow: 0,
+      frost: 0,
     },
   };
   /** Wind travel in metres for cloud drift and the meadow wind map. */
@@ -110,8 +115,14 @@ export class InkRenderer {
   readonly critters: Critters;
   /** Steam off nearby hot springs (set by the atmosphere system). */
   readonly steam: Steam;
+  /** Flocks of birds wheeling high over the land (moved by the atmosphere system). */
+  readonly birds: Birds;
   /** The nearest hot spring (x, z, radius; radius 0 for none): no snow lies round it. */
   readonly warmSpot = new THREE.Vector4();
+  /** Flower seas near by, nearest first (set by the atmosphere system): x, z, radius (0 for
+   * none), palette index + bloom × 0.9; and the phases of their edges' lobes. */
+  readonly flowerSeas = Array.from({ length: SEA_SLOTS }, () => new THREE.Vector4());
+  readonly flowerSeaLobes = Array.from({ length: SEA_SLOTS }, () => new THREE.Vector4());
   /** Sun, sky and shade for the current hour; its vectors are the post pass's uniforms. */
   private readonly day: Daylight = daylightAt(10);
   /** GPU time per pass while profiling (see passTimes). */
@@ -189,11 +200,14 @@ export class InkRenderer {
       drift: this.drift,
       year: this.atmosphere.year,
       seaTemp: this.atmosphere.seaTemp,
+      seas: this.flowerSeas,
+      seaLobes: this.flowerSeaLobes,
     });
     this.postScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this.post));
     this.precipitation = new Precipitation(depthTexture);
     this.critters = new Critters(depthTexture);
     this.steam = new Steam(depthTexture);
+    this.birds = new Birds(depthTexture);
     // the eye sees grass; the sun's shadow camera (default layer only) does not
     this.camera.layers.enable(NO_SHADOW_LAYER);
     this.fxaa = new THREE.ShaderMaterial({
@@ -264,6 +278,7 @@ export class InkRenderer {
     this.precipitation.setSize(rw, rh);
     this.critters.setSize(rw, rh);
     this.steam.setSize(rw, rh);
+    this.birds.setSize(rw, rh);
   }
 
   /** Lightning strikes the ground at `at` (drawn for a moment; `shape` picks its path). */
@@ -438,6 +453,14 @@ export class InkRenderer {
     u.uWet!.value = w.wet;
     u.uFreshSnow!.value = w.freshSnow;
     u.uCloudShade!.value = this.cloudShade;
+    // the bow stands 42° from the point opposite the sun: none once the sun is higher than that
+    const sunUp = this.day.dir.y;
+    u.uRainbow!.value =
+      w.rainbow *
+      THREE.MathUtils.smoothstep(sunUp, 0, 0.06) *
+      (1 - THREE.MathUtils.smoothstep(sunUp, 0.5, 0.7)) *
+      (1 - this.day.night);
+    u.uFrost!.value = w.frost;
     (u.uWarm!.value as THREE.Vector4).copy(this.warmSpot);
     u.uNight!.value = this.day.night;
     u.uTime!.value = shared.uTime.value;
@@ -452,6 +475,7 @@ export class InkRenderer {
     this.precipitation.render(r, this.camera, { ...w, night: this.day.night }, u.uTime!.value);
     this.critters.render(r, this.camera, this.day.night);
     this.steam.render(r, this.camera, u.uTime!.value, this.day.night);
+    this.birds.render(r, this.camera, this.day.night);
     this.pass('fxaa');
     r.setRenderTarget(null);
     r.render(this.fxaaScene, this.postCam);
@@ -473,6 +497,7 @@ export class InkRenderer {
     this.precipitation.dispose();
     this.critters.dispose();
     this.steam.dispose();
+    this.birds.dispose();
     this.rt.dispose();
     this.shadows.dispose();
     this.paintRt.dispose();

@@ -17,13 +17,20 @@ export function falloff(distance: number): number {
   return 1 - smoothstep(TUNING.drain.innerRadius, TUNING.drain.outerRadius, distance);
 }
 
-/** 1 = full colour, 0 = black and white. */
-export function saturationAt(x: number, z: number, cities: readonly CityInfluence[]): number {
+/** 1 = full colour, 0 = black and white. Round a cleansed ink well (`wells`: where, and how
+ * far the colour reaches) the colour is back whatever the towns. */
+export function saturationAt(
+  x: number,
+  z: number,
+  cities: readonly CityInfluence[],
+  wells: readonly { readonly x: number; readonly z: number; readonly r: number }[] = [],
+): number {
   let drain = 0;
   for (const c of cities) {
     const d = Math.hypot(Math.max(Math.abs(x - c.x) - c.half, 0), Math.max(Math.abs(z - c.z) - c.half, 0));
     drain = Math.max(drain, (1 - c.progress) * falloff(d));
   }
+  for (const w of wells) drain *= smoothstep(w.r * 0.55, w.r, Math.hypot(x - w.x, z - w.z));
   return 1 - drain;
 }
 

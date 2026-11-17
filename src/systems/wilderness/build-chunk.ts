@@ -42,7 +42,7 @@ export function* buildChunkSteps(
   yield* buildTerrainSteps(chunk, w, g);
   for (const [i, tree] of chunk.trees.entries()) {
     if (i > 0 && i % (ROWS_PER_STEP * 2) === 0) yield;
-    appendTree(g, treePalette(tree), treeMatrix(tree), false);
+    appendTree(g, treePalette(tree), treeMatrix(tree), false, tree.kind);
   }
 }
 
@@ -127,7 +127,7 @@ export function addTrunk(
   group: string,
   t: Tree,
 ): void {
-  const r = t.kind === 'great' ? t.crown * 0.1 : 0.3;
+  const r = t.kind === 'great' ? t.crown * 0.1 : t.kind === 'bamboo' ? t.crown * 0.18 : 0.3;
   const up = t.kind === 'great' ? 0.45 : 0.6;
   physics.addBox(
     group,

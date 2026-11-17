@@ -199,6 +199,11 @@ export class MonsterGroup implements TargetSource {
     for (const m of this.monsters) if (m.tag === tag && !m.dead) this.remove(m);
   }
 
+  /** Whether the monster with this key is out and alive. */
+  has(key: string): boolean {
+    return this.monsters.some((m) => m.key === key && !m.dead);
+  }
+
   /** Take away the monster with this key, without rewards: someone else defeated it. */
   dismiss(key: string): void {
     for (const m of this.monsters) if (m.key === key && !m.dead) this.remove(m);

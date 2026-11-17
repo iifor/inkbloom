@@ -2,8 +2,10 @@
 import { BIOMES } from '@/content/biomes';
 import { color } from '@/content/palette';
 import { TUNING } from '@/content/tuning';
-import { hashAt, unit } from '../math/hash';
+import { hashAt, hashInts, unit } from '../math/hash';
 import { type Wilderness, WATER_LEVEL } from './generator';
+import { grovesNear, patchMask, seasNear } from './groves';
+import { inkWellInChunk } from './ink-wells';
 import { type Lookout, lookoutsInChunk, type Spring, springsInChunk } from './landmarks';
 import { type Bridge, pathsOf } from './paths';
 import { type PigmentSource, sourcesInChunk } from './sources';
@@ -17,8 +19,9 @@ export interface Tree {
   readonly height: number;
   readonly crown: number;
   readonly color: number;
-  /** A great old tree standing alone (height is its whole height, crown its spread). */
-  readonly kind?: 'great';
+  /** A great old tree standing alone (height is its whole height, crown its spread), or a
+   * clump of bamboo in a grove (height its tallest culm, crown the clump's spread). */
+  readonly kind?: 'great' | 'bamboo';
 }
 
 export interface WildChunk {
@@ -43,6 +46,9 @@ export interface WildChunk {
   readonly springs: readonly Spring[];
   readonly lookouts: readonly Lookout[];
 }
+
+/** Bamboo clumps: the chance per terrain cell deep in a grove, metres tall, clump spread. */
+const BAMBOO = { density: 0.75, maxSlope: 2.2, height: [7, 11], crown: [1.3, 2.1] } as const;
 
 /** Trees keep this far (metres) from a footpath's edge. */
 const PATH_ROOM = 2.5;
@@ -69,6 +75,10 @@ export function generateWildChunk(w: Wilderness, cx: number, cz: number): WildCh
     }
 
   const trees: Tree[] = [];
+  // bamboo stands in place of the trees in a grove; a flower sea is open ground
+  const mid = { x: x0 + size / 2, z: z0 + size / 2 };
+  const groves = grovesNear(w, mid.x, mid.z, size * 0.75);
+  const seas = seasNear(w, mid.x, mid.z, size * 0.75);
   const at = (ix: number, iz: number): number =>
     ix >= 0 && iz >= 0 && ix < n && iz < n
       ? heights[iz * n + ix]!
@@ -77,7 +87,11 @@ export function generateWildChunk(w: Wilderness, cx: number, cz: number): WildCh
     for (let ix = 0; ix < n; ix++) {
       const biome = BIOMES[biomes[iz * n + ix]!]!;
       const h = hashAt(w.seed, 'tree', cx * n + ix, cz * n + iz);
-      if (unit(h) >= biome.treeDensity) continue;
+      const cxz = { x: x0 + (ix + 0.5) * cell, z: z0 + (iz + 0.5) * cell };
+      const grove = groves.reduce((m, g) => Math.max(m, patchMask(g, cxz.x, cxz.z)), 0);
+      const bamboo = grove > 0.2;
+      if (unit(h) >= (bamboo ? BAMBOO.density * grove : biome.treeDensity)) continue;
+      if (!bamboo && seas.some((f) => patchMask(f, cxz.x, cxz.z) > 0.05)) continue;
       const y = heights[iz * n + ix]!;
       if (y < WATER_LEVEL + 0.5) continue;
       const slope = Math.max(
@@ -86,11 +100,28 @@ export function generateWildChunk(w: Wilderness, cx: number, cz: number): WildCh
         Math.abs(at(ix, iz + 1) - y),
         Math.abs(at(ix, iz - 1) - y),
       );
-      if (slope > biome.treeMaxSlope) continue;
-      const x = x0 + (ix + 0.2 + 0.6 * unit(h >>> 3)) * cell;
-      const z = z0 + (iz + 0.2 + 0.6 * unit(h >>> 11)) * cell;
+      if (slope > (bamboo ? BAMBOO.maxSlope : biome.treeMaxSlope)) continue;
+      // (shifted hashes are too few bits for `unit`, which lines trees up near the cell's corner;
+      // bamboo, packed close, would stand in rows: it draws its spot properly)
+      const x = x0 + (ix + 0.2 + 0.6 * unit(bamboo ? hashInts(h, 3) : h >>> 3)) * cell;
+      const z = z0 + (iz + 0.2 + 0.6 * unit(bamboo ? hashInts(h, 4) : h >>> 11)) * cell;
       if (Math.hypot(x, z) < 14) continue;
       if (w.townAt(x, z, TUNING.structures.townClearance)) continue;
+      if (bamboo) {
+        trees.push({
+          x,
+          z,
+          y: w.heightAt(x, z) - 0.15,
+          // taller in the heart of the grove, shorter shoots at its edge
+          height:
+            (BAMBOO.height[0] + (BAMBOO.height[1] - BAMBOO.height[0]) * unit(hashInts(h, 1))) *
+            (0.6 + 0.4 * grove),
+          crown: BAMBOO.crown[0] + (BAMBOO.crown[1] - BAMBOO.crown[0]) * unit(hashInts(h, 2)),
+          color: color('cedar'),
+          kind: 'bamboo',
+        });
+        continue;
+      }
       trees.push({
         x,
         z,
@@ -116,6 +147,8 @@ export function generateWildChunk(w: Wilderness, cx: number, cz: number): WildCh
     for (let dx = -1; dx <= 1; dx++) {
       for (const s of springsInChunk(w, cx + dx, cz + dz)) marks.push({ x: s.x, z: s.z, room: s.r + 5 });
       for (const l of lookoutsInChunk(w, cx + dx, cz + dz)) marks.push({ x: l.x, z: l.z, room: 7 });
+      const well = inkWellInChunk(w, cx + dx, cz + dz);
+      if (well) marks.push({ x: well.x, z: well.z, room: 6 });
     }
   // keep trees off sources, ruins, paths and landmarks so they stay visible and reachable
   const clearTrees = trees.filter(
@@ -180,6 +213,8 @@ export function greatTreeIn(
     if (w.townAt(x, z, 30)) continue;
     if (sources.some((p) => Math.hypot(p.x - x, p.z - z) < GREAT.room)) continue;
     if (ruins.some((p) => Math.hypot(p.x - x, p.z - z) < GREAT.room + 10)) continue;
+    // a great tree stands in the open, not in the middle of a bamboo grove
+    if (grovesNear(w, x, z, 0).some((g) => patchMask(g, x, z) > 0)) continue;
     // beside a footpath, not on it: its spread may reach over the way
     if (pathsOf(w).edgeDistance(x, z) < PATH_ROOM + 3) continue;
     const y = w.heightAt(x, z);

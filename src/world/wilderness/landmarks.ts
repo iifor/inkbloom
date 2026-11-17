@@ -6,7 +6,7 @@
 // Both keep clear of towns, ruins and footpaths.
 import { color } from '@/content/palette';
 import { TUNING } from '@/content/tuning';
-import { hashAt, unit } from '../math/hash';
+import { hashAt, hashInts, unit } from '../math/hash';
 import { type Wilderness, WATER_LEVEL } from './generator';
 import { pathsOf } from './paths';
 import { ruinCellOf, ruinInCell } from './ruins';
@@ -58,13 +58,13 @@ export function springInCell(w: Wilderness, gx: number, gz: number): Spring | nu
   for (let a = 0; a < 24; a++) {
     const h = hashAt(w.seed, 'spring-spot', gx, gz, a);
     const x = gx * span + 30 + unit(h) * (span - 60);
-    const z = gz * span + 30 + unit(h >>> 9) * (span - 60);
+    const z = gz * span + 30 + unit(hashInts(h, 1)) * (span - 60);
     if (Math.hypot(x - SIZE / 2, z - SIZE / 2) < 150) continue;
     // in hilly country, above the valley floor
     if (w.climate(x, z).relief < -0.15) continue;
     const y = w.heightAt(x, z);
     if (y < WATER_LEVEL + 2.5) continue;
-    const r = 2.6 + unit(h >>> 17) * 1.6;
+    const r = 2.6 + unit(hashInts(h, 2)) * 1.6;
     // a level shelf for the pool and its ring of rocks
     let lo = y;
     let hi = y;

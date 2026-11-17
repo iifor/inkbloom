@@ -1,11 +1,13 @@
 // Monsters roaming the wilderness. Where they are is a pure function of (seed, chunk, how
 // drained the land is), so the host can re-derive any monster from its id to validate a kill.
 // Restoring the nearby city makes the land colourful again and the monsters stop appearing.
+// A chunk with a seeping ink well also has its guards (see ink-wells.ts).
 import { enemyIndex } from '@/content/enemies';
 import { TUNING } from '@/content/tuning';
 import { hashAt, unit } from '../math/hash';
 import { type Wilderness, WATER_LEVEL } from './generator';
 import { influenceOf, saturationAt } from './drain';
+import { inkWellInChunk, wellGuards } from './ink-wells';
 
 export interface WildMonster {
   /** `<cx>,<cz>:<k>`; stable across sessions for the same land. */
@@ -25,11 +27,13 @@ export function wildMonsterCount(seed: number, cx: number, cz: number, saturatio
   return lo + Math.floor(unit(hashAt(seed, 'wild-count', cx, cz)) * (hi - lo + 1));
 }
 
+/** A chunk's monsters, its ink well's guards among them (unless the well is `cleansed`). */
 export function wildMonstersInChunk(
   w: Wilderness,
   cx: number,
   cz: number,
   saturation: number,
+  cleansed = false,
 ): WildMonster[] {
   const size = TUNING.world.chunkSize;
   const cell = TUNING.world.cellSize;
@@ -64,6 +68,8 @@ export function wildMonstersInChunk(
       break;
     }
   }
+  const well = inkWellInChunk(w, cx, cz);
+  if (well) out.push(...wellGuards(w, well, saturation, cleansed));
   return out;
 }
 

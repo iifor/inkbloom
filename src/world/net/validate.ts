@@ -22,6 +22,8 @@ const WILD_ID = /^-?\d{1,6},-?\d{1,6}:\d{1,4}$/;
 /** A ruin: its cell on the ruin grid ("r<gx>_<gz>"). */
 const RUIN_ID = /^r-?\d{1,5}_-?\d{1,5}$/;
 const MARK_ID = /^[\w-]{1,24}$/;
+/** An ink well: its chunk ("w<cx>_<cz>"). */
+const WELL_ID = /^w-?\d{1,6}_-?\d{1,6}$/;
 
 const isIndex = (v: unknown, max = MAX_INDEX): v is number =>
   Number.isInteger(v) && (v as number) >= 0 && (v as number) < max;
@@ -40,8 +42,8 @@ export function validScene(v: unknown): SceneRef | null {
 export const validCity = (v: unknown): v is string => typeof v === 'string' && CITY.test(v);
 
 /**
- * Roughly where in the world a patch acts (a town's chunk, a source's or monster's chunk, a
- * ruin's cell), or null for patches about the player's own things. The server only judges
+ * Roughly where in the world a patch acts (a town's chunk, a source's, monster's or ink well's
+ * chunk, a ruin's cell), or null for patches about the player's own things. The server only judges
  * patches near the player who sent them, so nobody can make it work out far-off places.
  */
 export function placeOf(patch: Patch): { x: number; z: number } | null {
@@ -57,6 +59,10 @@ export function placeOf(patch: Patch): { x: number; z: number } | null {
   const wild = patch.kind === 'harvest' ? patch.source : patch.kind === 'hunt' ? patch.monster : null;
   if (wild) {
     const m = /^(-?\d+),(-?\d+):/.exec(wild);
+    return m ? chunk(m[1]!, m[2]!) : null;
+  }
+  if (patch.kind === 'cleanse') {
+    const m = /^w(-?\d+)_(-?\d+)$/.exec(patch.well);
     return m ? chunk(m[1]!, m[2]!) : null;
   }
   if (patch.kind === 'discover') {
@@ -108,6 +114,8 @@ export function validPatch(raw: unknown): Patch | null {
       return typeof p.monster === 'string' && WILD_ID.test(p.monster)
         ? { kind: 'hunt', monster: p.monster }
         : null;
+    case 'cleanse':
+      return typeof p.well === 'string' && WELL_ID.test(p.well) ? { kind: 'cleanse', well: p.well } : null;
     case 'discover':
       return typeof p.ruin === 'string' && RUIN_ID.test(p.ruin) ? { kind: 'discover', ruin: p.ruin } : null;
     case 'death': {

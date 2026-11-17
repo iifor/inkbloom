@@ -196,6 +196,11 @@ export class AudioSystem implements System {
           case 'discover':
             this.arpeggio([0, 2, 4, 5, 7], 79, 0.1, 0.12);
             break;
+          case 'cleanse':
+            // the ink drains away with a rush of water, and the well rings clear
+            s.noise({ dur: 1.2, gain: 0.16, type: 'bandpass', freq: 500, freqEnd: 2600 });
+            this.arpeggio([0, 4, 7, 9, 12], 72, 0.14, 0.12);
+            break;
           case 'request':
             this.arpeggio([2, 4, 7], 72, 0.12, 0.14);
             break;

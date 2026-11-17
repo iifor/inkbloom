@@ -10,7 +10,7 @@ import type { SceneRef } from '../state';
 import type { Fix } from './fix';
 import { validCity, validPatch, validScene } from './validate';
 
-export const PROTOCOL = 1;
+export const PROTOCOL = 2;
 export const DEFAULT_PORT = 5195;
 export const DEFAULT_MAX_PLAYERS = 10;
 /** Motion updates per second, each way. */
@@ -173,6 +173,7 @@ export const SHARED_KINDS: ReadonlySet<Patch['kind']> = new Set([
   'harvest',
   'defeat',
   'hunt',
+  'cleanse',
   'request',
   'collectStock',
   'complete',
