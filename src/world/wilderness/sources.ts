@@ -45,7 +45,7 @@ export function sourcesInChunk(w: Wilderness, cx: number, cz: number): PigmentSo
     if (!starterShells && unit(roll) >= def.perChunk) return;
     for (let attempt = 0; attempt < (starterShells ? n * n : ATTEMPTS); attempt++) {
       const h = hashAt(w.seed, 'source-cell', cx, cz, kind, attempt);
-      const cellIndex = starterShells ? (roll % (n * n) + attempt) % (n * n) : h;
+      const cellIndex = starterShells ? ((roll % (n * n)) + attempt) % (n * n) : h;
       const ix = cellIndex % n;
       const iz = starterShells ? Math.floor(cellIndex / n) : (h >>> 8) % n;
       const x = cx * size + (ix + 0.5) * cell;

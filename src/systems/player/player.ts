@@ -199,7 +199,8 @@ export class PlayerSystem implements System, PlayerApi {
     }
     b.vel.y -= P.gravity * dt;
     // paper plane: hold jump while falling to glide forward
-    this.gliding = !wade && !b.onGround && b.vel.y < 0 && input.held('jump') && this.ctx.state.inventory.glider;
+    this.gliding =
+      !wade && !b.onGround && b.vel.y < 0 && input.held('jump') && this.ctx.state.inventory.glider;
     if (this.gliding) {
       b.vel.y = Math.max(b.vel.y, -P.glideFall);
       const fx = -Math.sin(this.yaw) * P.glideSpeed;

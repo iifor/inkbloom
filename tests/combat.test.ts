@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { ENEMIES, enemyIndex } from '@/content/enemies';
 import { TUNING } from '@/content/tuning';
 import { WEAPONS } from '@/content/weapons';
@@ -205,6 +205,9 @@ describe('hit feel', () => {
   });
 
   it('a blade hit shoves the monster back; a shot does not', () => {
+    // the blot's bite timer starts at a random point; one ready to bite would shove the player
+    // out of reach first, so start it mid-cooldown
+    const random = vi.spyOn(Math, 'random').mockReturnValue(0.5);
     const shoved = (hit: (h: Headless) => void): number => {
       const { h, group } = arena();
       h.place(0, 0, 0);
@@ -218,6 +221,7 @@ describe('hit feel', () => {
     };
     const blade = shoved((h) => h.combat.strike(h.ctx.player.eye, h.ctx.player.forward, 3, 1, 5));
     const shot = shoved((h) => h.combat.shoot(h.ctx.player.eye, h.ctx.player.forward, 10, 5));
+    random.mockRestore();
     expect(blade).toBeGreaterThan(0.3);
     expect(shot).toBeLessThan(0);
   });
