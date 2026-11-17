@@ -1,8 +1,14 @@
 // Generative music that follows the colour around the player. Grey land plays sparse, minor
 // and low; colourful land plays brighter, major and busier. During an ink tide a low pulse
-// and a faster beat take over. Notes are scheduled half a second ahead on the audio clock.
+// and a faster beat take over. The time of day, the season and the weather colour it too:
+// nights are slower and quieter, rain draws the music back so the rain is heard, winter
+// melodies ring higher and longer like bells. Notes are scheduled half a second ahead on the
+// audio clock.
 import { type Synth, midi } from '@/engine/audio/synth';
+import { dayHours } from '@/engine/render/daylight';
 import type { GameContext } from '@/game/types';
+import { seasonBlend } from '@/world/climate/calendar';
+import { smoothstep } from '@/world/math/noise';
 import { influenceOf, saturationAt } from '@/world/wilderness/drain';
 
 const BPM = 76;
@@ -31,6 +37,12 @@ export class Music {
   private tide = false;
   private walk = 2;
   private sampleT = 0;
+  /** The hour, season and weather's hold on the music: speed, how many notes, how loud. */
+  private tempo = 1;
+  private density = 1;
+  private loud = 1;
+  /** 0..1: winter melodies ring like bells. */
+  private bells = 0;
 
   constructor(
     private readonly synth: Synth,
@@ -59,14 +71,34 @@ export class Music {
       this.sampleT = 1;
       // ease towards the target so walking into grey land changes the mood gradually
       this.brightness += (this.sample() - this.brightness) * 0.35;
+      this.mood();
     }
     const now = s.now;
     if (this.next < now - 0.5) this.next = now + 0.05;
     while (this.next < now + 0.5) {
       this.play(this.next, this.step);
       this.step++;
-      this.next += this.tide ? EIGHTH * 0.75 : EIGHTH;
+      this.next += this.tide ? EIGHTH * 0.75 : EIGHTH / this.tempo;
     }
+  }
+
+  /** Ease towards how the hour, season and weather want the music (the tide overrides it). */
+  private mood(): void {
+    const a = this.ctx.renderer.atmosphere;
+    const len = dayHours(a.declination);
+    const day =
+      smoothstep(11.5 - len / 2, 12.5 - len / 2, a.hour) *
+      (1 - smoothstep(11.5 + len / 2, 12.8 + len / 2, a.hour));
+    const night = 1 - day;
+    const sb = seasonBlend(a.year);
+    const winter = (sb.from === 3 ? 1 - sb.t : 0) + (sb.to === 3 ? sb.t : 0);
+    const summer = (sb.from === 1 ? 1 - sb.t : 0) + (sb.to === 1 ? sb.t : 0);
+    const wet = Math.min(1, a.weather.rain + a.weather.snowfall * 0.6);
+    const ease = (now: number, to: number): number => now + (to - now) * 0.3;
+    this.tempo = ease(this.tempo, 1 - 0.15 * night - 0.1 * winter);
+    this.density = ease(this.density, (1 - 0.5 * night) * (1 - 0.6 * wet) * (1 + 0.15 * summer));
+    this.loud = ease(this.loud, (1 - 0.35 * night) * (1 - 0.5 * wet));
+    this.bells = ease(this.bells, winter);
   }
 
   private play(t: number, step: number): void {
@@ -87,16 +119,16 @@ export class Music {
         s.tone({
           freq: midi(chordRoot + iv),
           dur: EIGHTH * 8,
-          gain: 0.025 + 0.02 * b,
+          gain: (0.025 + 0.02 * b) * this.loud,
           type: 'triangle',
           at: t,
-          attack: 0.4,
+          attack: 0.4 / this.tempo,
           bus: 'music',
         });
       s.tone({
         freq: midi(chordRoot - 12),
         dur: EIGHTH * 6,
-        gain: 0.06,
+        gain: 0.06 * this.loud,
         type: 'sine',
         at: t,
         attack: 0.05,
@@ -104,19 +136,21 @@ export class Music {
       });
     }
     // melody: a gentle random walk on the scale; busier when the land has colour
-    const density = 0.15 + 0.45 * b + (this.tide ? 0.2 : 0);
+    const density = this.tide ? 0.35 + 0.45 * b : (0.15 + 0.45 * b) * this.density;
     if (Math.random() < density && e % (b > 0.3 ? 1 : 2) === 0) {
       this.walk = Math.max(
         0,
         Math.min(9, this.walk + (Math.random() < 0.5 ? -1 : 1) * (Math.random() < 0.3 ? 2 : 1)),
       );
       const deg = this.walk;
-      const pitch = KEY + 12 + scale[deg % 5]! + 12 * Math.floor(deg / 5);
+      // winter: an octave up, a pure tone left to ring like a bell
+      const bell = !this.tide && Math.random() < this.bells;
+      const pitch = KEY + 12 + scale[deg % 5]! + 12 * Math.floor(deg / 5) + (bell ? 12 : 0);
       s.tone({
         freq: midi(pitch),
-        dur: EIGHTH * 1.6,
-        gain: 0.05 + 0.03 * b,
-        type: bright ? 'triangle' : 'sine',
+        dur: EIGHTH * (bell ? 4 : 1.6),
+        gain: (0.05 + 0.03 * b) * (this.tide ? 1 : this.loud) * (bell ? 0.8 : 1),
+        type: bell || !bright ? 'sine' : 'triangle',
         at: t,
         bus: 'music',
       });

@@ -4,6 +4,7 @@
 import { type Loop, Synth, midi } from '@/engine/audio/synth';
 import type { Point3 } from '@/game/events';
 import type { GameContext, System } from '@/game/types';
+import { Ambience } from './ambience';
 import { Music } from './music';
 
 /** Major pentatonic steps; colours map onto it so every bloom is in key. */
@@ -15,6 +16,7 @@ export class AudioSystem implements System {
   readonly id = 'audio';
   readonly synth = new Synth();
   private readonly music: Music;
+  private readonly ambience: Ambience;
   private readonly release: (() => void)[] = [];
   private brush: Loop | null = null;
   private wind: Loop | null = null;
@@ -25,6 +27,7 @@ export class AudioSystem implements System {
 
   constructor(private readonly ctx: GameContext) {
     this.music = new Music(this.synth, ctx);
+    this.ambience = new Ambience(this.synth, ctx);
     const on = ctx.events.on.bind(ctx.events);
     const s = this.synth;
     this.release.push(
@@ -262,11 +265,13 @@ export class AudioSystem implements System {
       }
     } else this.stepT = 0;
     this.music.update(dt);
+    this.ambience.update(dt);
   }
 
   dispose(): void {
     for (const r of this.release) r();
     this.music.dispose();
+    this.ambience.dispose();
     void this.synth.dispose();
   }
 }
