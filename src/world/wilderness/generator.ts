@@ -7,6 +7,9 @@ import { hashAt } from '../math/hash';
 import { createNoise2D, fbm, lerp, smoothstep, type Noise2D } from '../math/noise';
 
 export const WATER_LEVEL = -0.75;
+/** Rivers run north–south, this many metres apart, the first this far east of spawn. */
+export const RIVER_LANE = 720;
+export const RIVER_X = 62;
 /** Height above the water where the sandy bank gives way to a full meadow. */
 export const BANK_HEIGHT = 0.9;
 
@@ -57,6 +60,9 @@ export interface Wilderness {
   entrancesNear(x: number, z: number, cells?: number): Entrance[];
   /** The town whose footprint, grown by `margin` metres, contains the point. */
   townAt(x: number, z: number, margin?: number): Entrance | null;
+  /** River `lane` (rivers run north–south, `RIVER_LANE` metres apart) at z: the x of its middle
+   * and its half-width there. */
+  riverAt(lane: number, z: number): { x: number; half: number };
 }
 
 const W = TUNING.world;
@@ -82,12 +88,13 @@ export function createWilderness(seed: number): Wilderness {
   const spawn = W.chunkSize / 2;
 
   // Continuous channels cross chunk boundaries. The first one crosses the route to the city.
-  const riverDistance = (x: number, z: number): number => {
-    const lane = Math.round((x - spawn - 62) / 720);
+  const riverMiddle = (lane: number, z: number): number => {
     const t = (z - spawn) / 155;
-    const centre = spawn + 62 + lane * 720 + 29 * bends(lane + 0.3, t) + 12 * Math.sin(t * 1.8);
-    return Math.abs(x - centre);
+    return spawn + RIVER_X + lane * RIVER_LANE + 29 * bends(lane + 0.3, t) + 12 * Math.sin(t * 1.8);
   };
+  const riverHalf = (z: number): number => 11 + 15 * smoothstep(0.1, 0.7, bends(4.3, z / 270));
+  const riverDistance = (x: number, z: number): number =>
+    Math.abs(x - riverMiddle(Math.round((x - spawn - RIVER_X) / RIVER_LANE), z));
 
   const climate = (x: number, z: number): ClimateSample => {
     const dist = Math.hypot(x, z);
@@ -210,7 +217,7 @@ export function createWilderness(seed: number): Wilderness {
    * channel and gently sloping shores. */
   const river = (h: number, x: number, z: number): number => {
     const bank = riverDistance(x, z);
-    const width = 11 + 15 * smoothstep(0.1, 0.7, bends(4.3, z / 270));
+    const width = riverHalf(z);
     const channel = lerp(WATER_LEVEL - 2.8, WATER_LEVEL, smoothstep(0, width, bank));
     return lerp(Math.min(h, channel), h, smoothstep(width * 0.8, width + 17, bank));
   };
@@ -286,5 +293,6 @@ export function createWilderness(seed: number): Wilderness {
     return (u + v - 1) * corner(ix + 1, iz + 1) + (1 - v) * east + (1 - u) * south;
   };
 
-  return { seed, climate, biomeAt, heightAt, rawHeightAt, entranceInCell, entrancesNear, townAt };
+  const riverAt = (lane: number, z: number) => ({ x: riverMiddle(lane, z), half: riverHalf(z) });
+  return { seed, climate, biomeAt, heightAt, rawHeightAt, entranceInCell, entrancesNear, townAt, riverAt };
 }

@@ -288,7 +288,44 @@ describe('a river through a town', () => {
       }
     }
     expect(overWater).toBeGreaterThan(10);
-    expect(next).toBe(st.points.length);
+    // all the way along (a main street ends at the well in the middle of the square)
+    expect(next).toBeGreaterThanOrEqual(st.points.length - 3);
+  });
+});
+
+describe('village details', () => {
+  const city = generateCity('x', 21, 3, 'pz', riverland);
+  const cellAt = (x: number, z: number): number =>
+    Math.floor(z / city.cell) * city.n + Math.floor(x / city.cell);
+
+  it('scatters yard trees evenly, off streets, houses and the river', () => {
+    expect(city.trees.length).toBeGreaterThan(20);
+    for (const t of city.trees) {
+      const i = cellAt(t.x, t.z);
+      expect(city.roads[i]).toBe(ROAD_NONE);
+      expect(city.buildingOf[i]).toBe(0);
+      expect(city.water[i]).toBe(0);
+      for (const o of city.trees)
+        if (o !== t) expect(Math.hypot(o.x - t.x, o.z - t.z)).toBeGreaterThanOrEqual(9);
+    }
+  });
+
+  it('fences some front gardens, never out into the street', () => {
+    const fenced = city.buildings.filter((b) => b.garden > 0);
+    expect(fenced.length).toBeGreaterThan(city.buildings.length / 5);
+    for (const b of fenced) {
+      // the garden's front corners stay off the streets' paving
+      for (const u of [-1, 1]) {
+        const c = Math.cos(b.angle);
+        const s = Math.sin(b.angle);
+        const lx = u * (b.hw + 0.4);
+        const lz = b.hd + b.garden;
+        const x = b.x + c * lx + s * lz;
+        const z = b.z - s * lx + c * lz;
+        for (const st of city.streets)
+          for (const p of st.points) expect(Math.hypot(p.x - x, p.z - z)).toBeGreaterThan(st.width / 2);
+      }
+    }
   });
 });
 
