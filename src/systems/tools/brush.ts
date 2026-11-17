@@ -10,7 +10,7 @@ import { standingMonsters } from '@/world/city/features';
 import { groundSurfaceAt } from '@/world/city/layout';
 import { stats } from '@/world/progression';
 import { ORIGINAL, graffiti, surfaceCost } from '@/world/paint/surfaces';
-import type { Tool, ToolHud } from './tool';
+import type { InHand, Tool, ToolHud } from './tool';
 
 export type BrushMode = 'restore' | 'graffiti';
 
@@ -110,7 +110,7 @@ export class Brush implements Tool {
     const current = this.ctx.state.cities.get(cityId)?.states[surface] ?? 0;
     const want = this.mode === 'restore' ? ORIGINAL : graffiti(this.color);
     const cost = surfaceCost(info);
-    this.hint = `${KIND_NAMES[info.kind]} · ${cost} ${this.mode === 'restore' ? '通用颜料' : PALETTE[this.color]!.name + '颜料'}`;
+    this.hint = `${KIND_NAMES[info.kind]} · ${cost} 份颜料${this.mode === 'restore' ? '' : `（${PALETTE[this.color]!.name}）`}`;
     if (current === want) {
       this.hint = `${KIND_NAMES[info.kind]} · 已完成`;
       this.target = null;
@@ -127,7 +127,7 @@ export class Brush implements Tool {
       return;
     }
     const inv = this.ctx.state.inventory;
-    const have = this.mode === 'restore' ? inv.generic : (inv.colored[this.color] ?? 0);
+    const have = inv.generic;
     const key = `${cityId}:${surface}:${want}`;
     const reason =
       have < cost
@@ -185,8 +185,8 @@ export class Brush implements Tool {
     const inv = this.ctx.state.inventory;
     const modeLine =
       this.mode === 'restore'
-        ? `修复 · 通用颜料 ${inv.generic}`
-        : `涂鸦 · ${PALETTE[this.color]!.name} ${inv.colored[this.color] ?? 0}`;
+        ? `修复 · 颜料 ${inv.generic}`
+        : `涂鸦 · ${PALETTE[this.color]!.name} · 颜料 ${inv.generic}`;
     return {
       lines: [modeLine, this.hint].filter(Boolean),
       progress: this.target !== null && this.progress > 0 ? this.progress : null,
@@ -196,6 +196,10 @@ export class Brush implements Tool {
 
   onEquip(): void {
     this.toldUse = false;
+  }
+
+  inHand(): InHand {
+    return { item: 'brush', aiming: false, painting: this.stroking };
   }
 
   onUnequip(): void {

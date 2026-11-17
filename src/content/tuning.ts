@@ -135,6 +135,9 @@ export const TUNING = {
     stronghold: { first: [2, 3], other: [3, 6] },
     /** Chance that a stronghold monster is a spitter rather than a blot. */
     spitterChance: 0.35,
+    /** Chance that the first monster of a drained wilderness chunk is a 墨巨, and that an ink
+     * tide brings one along. */
+    giantChance: { wild: 0.15, tide: 0.35 },
     /** Monsters that come with each ink tide: [min, max]. */
     tideMonsters: [2, 4],
     /** A monster gives up and goes home beyond this distance from its post. */
@@ -184,8 +187,7 @@ export const TUNING = {
   brush: {
     /** Range and speed are per brush tier: content/brush-tiers.ts */
     largeSurfaceArea: 260,
-    startingGeneric: 30,
-    startingColored: 6,
+    startingGeneric: 40,
   },
   blocks: {
     /** Share of coloured surfaces at which a block counts as cleared, coloured, thriving. */

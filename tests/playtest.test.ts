@@ -20,16 +20,16 @@ const city = (): CityLog => ({ name: '橘石城', firstEntered: 100, seconds: 0,
 describe('playtest log', () => {
   it('books gains and spending separately under the change that caused them', () => {
     const log = newLog('w', NOW);
-    addFlow(log, 'collect', { generic: 0, ink: 10, colored: 0 });
-    addFlow(log, 'collect', { generic: 0, ink: 10, colored: 0 });
-    addFlow(log, 'refine', { generic: 5, ink: -10, colored: 0 });
-    addFlow(log, 'restore', { generic: -1, ink: 0, colored: 0 });
-    expect(log.gain.collect).toEqual({ generic: 0, ink: 20, colored: 0, count: 2 });
-    expect(log.gain.refine).toEqual({ generic: 5, ink: 0, colored: 0, count: 1 });
-    expect(log.spend.refine).toEqual({ generic: 0, ink: 10, colored: 0, count: 1 });
+    addFlow(log, 'collect', { generic: 0, ink: 10 });
+    addFlow(log, 'collect', { generic: 0, ink: 10 });
+    addFlow(log, 'refine', { generic: 5, ink: -10 });
+    addFlow(log, 'restore', { generic: -1, ink: 0 });
+    expect(log.gain.collect).toEqual({ generic: 0, ink: 20, count: 2 });
+    expect(log.gain.refine).toEqual({ generic: 5, ink: 0, count: 1 });
+    expect(log.spend.refine).toEqual({ generic: 0, ink: 10, count: 1 });
     expect(log.spend.restore!.generic).toBe(1);
     // a change that moved nothing books nothing
-    addFlow(log, 'drain', { generic: 0, ink: 0, colored: 0 });
+    addFlow(log, 'drain', { generic: 0, ink: 0 });
     expect(log.gain.drain).toBeUndefined();
     expect(log.spend.drain).toBeUndefined();
   });
@@ -52,7 +52,7 @@ describe('playtest log', () => {
     expect(log.events).toHaveLength(MAX_EVENTS);
     expect(log.events[0]!.t).toBe(10);
     for (let i = 0; i <= MAX_SAMPLES; i++)
-      addSample(log, { t: i * 60, level: 1, generic: 0, ink: 0, colored: 0, scene: '野外' });
+      addSample(log, { t: i * 60, level: 1, generic: 0, ink: 0, scene: '野外' });
     expect(log.samples.length).toBeLessThanOrEqual(MAX_SAMPLES);
     expect(log.samples[0]!.t).toBe(0);
   });
@@ -73,7 +73,7 @@ describe('playtest log', () => {
     log.sessions = 1;
     log.cities.c1 = city();
     noteBlock(log.cities.c1, 0, 'colored', null, 400);
-    addFlow(log, 'collect', { generic: 0, ink: 30, colored: 0 });
+    addFlow(log, 'collect', { generic: 0, ink: 30 });
     log.rejections['颜料不足（需要 N，剩 N）'] = 4;
     addEvent(log, { t: 90, kind: 'death', text: '在野外倒下，掉了 12 墨' });
     const md = report(log, 3725);

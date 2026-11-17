@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { describe, expect, it, vi } from 'vitest';
-import { ENEMIES, enemyIndex } from '@/content/enemies';
+import { ENEMIES, type EnemyDef, enemyIndex } from '@/content/enemies';
 import { TUNING } from '@/content/tuning';
 import { WEAPONS } from '@/content/weapons';
 import { MonsterGroup } from '@/systems/combat/monsters';
@@ -147,10 +147,11 @@ describe('weapon balance at level 1', () => {
   const power = stats(createGrowth()).weapon / 100;
 
   it.each(WEAPONS.map((w) => [w.key, w] as const))('%s kills each enemy in a sane number of hits', (_, w) => {
-    for (const e of ENEMIES) {
+    for (const e of ENEMIES as readonly EnemyDef[]) {
       const hits = Math.ceil(e.hp / (w.damage * power));
       expect(hits, `${w.key} vs ${e.key}`).toBeGreaterThanOrEqual(1);
-      expect(hits, `${w.key} vs ${e.key}`).toBeLessThanOrEqual(5);
+      // an elite is a fight, not a wall: a dozen rifle hits at most
+      expect(hits, `${w.key} vs ${e.key}`).toBeLessThanOrEqual(e.elite ? 15 : 5);
     }
   });
 
@@ -202,6 +203,28 @@ describe('hit feel', () => {
     expect(h.count('monster:interrupted')).toBe(0);
     h.run(0.5, step(h, group), 1 / 60);
     expect(h.count('monster:bite')).toBe(1);
+  });
+
+  it('a 墨巨 shrugs off a blade-sized hit; only a heavy one breaks its slam', () => {
+    const winding = () => {
+      const { h, group } = arena();
+      h.place(0, 0, 0);
+      group.spawn(enemyIndex('giant'), new THREE.Vector3(0, 0, -2.2), { tag: 'test' });
+      const m = inner(group);
+      for (let i = 0; i < 180 && !m.act; i++) step(h, group)(1 / 60);
+      expect(m.act?.kind).toBe('melee');
+      return { h, m };
+    };
+    const poise = (ENEMIES[enemyIndex('giant')] as EnemyDef).poise!;
+    expect(poise).toBeGreaterThan(FEEL.interruptMin);
+    const light = winding();
+    light.h.combat.strike(light.h.ctx.player.eye, light.h.ctx.player.forward, 3, 1, FEEL.interruptMin);
+    expect(light.m.act).not.toBeNull();
+    expect(light.h.count('monster:interrupted')).toBe(0);
+    const heavy = winding();
+    heavy.h.combat.strike(heavy.h.ctx.player.eye, heavy.h.ctx.player.forward, 3, 1, poise);
+    expect(heavy.m.act).toBeNull();
+    expect(heavy.h.count('monster:interrupted')).toBe(1);
   });
 
   it('a blade hit shoves the monster back; a shot does not', () => {

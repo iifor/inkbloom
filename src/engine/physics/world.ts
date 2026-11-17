@@ -1,11 +1,16 @@
-// Axis-aligned box world: static colliders in a spatial hash, swept body movement with
-// step-up, and raycasts. Ported from doodle-game's physics.js; adds collider groups so
-// streamed chunks can be added and removed without rebuilding everything, and walks the
-// hash grid for raycasts instead of testing every box.
+// Box world: static colliders in a spatial hash, swept body movement with step-up, and
+// raycasts. Ported from doodle-game's physics.js; adds collider groups so streamed chunks can
+// be added and removed without rebuilding everything, and walks the hash grid for raycasts
+// instead of testing every box.
 //
 // A world may also have smooth `ground`: a height function (rolling hills). Bodies stand on it
 // and follow it downhill, slopes steeper than MAX_SLOPE stop them like a wall, and rays stop at
 // it. Boxes (trees, towers, ruins) sit on top of it as usual.
+//
+// Boxes are axis-aligned unless added with a yaw: a turned box keeps its AABB in min/max for
+// the hash and as a cheap first test, then gets an exact test in its own frame (separating
+// axes against the body's footprint, slabs for rays). Bodies slide off turned walls along
+// their normal instead of stopping axis by axis.
 import * as THREE from 'three';
 
 const EPS = 1e-4;
@@ -121,11 +126,25 @@ export interface Decal {
   readonly surface: number;
 }
 
+/** A box turned about its vertical centre line, in the three.js `rotation.y` sense. */
+export interface BoxTurn {
+  readonly yaw: number;
+  readonly cx: number;
+  readonly cz: number;
+  /** Half extents along the box's own x and z. */
+  readonly hx: number;
+  readonly hz: number;
+  readonly c: number;
+  readonly s: number;
+}
+
 export interface Box {
+  /** The AABB; for a turned box, of the box after turning. */
   readonly min: Vec3Like;
   readonly max: Vec3Like;
   readonly data: ColliderData;
   readonly group: string;
+  readonly turn?: BoxTurn;
   /** Query stamp to de-duplicate boxes spanning several grid cells. */
   q: number;
 }
@@ -174,11 +193,93 @@ export function makeBody(pos: THREE.Vector3, halfW: number, height: number, step
 const _min = new THREE.Vector3();
 const _max = new THREE.Vector3();
 const _out: Box[] = [];
+const _push = { x: 0, z: 0 };
+const _tn = new THREE.Vector3();
+
+/**
+ * How deep the xz rectangle [min, max] sits in a turned box, on the shallowest of the four
+ * separating axes (world x and z, the box's own x and z); 0 or less when they are apart. With
+ * `out`, also writes the xz move that pushes the rectangle out along that axis.
+ */
+function turnedDepth(b: Box, min: Vec3Like, max: Vec3Like, out?: { x: number; z: number }): number {
+  const t = b.turn!;
+  const ax = (max.x - min.x) / 2;
+  const az = (max.z - min.z) / 2;
+  const dx = t.cx - (min.x + max.x) / 2;
+  const dz = t.cz - (min.z + max.z) / 2;
+  const ac = Math.abs(t.c);
+  const as = Math.abs(t.s);
+  // the box's own axes are (c, -s) and (s, c)
+  const du = dx * t.c - dz * t.s;
+  const dv = dx * t.s + dz * t.c;
+  const d0 = ax + (b.max.x - b.min.x) / 2 - Math.abs(dx);
+  const d1 = az + (b.max.z - b.min.z) / 2 - Math.abs(dz);
+  const d2 = ax * ac + az * as + t.hx - Math.abs(du);
+  const d3 = ax * as + az * ac + t.hz - Math.abs(dv);
+  const depth = Math.min(d0, d1, d2, d3);
+  if (out && depth > 0) {
+    // away from the box centre, a hair past touching
+    const m = depth + EPS;
+    if (depth === d0) [out.x, out.z] = [-Math.sign(dx) * m, 0];
+    else if (depth === d1) [out.x, out.z] = [0, -Math.sign(dz) * m];
+    else if (depth === d2) [out.x, out.z] = [-Math.sign(du) * m * t.c, Math.sign(du) * m * t.s];
+    else [out.x, out.z] = [-Math.sign(dv) * m * t.s, -Math.sign(dv) * m * t.c];
+  }
+  return depth;
+}
+
+/** Where a ray enters a turned box (Infinity if it does not); writes that face's world normal. */
+function turnedRay(b: Box, o: Vec3Like, d: Vec3Like, maxT: number, n: THREE.Vector3): number {
+  const t = b.turn!;
+  const rx = o.x - t.cx;
+  const rz = o.z - t.cz;
+  const lo = [rx * t.c - rz * t.s, o.y, rx * t.s + rz * t.c];
+  const ld = [d.x * t.c - d.z * t.s, d.y, d.x * t.s + d.z * t.c];
+  const lmin = [-t.hx, b.min.y, -t.hz];
+  const lmax = [t.hx, b.max.y, t.hz];
+  let tmin = 0;
+  let tmax = maxT;
+  let nAxis = -1;
+  let nSign = 0;
+  for (let a = 0; a < 3; a++) {
+    const da = ld[a]!;
+    const oa = lo[a]!;
+    if (Math.abs(da) < 1e-12) {
+      if (oa < lmin[a]! || oa > lmax[a]!) return Infinity;
+      continue;
+    }
+    const inv = 1 / da;
+    let t1 = (lmin[a]! - oa) * inv;
+    let t2 = (lmax[a]! - oa) * inv;
+    let sign = -1;
+    if (t1 > t2) {
+      [t1, t2] = [t2, t1];
+      sign = 1;
+    }
+    if (t1 > tmin) {
+      tmin = t1;
+      nAxis = a;
+      nSign = sign;
+    }
+    if (t2 < tmax) tmax = t2;
+    if (tmin > tmax) return Infinity;
+  }
+  if (nAxis < 0) return Infinity;
+  // the box's own x is (c, 0, -s) in the world, its own z (s, 0, c)
+  if (nAxis === 0) n.set(nSign * t.c, 0, -nSign * t.s);
+  else if (nAxis === 1) n.set(0, nSign, 0);
+  else n.set(nSign * t.s, 0, nSign * t.c);
+  return tmin;
+}
 
 export class PhysicsWorld {
   private readonly grid = new Map<number, Box[]>();
   private readonly groups = new Map<string, Box[]>();
   private qid = 0;
+  /** Set when an axis resolve met a turned box, so moveHoriz knows to push out of it. */
+  private turnedNear = false;
+  /** Push out of turned walls in the last horizontal move; a unit normal once it ends. */
+  private readonly slide = new THREE.Vector3();
   /** Smooth ground height at (x, z), or null for a world of boxes only. */
   ground: ((x: number, z: number) => number) | null = null;
 
@@ -192,9 +293,31 @@ export class PhysicsWorld {
     return n;
   }
 
-  /** Add a box to a named group. Groups are removed together with removeGroup(). */
-  addBox(group: string, min: Vec3Like, max: Vec3Like, data: ColliderData = {}): Box {
-    const box: Box = { min: { ...min }, max: { ...max }, data, group, q: -1 };
+  /**
+   * Add a box to a named group. Groups are removed together with removeGroup(). With a yaw,
+   * [min, max] is the box before turning; it turns about its vertical centre line.
+   */
+  addBox(group: string, min: Vec3Like, max: Vec3Like, data: ColliderData = {}, yaw = 0): Box {
+    let box: Box;
+    if (!yaw) box = { min: { ...min }, max: { ...max }, data, group, q: -1 };
+    else {
+      const cx = (min.x + max.x) / 2;
+      const cz = (min.z + max.z) / 2;
+      const hx = (max.x - min.x) / 2;
+      const hz = (max.z - min.z) / 2;
+      const c = Math.cos(yaw);
+      const s = Math.sin(yaw);
+      const ex = hx * Math.abs(c) + hz * Math.abs(s);
+      const ez = hx * Math.abs(s) + hz * Math.abs(c);
+      box = {
+        min: { x: cx - ex, y: min.y, z: cz - ez },
+        max: { x: cx + ex, y: max.y, z: cz + ez },
+        data,
+        group,
+        turn: { yaw, cx, cz, hx, hz, c, s },
+        q: -1,
+      };
+    }
     let list = this.groups.get(group);
     if (!list) this.groups.set(group, (list = []));
     list.push(box);
@@ -256,7 +379,8 @@ export class PhysicsWorld {
           b.min.y < max.y &&
           b.max.y > min.y &&
           b.min.z < max.z &&
-          b.max.z > min.z
+          b.max.z > min.z &&
+          (!b.turn || turnedDepth(b, min, max) > 0)
         )
           out.push(b);
       }
@@ -289,6 +413,12 @@ export class PhysicsWorld {
       if (_out.length === 0) break;
       let best = 0;
       for (const b of _out) {
+        if (b.turn) {
+          // turned boxes push out along their own normals (resolveTurned); up and down they are
+          // like any box
+          this.turnedNear = true;
+          if (axis !== 1) continue;
+        }
         const cNeg = b.min[ax] - _max[ax] - EPS;
         const cPos = b.max[ax] - _min[ax] + EPS;
         let corr: number;
@@ -304,6 +434,37 @@ export class PhysicsWorld {
     return pushed;
   }
 
+  /** Push the body out of turned boxes it overlaps, adding the push to `slide`. */
+  private resolveTurned(body: Body): boolean {
+    if (!this.turnedNear) return false;
+    this.turnedNear = false;
+    const p = body.pos;
+    let pushed = false;
+    for (let iter = 0; iter < 4; iter++) {
+      this.bodyBox(body, _min, _max);
+      this.query(_min, _max, _out);
+      let best = 0;
+      let px = 0;
+      let pz = 0;
+      for (const b of _out) {
+        if (!b.turn) continue;
+        const depth = turnedDepth(b, _min, _max, _push);
+        if (depth > best) {
+          best = depth;
+          px = _push.x;
+          pz = _push.z;
+        }
+      }
+      if (best === 0) break;
+      p.x += px;
+      p.z += pz;
+      this.slide.x += px;
+      this.slide.z += pz;
+      pushed = true;
+    }
+    return pushed;
+  }
+
   private moveHoriz(body: Body, dx: number, dz: number, canStep: boolean): void {
     const p = body.pos;
     const ox = p.x;
@@ -311,24 +472,32 @@ export class PhysicsWorld {
     const oy = p.y;
     body.bx = 0;
     body.bz = 0;
+    this.slide.set(0, 0, 0);
     if (dx === 0 && dz === 0) return;
+    this.turnedNear = false;
     p.x += dx;
     const rx = this.resolveAxis(body, 0, dx);
     p.z += dz;
     const rz = this.resolveAxis(body, 2, dz);
-    if (rx === 0 && rz === 0) return;
+    const turned = this.resolveTurned(body);
+    if (rx === 0 && rz === 0 && !turned) return;
     const nx = p.x;
     const nz = p.z;
+    const sx = this.slide.x;
+    const sz = this.slide.z;
     let stepped = false;
     if (canStep && body.stepHeight > 0) {
       p.x = ox;
       p.z = oz;
       p.y = oy + body.stepHeight;
       if (!this.overlapsBody(body)) {
+        this.slide.set(0, 0, 0);
+        this.turnedNear = false;
         p.x += dx;
         const rx2 = this.resolveAxis(body, 0, dx);
         p.z += dz;
         const rz2 = this.resolveAxis(body, 2, dz);
+        const turned2 = this.resolveTurned(body);
         p.y -= body.stepHeight;
         this.resolveAxis(body, 1, -body.stepHeight);
         const d1 = (nx - ox) ** 2 + (nz - oz) ** 2;
@@ -337,24 +506,31 @@ export class PhysicsWorld {
           stepped = true;
           body.bx = rx2;
           body.bz = rz2;
-          if (rx2 !== 0 || rz2 !== 0) {
-            body.hitWall = true;
-            body.wallNormal.set(rx2, 0, rz2).normalize();
-          }
+          if (rx2 !== 0 || rz2 !== 0 || turned2) this.wallHit(body, rx2, rz2);
         }
       }
       if (!stepped) {
         p.x = nx;
         p.z = nz;
         p.y = oy;
+        this.slide.set(sx, 0, sz);
       }
     }
     if (!stepped) {
       body.bx = rx;
       body.bz = rz;
-      body.hitWall = true;
-      body.wallNormal.set(rx, 0, rz).normalize();
+      this.wallHit(body, rx, rz);
     }
+    this.slide.normalize();
+  }
+
+  /** Mark a wall hit from axis pushes plus any turned-wall push in `slide`. */
+  private wallHit(body: Body, rx: number, rz: number): void {
+    const n = Math.hypot(this.slide.x, this.slide.z);
+    body.hitWall = true;
+    body.wallNormal
+      .set(rx + (n > 0 ? this.slide.x / n : 0), 0, rz + (n > 0 ? this.slide.z / n : 0))
+      .normalize();
   }
 
   /** Undo a horizontal move that would climb ground steeper than MAX_SLOPE. */
@@ -419,6 +595,13 @@ export class PhysicsWorld {
     this.slopeLimit(body, ox, oz);
     if (body.bx !== 0) v.x = 0;
     if (body.bz !== 0) v.z = 0;
+    // along a turned wall keep only the velocity that does not go into it
+    const sn = this.slide;
+    const into = v.x * sn.x + v.z * sn.z;
+    if (into < 0) {
+      v.x -= into * sn.x;
+      v.z -= into * sn.z;
+    }
     const dy = v.y * dt;
     p.y += dy;
     const r = this.resolveAxis(body, 1, dy);
@@ -502,6 +685,7 @@ export class PhysicsWorld {
     let bestT = maxDist;
     let bAxis = -1;
     let bSign = 0;
+    let bTurned: THREE.Vector3 | null = null;
 
     for (let guard = 0; guard < 100000; guard++) {
       const arr = this.grid.get(this.key(ix, iz));
@@ -510,6 +694,15 @@ export class PhysicsWorld {
           if (b.q === q) continue;
           b.q = q;
           if (ignore?.(b)) continue;
+          if (b.turn) {
+            const t = turnedRay(b, o, d, bestT, _tn);
+            if (t < bestT) {
+              best = b;
+              bestT = t;
+              bTurned = _tn.clone();
+            }
+            continue;
+          }
           let tmin = 0;
           let tmax = bestT;
           let nAxis = -1;
@@ -551,6 +744,7 @@ export class PhysicsWorld {
             bestT = tmin;
             bAxis = nAxis;
             bSign = nSign;
+            bTurned = null;
           }
         }
       // a hit before this cell's exit cannot be beaten by boxes in later cells
@@ -579,8 +773,8 @@ export class PhysicsWorld {
     }
     if (!best) return null;
     const point = new THREE.Vector3(o.x + d.x * bestT, o.y + d.y * bestT, o.z + d.z * bestT);
-    const normal = new THREE.Vector3();
-    normal[AXES[bAxis]!] = bSign;
+    const normal = bTurned ?? new THREE.Vector3();
+    if (!bTurned) normal[AXES[bAxis]!] = bSign;
     return { dist: bestT, point, normal, box: best };
   }
 
@@ -590,10 +784,21 @@ export class PhysicsWorld {
   }
 }
 
-/** Which surface a ray hit on a paintable box, or null. */
+/**
+ * Which surface a ray hit on a paintable box, or null. A turned box's faces and decals are
+ * named and placed as before it turned.
+ */
 export function surfaceAt(hit: RayHit): number | null {
-  const { box, normal, point } = hit;
+  const { box } = hit;
+  let { normal, point } = hit;
   if (box.data.turned) return turnedSurfaceAt(box.data.turned, normal, point);
+  const t = box.turn;
+  if (t) {
+    const rx = point.x - t.cx;
+    const rz = point.z - t.cz;
+    point = new THREE.Vector3(t.cx + rx * t.c - rz * t.s, point.y, t.cz + rx * t.s + rz * t.c);
+    normal = new THREE.Vector3(normal.x * t.c - normal.z * t.s, normal.y, normal.x * t.s + normal.z * t.c);
+  }
   const face =
     normal.x > 0.5
       ? 'px'

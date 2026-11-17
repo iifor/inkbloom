@@ -12,6 +12,7 @@ import {
   serializeWorld,
 } from '@/world/state';
 import { BRUSH_TIERS } from '@/content/brush-tiers';
+import { REQUEST_RULES } from '@/content/requests';
 import { ENEMIES } from '@/content/enemies';
 import { LEVEL_XP, MILESTONES, XP } from '@/content/progression';
 import { afterArmor, levelOf, stats } from '@/world/progression';
@@ -91,7 +92,7 @@ describe('patches', () => {
     const red = color('red');
     expect(applyPatch(s, { kind: 'paint', city: 'c', surface: 0, color: red }, ctx).ok).toBe(true);
     expect(cityStates(s, 'c', SKEL).states[0]).toBe(graffiti(red));
-    expect(s.inventory.colored[red]).toBe(TUNING.brush.startingColored - 1);
+    expect(s.inventory.generic).toBe(TUNING.brush.startingGeneric - 1);
   });
 
   it('fails without spending when pigment runs out', () => {
@@ -253,7 +254,7 @@ describe('pigment economy', () => {
     const orange = color('orange');
     expect(s.unlocked).not.toContain(orange);
     expect(applyPatch(s, { kind: 'harvest', source: SOURCE.id }, ctx).ok).toBe(true);
-    expect(s.inventory.colored[orange]).toBe(3);
+    expect(s.inventory.generic).toBe(TUNING.brush.startingGeneric + 3);
     expect(s.inventory.ink).toBe(2);
     expect(s.unlocked).toContain(orange);
     expect(applyPatch(s, { kind: 'harvest', source: SOURCE.id }, ctx).ok).toBe(false);
@@ -301,7 +302,7 @@ describe('spend', () => {
     expect(applyPatch(s, { kind: 'spend', generic: 2, ink: 1 }, ctx).ok).toBe(true);
     expect(s.inventory.generic).toBe(g - 2);
     expect(s.inventory.ink).toBe(2);
-    expect(applyPatch(s, { kind: 'spend', generic: g }, ctx)).toEqual({ ok: false, reason: '通用颜料不足' });
+    expect(applyPatch(s, { kind: 'spend', generic: g }, ctx)).toEqual({ ok: false, reason: '颜料不足' });
     expect(applyPatch(s, { kind: 'spend', ink: 5 }, ctx).ok).toBe(false);
     expect(s.inventory.ink).toBe(2);
   });
@@ -504,9 +505,9 @@ describe('ruins', () => {
     expect(s.unlocked).toContain(RUIN.color);
     expect(s.growth.xp).toBe(XP.ruinFound);
     expect(applyPatch(s, { kind: 'discover', ruin: RUIN.id }, ctx).ok).toBe(false);
-    const red = s.inventory.colored[OLD_RUIN.color]!;
+    const had = s.inventory.generic;
     applyPatch(s, { kind: 'discover', ruin: OLD_RUIN.id }, ctx);
-    expect(s.inventory.colored[OLD_RUIN.color]).toBe(red + TUNING.structures.ruinPigment);
+    expect(s.inventory.generic).toBe(had + TUNING.structures.ruinPigment);
     expect(deserializeWorld(serializeWorld(s)).discovered).toEqual([RUIN.id, OLD_RUIN.id]);
   });
 });
@@ -559,16 +560,22 @@ describe('resident requests and thriving', () => {
       applyPatch(s, { kind: 'paint', city: 'c', surface: i, color: color('red') }, rc);
     expect(applyPatch(s, { kind: 'request', city: 'c', request: 0 }, rc).ok).toBe(true);
     expect(applyPatch(s, { kind: 'request', city: 'c', request: 0 }, rc).ok).toBe(false);
-    s.inventory.colored[color('blue')] = 3;
+    s.inventory.generic = 3;
     expect(applyPatch(s, { kind: 'request', city: 'c', request: 1 }, rc).ok).toBe(false);
-    s.inventory.colored[color('blue')] = 5;
+    s.inventory.generic = 5;
+    s.unlocked = s.unlocked.filter((c) => c !== color('blue'));
+    expect(applyPatch(s, { kind: 'request', city: 'c', request: 1 }, rc)).toEqual({
+      ok: false,
+      reason: '还没有宝蓝的蜡笔',
+    });
+    s.unlocked.push(color('blue'));
     expect(applyPatch(s, { kind: 'request', city: 'c', request: 1 }, rc).ok).toBe(true);
-    expect(s.inventory.colored[color('blue')]).toBe(1);
+    expect(s.inventory.generic).toBe(1 + REQUEST_RULES.reward.generic);
   });
 
   it('turns a coloured block with all wishes done into a producing studio', () => {
     const s = createWorldState('w', 1);
-    s.inventory.colored[color('blue')] = 10;
+    s.inventory.generic = 30;
     for (const i of [0, 1, 3, 4])
       applyPatch(s, { kind: 'paint', city: 'c', surface: i, color: color('red') }, rc);
     expect(applyPatch(s, { kind: 'collectStock', city: 'c', studio: 0 }, rc).ok).toBe(false); // not thriving

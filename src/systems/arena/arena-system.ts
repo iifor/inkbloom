@@ -8,14 +8,14 @@
 import * as THREE from 'three';
 import { ARENA } from '@/content/arena';
 import { color } from '@/content/palette';
-import { WEAPONS, type WeaponKey } from '@/content/weapons';
+import type { WeaponKey } from '@/content/weapons';
 import { turnedBox } from '@/engine/physics/world';
 import { makeInkMaterial, shared } from '@/engine/render/ink-material';
 import type { ArenaApi, GameContext, System, TargetHit, TargetSource } from '@/game/types';
 import { bodyBox, chest, headBox, rayBox } from '@/world/arena/hits';
 import type { ArenaMode, ArenaState, Team } from '@/world/arena/match';
 import { type ArenaSite, findArenaSite } from '@/world/arena/site';
-import type { ActKind, ServerMessage, Vec3 } from '@/world/net/protocol';
+import { type ActKind, type ServerMessage, type Vec3, WEAPON_ACTS } from '@/world/net/protocol';
 import type { NetSystem } from '@/systems/net/net-system';
 import type { RemotePlayers } from '@/systems/net/remote-players';
 import type { WeaponSlot } from '@/systems/tools/weapons';
@@ -137,18 +137,10 @@ export class ArenaSystem implements System, ArenaApi {
         break;
       }
       case 'act':
-        if (m.from !== this.me) {
-          this.weapons.seen(m.w, m.k, v3(m.o), v3(m.d));
-          // their figure acts it out, holding the weapon in its colour
-          const def = WEAPONS.find((x) => x.key === m.w)!;
-          const kind =
-            m.k === 'strike' || m.k === 'slash'
-              ? 'swing'
-              : m.k === 'shield' || m.k === 'focus'
-                ? 'aim'
-                : 'shoot';
-          this.remote.attack(m.from, def.look[0], kind);
-        }
+        if (m.from === this.me) break;
+        // what it looks like where it lands, and the one who did it acting it out
+        this.weapons.seen(m.w, m.k, v3(m.o), v3(m.d));
+        this.remote.gesture(m.from, WEAPON_ACTS[m.w]?.[1] === m.k ? 'skill' : 'attack', m.w);
         break;
       case 'hit': {
         this.updateMember(m.to, { hp: m.hp });

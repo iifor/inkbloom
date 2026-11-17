@@ -185,3 +185,94 @@ describe('turned boxes', () => {
     expect(shoot(world(0.5, 20, 0.3), world(0.5, 0, 0.3))).toBe(5);
   });
 });
+
+describe('boxes with a yaw', () => {
+  const floor = (w: PhysicsWorld): void => {
+    w.addBox('g', { x: -50, y: -1, z: -50 }, { x: 50, y: 0, z: 50 });
+  };
+  /** A 20 m wall, 1 m thick, turned 45°: it runs along (1, -1) and faces (1, 1) / √2. */
+  const wall = (w: PhysicsWorld, data = {}) =>
+    w.addBox('w', { x: -10, y: 0, z: -0.5 }, { x: 10, y: 4, z: 0.5 }, data, Math.PI / 4);
+
+  it('slides a body walking into a 45° wall along it', () => {
+    const w = new PhysicsWorld(8);
+    floor(w);
+    wall(w);
+    const b = makeBody(new THREE.Vector3(-3, 0, -3), 0.35, 1.8);
+    b.onGround = true;
+    for (let i = 0; i < 180; i++) {
+      b.vel.set(4, b.vel.y - 22 / 60, 0);
+      w.moveBody(b, 1 / 60);
+    }
+    // half the push goes into the wall and is lost, the rest carries the body along it
+    expect(b.pos.x).toBeGreaterThan(3);
+    expect(b.pos.z).toBeLessThan(-3);
+    const gap = -(b.pos.x + b.pos.z) / Math.SQRT2;
+    expect(gap).toBeGreaterThan(0.5 + 0.35 * Math.SQRT2 - 0.01);
+    expect(b.hitWall).toBe(true);
+    expect(b.wallNormal.x).toBeCloseTo(-Math.SQRT1_2, 3);
+    expect(b.wallNormal.z).toBeCloseTo(-Math.SQRT1_2, 3);
+    expect(b.onGround).toBe(true);
+    expect(b.pos.y).toBeCloseTo(0, 3);
+  });
+
+  it('stands a body on a turned box, and not on the empty corners of its AABB', () => {
+    const w = new PhysicsWorld(8);
+    floor(w);
+    w.addBox('b', { x: 8, y: 0, z: -2 }, { x: 12, y: 1, z: 2 }, {}, Math.PI / 4);
+    const fall = (x: number, z: number) => {
+      const b = makeBody(new THREE.Vector3(x, 5, z), 0.35, 1.8);
+      for (let i = 0; i < 120; i++) {
+        b.vel.y -= 22 / 60;
+        w.moveBody(b, 1 / 60);
+      }
+      return b;
+    };
+    const on = fall(10.5, 0.5);
+    expect(on.onGround).toBe(true);
+    expect(on.pos.y).toBeCloseTo(1, 3);
+    const off = fall(12.3, 2.3);
+    expect(off.onGround).toBe(true);
+    expect(off.pos.y).toBeCloseTo(0, 3);
+  });
+
+  it('steps a body up onto a low turned slab', () => {
+    const w = new PhysicsWorld(8);
+    floor(w);
+    w.addBox('b', { x: 2, y: 0, z: -3 }, { x: 8, y: 0.4, z: 3 }, {}, 0.5);
+    const b = makeBody(new THREE.Vector3(-2, 0, 0), 0.35, 1.8);
+    b.onGround = true;
+    for (let i = 0; i < 90; i++) {
+      b.vel.set(4, b.vel.y - 22 / 60, 0);
+      w.moveBody(b, 1 / 60);
+    }
+    expect(b.pos.x).toBeGreaterThan(3.5);
+    expect(b.pos.y).toBeCloseTo(0.4, 3);
+    expect(b.onGround).toBe(true);
+  });
+
+  it('raycasts onto a turned face with its turned normal and surface', () => {
+    const w = new PhysicsWorld(8);
+    wall(w, { faces: { nz: 5 } });
+    const d = { x: Math.SQRT1_2, y: 0, z: Math.SQRT1_2 };
+    const hit = w.raycast({ x: -5, y: 1, z: -5 }, d, 50)!;
+    expect(hit).not.toBeNull();
+    expect(hit.dist).toBeCloseTo(5 * Math.SQRT2 - 0.5, 4);
+    expect(hit.normal.x).toBeCloseTo(-Math.SQRT1_2, 6);
+    expect(hit.normal.y).toBeCloseTo(0, 6);
+    expect(hit.normal.z).toBeCloseTo(-Math.SQRT1_2, 6);
+    expect(surfaceAt(hit)).toBe(5);
+  });
+
+  it('lets a ray pass a corner that only the AABB covers', () => {
+    const w = new PhysicsWorld(8);
+    const box = w.addBox('b', { x: -1, y: 0, z: -1 }, { x: 1, y: 4, z: 1 }, {}, Math.PI / 4);
+    // the line x + z = 2.4 crosses the AABB at (1.2, 1.2) but runs beside the diamond's edge
+    expect(box.max.x).toBeGreaterThan(1.2);
+    expect(box.max.z).toBeGreaterThan(1.2);
+    const d = { x: Math.SQRT1_2, y: 0, z: -Math.SQRT1_2 };
+    expect(w.raycast({ x: -2, y: 1, z: 4.4 }, d, 50)).toBeNull();
+    // x + z = 1.3 is just inside it
+    expect(w.raycast({ x: -2, y: 1, z: 3.3 }, d, 50)).not.toBeNull();
+  });
+});

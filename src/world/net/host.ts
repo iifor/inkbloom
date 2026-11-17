@@ -38,6 +38,10 @@ export const TIDE_GAP = 120;
 /** Drains one keeper may send: a burst, then this many a second. */
 const DRAIN_BURST = 60;
 const DRAIN_RATE = 20;
+/** Gestures (attacks and skills, to be seen) one player may send: a burst, then this many a
+ * second. The rifle fires 9 times a second; more than this is not anyone playing. */
+const GESTURE_BURST = 12;
+const GESTURE_RATE = 12;
 /** Different towns one player may act in within TOWN_WINDOW seconds. Working out a town the
  * server has not seen costs a noticeable moment, so nobody may make it do that over and over. */
 const TOWN_BUDGET = 8;
@@ -55,6 +59,8 @@ interface Member {
   townSince: number;
   /** Drains they may still send right now (refills at DRAIN_RATE). */
   drains: number;
+  /** Gestures they may still send right now (refills at GESTURE_RATE). */
+  gestures: number;
   /** Towns acted in lately -> host uptime of the last time. */
   readonly towns: Map<string, number>;
 }
@@ -160,6 +166,7 @@ export class WorldHost {
       town: null,
       townSince: 0,
       drains: DRAIN_BURST,
+      gestures: GESTURE_BURST,
       towns: new Map(),
     });
     this.dirty = true;
@@ -326,7 +333,10 @@ export class WorldHost {
   tick(dt: number): Outgoing[] {
     this.uptime += dt;
     this.state.clock += dt;
-    for (const m of this.members.values()) m.drains = Math.min(DRAIN_BURST, m.drains + DRAIN_RATE * dt);
+    for (const m of this.members.values()) {
+      m.drains = Math.min(DRAIN_BURST, m.drains + DRAIN_RATE * dt);
+      m.gestures = Math.min(GESTURE_BURST, m.gestures + GESTURE_RATE * dt);
+    }
     const out = [...this.outbox, ...this.arena.tick()];
     this.outbox = [];
     return out;
@@ -355,6 +365,15 @@ export class WorldHost {
       if (d <= VIEW_RANGE) out.push({ id: m.id, ...m.motion });
     }
     return out;
+  }
+
+  /** Who gets to see this player's gesture: the players near them, or nobody when they send
+   * too many. The server only passes it on; nothing about it is judged. */
+  gesture(id: number): number[] {
+    const m = this.members.get(id);
+    if (!m || m.gestures < 1) return [];
+    m.gestures -= 1;
+    return this.nearby(id).map((o) => o.id);
   }
 
   /** The save file: the shared world and every player remembered. */

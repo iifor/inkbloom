@@ -1,5 +1,5 @@
 // Painting studios: one building per city chunk, marked by an orange sign over the door and a
-// flag on the front edge of the roof. Press E at the door to refine all held ink into generic
+// flag on the front edge of the roof. Press E at the door to refine all held ink into
 // pigment (a `refine` patch). The studio nearest the main gate is open from the start; the
 // others open once their chunk has colour again.
 import * as THREE from 'three';
@@ -75,18 +75,15 @@ export class Studios {
     const per = TUNING.economy.inkPerGeneric;
     const made = Math.floor(ink / per);
     const stock = this.stock(i);
-    if (stock > 0)
-      return `E 画室：领取产出的 ${stock} 份通用颜料${made > 0 ? `，并提炼墨 ${made * per}` : ''}`;
-    return made > 0
-      ? `E 画室：墨 ${made * per} → 通用颜料 ${made}`
-      : `画室：墨不够（每 ${per} 墨提炼 1 通用颜料）`;
+    if (stock > 0) return `E 画室：领取产出的 ${stock} 份颜料${made > 0 ? `，并提炼墨 ${made * per}` : ''}`;
+    return made > 0 ? `E 画室：墨 ${made * per} → 颜料 ${made}` : `画室：墨不够（每 ${per} 墨提炼 1 颜料）`;
   }
 
   private upgradeLabel(i: number): string | null {
     if (!studioOpen(this.layout, this.states, i)) return null;
     const next = BRUSH_TIERS[this.ctx.state.inventory.brushTier + 1];
     if (!next?.cost) return '笔刷已经是最好的了';
-    return `F 升级为${next.name}（通用颜料 ${next.cost.generic}，墨 ${next.cost.ink}）`;
+    return `F 升级为${next.name}（颜料 ${next.cost.generic}，墨 ${next.cost.ink}）`;
   }
 
   private upgrade(): void {
@@ -109,7 +106,7 @@ export class Studios {
     const made = inv.generic - before;
     const parts = [stocked ? `画室产出 ${fromStock}` : '', r.ok ? `提炼出 ${made}` : ''].filter(Boolean);
     const why = r.ok ? '' : r.reason;
-    this.ctx.events.emit('toast', { text: parts.length ? `${parts.join('，')} 份通用颜料` : why });
+    this.ctx.events.emit('toast', { text: parts.length ? `${parts.join('，')} 份颜料` : why });
   }
 
   /** Generic pigment a thriving studio is holding (for its prompt). */

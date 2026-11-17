@@ -132,6 +132,43 @@ describe('world server over WebSockets', () => {
   });
 });
 
+describe('world server: what others hold and do', () => {
+  it('passes on what is in hand with the motion, and gestures to the players nearby', async () => {
+    const port = await start();
+    const a = await client(port, '甲', 'token-aaaaaaaa');
+    clients.push(a);
+    await a.waitFor('welcome');
+    const b = await client(port, '乙', 'token-bbbbbbbb');
+    clients.push(b);
+    await b.waitFor('welcome');
+    const move = (c: Client, x: number, extra: object = {}): void =>
+      c.send({
+        t: 'move',
+        p: [x, 5, 0],
+        v: [0, 0, 0],
+        yaw: 0,
+        pitch: 0,
+        f: GROUNDED,
+        scene: { kind: 'wild' },
+        town: null,
+        ...extra,
+      });
+    move(a, 0, { h: 'katana' });
+    move(b, 10);
+    const snap = await b.waitFor('snap', (m) => m.t === 'snap' && m.players.length > 0);
+    expect(snap.t === 'snap' && snap.players[0]!.h).toBe('katana');
+
+    // a swing reaches b, from a, with nothing else in it
+    a.send({ t: 'gesture', g: 'attack', extra: 1 });
+    const seen = await b.waitFor('gesture');
+    expect(seen).toEqual({ t: 'gesture', from: expect.any(Number), g: 'attack' });
+    // and never comes back to the one who did it
+    a.send({ t: 'gesture', g: 'skill' });
+    await b.waitFor('gesture', (m) => m.t === 'gesture' && m.g === 'skill');
+    expect(a.got.some((m) => m.t === 'gesture')).toBe(false);
+  });
+});
+
 describe('world server: who may connect', () => {
   it('lets in pages from this machine and private networks, not other web sites', () => {
     expect(originAllowed(undefined)).toBe(true);

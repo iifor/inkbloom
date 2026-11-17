@@ -1,15 +1,19 @@
 // A client's part of a server world, once a frame: apply what the server sent (others' motion
 // and patches, the clock, corrections), and send this player's motion 20 times a second. This
-// player's own patches go out from ctx.apply as they happen (modes/open-world.ts).
+// player's own patches go out from ctx.apply as they happen (modes/open-world.ts). What is in
+// hand rides along with the motion; attacks and skills go out as gestures for others to see.
 import * as THREE from 'three';
 import type { GameContext, NetApi, System } from '@/game/types';
 import type { Fix } from '@/world/net/fix';
 import type { Patch } from '@/world/patch';
 import {
+  AIMING,
   type ClientMessage,
   DASHING,
   GLIDING,
   GROUNDED,
+  type Gesture,
+  PAINTING,
   type PlayerInfo,
   SEND_HZ,
   type ServerMessage,
@@ -17,6 +21,7 @@ import {
 } from '@/world/net/protocol';
 import { deserializeSlice, putSlice } from '@/world/net/slices';
 import { validPatch } from '@/world/net/validate';
+import type { InHand } from '@/systems/tools/tool';
 import type { Connection } from './connection';
 import type { RemotePlayers } from './remote-players';
 
@@ -45,9 +50,19 @@ export class NetSystem implements System, NetApi {
       flush(): void;
       correct(fix: Fix | null): void;
     },
+    /** What this player has in hand (the tool belt). */
+    private readonly inHand: () => InHand,
   ) {
     for (const p of conn.welcome.players) remote.add(p);
     this.last.copy(ctx.player.position);
+    ctx.events.on('weapon:fired', () => this.gesture('attack'));
+    ctx.events.on('weapon:skill', () => this.gesture('skill'));
+  }
+
+  /** An attack or skill for the players nearby to see. In the arena the server already passes
+   * every attack on to the others as an `act` (systems/arena), so nothing more goes out. */
+  private gesture(g: Gesture): void {
+    if (!this.ctx.arena?.inside) this.conn.send({ t: 'gesture', g });
   }
 
   /** The arena's messages go here (systems/arena/arena-system.ts). */
@@ -137,6 +152,9 @@ export class NetSystem implements System, NetApi {
             seconds: 3,
           });
         break;
+      case 'gesture':
+        this.remote.gesture(m.from, m.g);
+        break;
       case 'arena':
       case 'act':
       case 'hit':
@@ -173,14 +191,18 @@ export class NetSystem implements System, NetApi {
     this.sendT -= dt;
     if (this.sendT > 0) return;
     this.sendT = 1 / SEND_HZ;
+    const hands = this.inHand();
     const f =
       (player.grounded ? GROUNDED : 0) |
       (player.gliding ? GLIDING : 0) |
       (player.waterMode === 'swimming' ? SWIMMING : 0) |
-      (player.dashing ? DASHING : 0);
+      (player.dashing ? DASHING : 0) |
+      (hands.painting ? PAINTING : 0) |
+      (hands.aiming ? AIMING : 0);
     const ref = scenes.active.ref;
     this.conn.send({
       t: 'move',
+      ...(hands.item ? { h: hands.item } : {}),
       p: [p.x, p.y, p.z],
       v: [this.vel.x, this.vel.y, this.vel.z],
       yaw: player.yaw,

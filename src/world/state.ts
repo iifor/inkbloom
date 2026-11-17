@@ -14,10 +14,9 @@ export const SAVE_VERSION = 2;
 export type SceneRef = { readonly kind: 'wild' } | { readonly kind: 'city'; readonly id: string };
 
 export interface Inventory {
-  /** Generic pigment, used by the restore brush. */
+  /** Pigment, the one paint: the restore brush and the graffiti brush both spend it (the
+   * crayons in `unlocked` decide which colours graffiti can be). */
   generic: number;
-  /** Coloured pigment by palette index, used by the graffiti brush. */
-  colored: number[];
   /** Raw ink, refined into generic pigment at a studio. */
   ink: number;
   /** Index into BRUSH_TIERS. */
@@ -154,8 +153,6 @@ export interface InkDrop {
 export const STARTING_COLORS = [color('red'), color('blue'), color('yellow'), color('green')];
 
 export function createWorldState(id: string, seed: number, name = '新世界'): WorldState {
-  const colored = PALETTE.map(() => 0);
-  for (const c of STARTING_COLORS) colored[c] = TUNING.brush.startingColored;
   return {
     version: SAVE_VERSION,
     id,
@@ -163,7 +160,6 @@ export function createWorldState(id: string, seed: number, name = '新世界'): 
     name,
     inventory: {
       generic: TUNING.brush.startingGeneric,
-      colored,
       ink: 0,
       brushTier: 0,
       glider: false,
@@ -298,7 +294,8 @@ interface WorldJson {
   id: string;
   seed: number;
   name: string;
-  inventory: Inventory;
+  /** `colored` (pigment per colour) only in saves from before pigment was one paint. */
+  inventory: Inventory & { colored?: number[] };
   unlocked: number[];
   /** v2: { f, s, sf?, st? } (fingerprints and base64 bytes); v1: base64 states. */
   cities: Record<
@@ -415,15 +412,18 @@ export function deserializeWorld(text: string): WorldState {
     throw new SaveError(`不支持的存档版本 ${json.version}`);
   if (typeof json.id !== 'string' || !Number.isInteger(json.seed))
     throw new SaveError('存档缺少世界编号或种子');
-  const colored = PALETTE.map((_, i) => Math.max(0, Math.floor(json.inventory?.colored?.[i] ?? 0)));
+  // saves from before pigment was one paint kept coloured pigment per colour: it all counts now
+  const colored = (json.inventory?.colored ?? []).reduce(
+    (a, x) => a + (Number.isFinite(x) ? Math.max(0, Math.floor(x)) : 0),
+    0,
+  );
   return {
     version: SAVE_VERSION,
     id: json.id,
     seed: json.seed,
     name: String(json.name ?? '世界'),
     inventory: {
-      generic: Math.max(0, Math.floor(json.inventory?.generic ?? 0)),
-      colored,
+      generic: Math.max(0, Math.floor(json.inventory?.generic ?? 0)) + colored,
       ink: Math.max(0, Math.floor(json.inventory?.ink ?? 0)),
       brushTier: Math.min(BRUSH_TIERS.length - 1, Math.max(0, Math.floor(json.inventory?.brushTier ?? 0))),
       glider: json.inventory?.glider === true,

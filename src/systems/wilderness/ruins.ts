@@ -7,26 +7,51 @@ import { TUNING } from '@/content/tuning';
 import type { PhysicsWorld } from '@/engine/physics/world';
 import { ALWAYS_COLOR, GeometryBuilder } from '@/engine/render/geometry-builder';
 import type { GameContext } from '@/game/types';
+import { hashAt, unit } from '@/world/math/hash';
 import { Rng } from '@/world/math/rng';
 import type { Ruin } from '@/world/wilderness/ruins';
 import { buildCountryHouse } from '../city/country-house';
 
 const solid = (c: number) => ({ px: c, nx: c, pz: c, nz: c, py: c });
+const UNIT_BOX = new THREE.BoxGeometry(1, 1, 1);
+const UP = new THREE.Vector3(0, 1, 0);
+const _m = new THREE.Matrix4();
+const _p = new THREE.Vector3();
+const _q = new THREE.Quaternion();
+const _s = new THREE.Vector3();
 
 /** Stones for a ruin, added to the chunk's geometry and colliders. */
 export function buildRuin(r: Ruin, g: GeometryBuilder, physics: PhysicsWorld, group: string): void {
   const tpl = RUINS[r.template]!;
   const rng = new Rng(r.seed);
+  let stones = 0;
   const stone = (x: number, z: number, w: number, d: number, h: number): void => {
-    const x0 = r.x + x - w / 2;
-    const z0 = r.z + z - d / 2;
-    // on a hillside each stone stands on the lowest ground under it, so none hangs in the air
+    const cx = r.x + x;
+    const cz = r.z + z;
+    // each stone stands askew; its own hash, so the rng's sizes and places stay as they were
+    const yaw = unit(hashAt(r.seed, 'ruin-stone', stones++)) * Math.PI;
+    const c = Math.cos(yaw);
+    const s = Math.sin(yaw);
+    // on a hillside each stone stands on the lowest ground under its corners, so none hangs in the air
     const g0 = physics.ground;
-    const base = g0 ? Math.min(g0(x0, z0), g0(x0 + w, z0), g0(x0, z0 + d), g0(x0 + w, z0 + d)) : r.y;
-    const min = { x: x0, y: base - 0.5, z: z0 };
-    const max = { x: x0 + w, y: base + h, z: z0 + d };
-    g.box(min, max, solid(tpl.stone));
-    physics.addBox(group, min, max);
+    let base = g0 ? Infinity : r.y;
+    if (g0)
+      for (const [lx, lz] of [
+        [-w / 2, -d / 2],
+        [w / 2, -d / 2],
+        [-w / 2, d / 2],
+        [w / 2, d / 2],
+      ] as const)
+        base = Math.min(base, g0(cx + lx * c + lz * s, cz - lx * s + lz * c));
+    const min = { x: cx - w / 2, y: base - 0.5, z: cz - d / 2 };
+    const max = { x: cx + w / 2, y: base + h, z: cz + d / 2 };
+    _m.compose(
+      _p.set(cx, (min.y + max.y) / 2, cz),
+      _q.setFromAxisAngle(UP, yaw),
+      _s.set(w, max.y - min.y, d),
+    );
+    g.mesh(UNIT_BOX, _m, tpl.stone);
+    physics.addBox(group, min, max, {}, yaw);
   };
   if (tpl.shape === 'circle') {
     const n = 9;
@@ -72,6 +97,40 @@ export function buildRuin(r: Ruin, g: GeometryBuilder, physics: PhysicsWorld, gr
         },
         (min, max) => physics.addBox(group, min, max),
       );
+    }
+  } else if (tpl.shape === 'shrine') {
+    // a stepped platform behind the crayon's open court, pillars at its corners (one or two
+    // toppled to stumps), and a broken wall arc around the court
+    const back = -6;
+    const floor = (a: number, b: number) => physics.ground?.(a, b) ?? r.y;
+    let base = r.y;
+    for (const [a, b] of [
+      [-4, back - 3],
+      [4, back - 3],
+      [-4, back + 3],
+      [4, back + 3],
+    ] as const)
+      base = Math.max(base, floor(r.x + a, r.z + b));
+    for (const [half, top] of [
+      [4, 0.45],
+      [3, 0.9],
+    ] as const) {
+      const min = { x: r.x - half, y: base - 1, z: r.z + back - half * 0.75 };
+      const max = { x: r.x + half, y: base + top, z: r.z + back + half * 0.75 };
+      g.box(min, max, solid(tpl.stone));
+      physics.addBox(group, min, max);
+    }
+    for (const [a, b] of [
+      [-2.4, back - 1.6],
+      [2.4, back - 1.6],
+      [-2.4, back + 1.6],
+      [2.4, back + 1.6],
+    ] as const)
+      stone(a, b, 0.6, 0.6, rng.chance(0.3) ? rng.range(1.2, 1.8) : rng.range(3.4, 4.2));
+    for (let i = 0; i < 7; i++) {
+      if (rng.chance(0.35)) continue;
+      const t = Math.PI * (0.15 + (i / 6) * 0.7);
+      stone(Math.cos(t) * 8, Math.sin(t) * 8, 1.6, 0.5, rng.range(0.8, 1.6));
     }
   } else {
     for (let i = 0; i < 7; i++) stone(rng.range(-9, 9), rng.range(-9, 9), 0.7, 1.6, rng.range(1.8, 3.2));
@@ -140,7 +199,7 @@ export class WildRuins {
       const name = PALETTE[ruin.color]!.name;
       const tpl = RUINS[ruin.template]!.name;
       this.ctx.events.emit('toast', {
-        text: knew ? `${name}颜料 +${TUNING.structures.ruinPigment}` : `在${tpl}找到新颜色：${name}`,
+        text: knew ? `颜料 +${TUNING.structures.ruinPigment}` : `在${tpl}找到新颜色：${name}`,
         seconds: 5,
       });
     }

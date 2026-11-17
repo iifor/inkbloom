@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { enemyIndex } from '@/content/enemies';
 import { TUNING } from '@/content/tuning';
 import { createWilderness, townDistance } from '@/world/wilderness/generator';
 import { chunkSaturation, wildMonsterById, wildMonstersInChunk } from '@/world/wilderness/wild-monsters';
@@ -18,6 +19,25 @@ describe('wilderness monsters', () => {
       }
     expect(drained).toBeGreaterThan(13 * 13 * W.drained[0] * 0.5);
     expect(restored).toBe(0);
+  });
+
+  it('bring the odd 墨巨 to drained land only, at most one a chunk', () => {
+    const w = createWilderness(SEED);
+    const giant = enemyIndex('giant');
+    let drained = 0;
+    let grey = 0;
+    for (let cx = -8; cx <= 8; cx++)
+      for (let cz = -8; cz <= 8; cz++) {
+        const here = wildMonstersInChunk(w, cx, cz, 0).filter((m) => m.type === giant).length;
+        expect(here).toBeLessThanOrEqual(1);
+        drained += here;
+        grey += wildMonstersInChunk(w, cx, cz, (W.drainedBelow + W.greyBelow) / 2).filter(
+          (m) => m.type === giant,
+        ).length;
+      }
+    expect(drained).toBeGreaterThan(0);
+    expect(drained).toBeLessThan(17 * 17 * 0.3);
+    expect(grey).toBe(0);
   });
 
   it('are stable by id, so a kill can be checked later', () => {

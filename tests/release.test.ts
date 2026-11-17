@@ -89,8 +89,7 @@ describe('colour freed by fighting and wishes', () => {
     const skel = skeleton(row(4, 1));
     const ctx = ctxFor(skel);
     const s = createWorldState('w', 1);
-    s.inventory.colored[color('blue')] = 50;
-    s.unlocked.push(color('blue'));
+    s.inventory.generic = 50;
     expect(applyPatch(s, { kind: 'defeat', city: 'c', monster: 1 }, ctx).ok).toBe(true);
     expect([...s.cities.get('c')!.states]).toEqual([0, 0, 0, 0]);
     // block 0 still has a stronghold monster standing, so set the graffiti by hand
@@ -104,7 +103,7 @@ describe('colour freed by fighting and wishes', () => {
     const skel = skeleton(row(40, 1));
     const ctx = ctxFor(skel);
     const s = createWorldState('w', 1);
-    s.inventory.colored[color('blue')] = 2;
+    s.inventory.generic = 2;
     expect(applyPatch(s, { kind: 'request', city: 'c', request: 0 }, ctx).ok).toBe(true);
     const freed = [...s.cities.get('c')!.states].filter((v) => v === ORIGINAL).length;
     const r = TUNING.release.request;

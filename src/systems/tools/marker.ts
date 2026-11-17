@@ -1,4 +1,4 @@
-// Ink marks: plant up to three in the wilderness (left click, costs generic pigment), pull the
+// Ink marks: plant up to three in the wilderness (left click, costs pigment), pull the
 // nearest back with right click. Marks join restored cities on the travel ring (F).
 import { TUNING } from '@/content/tuning';
 import type { GameContext } from '@/game/types';
@@ -12,7 +12,7 @@ export class Marker implements Tool {
 
   onEquip(): void {
     this.ctx.events.emit('toast', {
-      text: `左键放下标记（${TUNING.marks.cost} 通用颜料）· 右键收回附近的`,
+      text: `左键放下标记（${TUNING.marks.cost} 颜料）· 右键收回附近的`,
       seconds: 5,
       once: 'marker-use',
     });

@@ -141,7 +141,7 @@ describe('ink tide', () => {
       const s = tide.status();
       if (s?.phase === 'active' && s.blocked) blocked = s.blocked;
     });
-    expect(blocked).toContain('通用颜料不足');
+    expect(blocked).toContain('颜料不足');
   });
 
   it('defeating the wave’s monsters knocks it back and can repel it without pigment', () => {

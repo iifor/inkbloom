@@ -36,6 +36,10 @@ export interface EnemyDef {
   /** Ink dropped when defeated. design: 5 per monster */
   readonly ink: number;
   readonly attack: MeleeAttack | SpitAttack;
+  /** A hit must be at least this big to break its wind-up (破招); default `combat.feel.interruptMin`. */
+  readonly poise?: number;
+  /** A rare, tough monster: takes several times the hits of a common one. */
+  readonly elite?: boolean;
   readonly body: number;
   readonly eyes: number;
 }
@@ -66,6 +70,24 @@ export const ENEMIES = [
     attack: { kind: 'spit', keepAway: [9, 16], range: 26, damage: 10, cooldown: 2.2, speed: 18 },
     body: color('ink'),
     eyes: color('yellow'),
+  },
+  {
+    // a blot that has swallowed a street's worth of colour: slow, heavy, only the sniper and
+    // the launcher break its slam. Never in strongholds (saves fingerprint their types): it
+    // roams the greyest wilderness and leads some ink tides
+    key: 'giant',
+    name: '墨巨',
+    hp: 240,
+    speed: 3.1,
+    halfWidth: 0.85,
+    height: 2.5,
+    aggro: 24,
+    ink: 20,
+    attack: { kind: 'melee', range: 3, damage: 26, cooldown: 1.7 },
+    poise: 50,
+    elite: true,
+    body: color('ink'),
+    eyes: color('orange'),
   },
 ] as const satisfies readonly EnemyDef[];
 

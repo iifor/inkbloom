@@ -1,6 +1,7 @@
 // Tools replace fixed classes: the player carries a belt of tools and switches freely.
 // To add a tool (weapon, glider, marker...), implement Tool and add it to the belt in the mode.
 import type { GameContext, System } from '@/game/types';
+import type { HeldItem } from '@/world/net/protocol';
 
 export interface ToolHud {
   /** Short lines shown under the slot bar. */
@@ -10,6 +11,17 @@ export interface ToolHud {
   /** Palette index to show as the active swatch, or null. */
   readonly swatch: number | null;
 }
+
+/** What the player has in hand, as other players see it (systems/net sends it on). */
+export interface InHand {
+  readonly item: HeldItem | null;
+  /** Sighting down a gun. */
+  readonly aiming: boolean;
+  /** Working a surface with the brush. */
+  readonly painting: boolean;
+}
+
+const EMPTY: InHand = { item: null, aiming: false, painting: false };
 
 export interface Tool {
   readonly id: string;
@@ -21,6 +33,8 @@ export interface Tool {
   hud(): ToolHud;
   onEquip?(): void;
   onUnequip?(): void;
+  /** What it shows in hand; absent for a tool that shows nothing (the ink marker). */
+  inHand?(): InHand;
 }
 
 const SLOT_ACTIONS = ['slot1', 'slot2', 'slot3', 'slot4'] as const;
@@ -39,6 +53,11 @@ export class ToolBelt implements System {
 
   get active(): Tool | undefined {
     return this.tools[this.index];
+  }
+
+  /** What is in hand: nothing while swimming (the tool is put away). */
+  inHand(): InHand {
+    return (!this.stowed && this.active?.inHand?.()) || EMPTY;
   }
 
   select(i: number): void {

@@ -1,6 +1,7 @@
-// Moves messages between WebSockets and a WorldHost: hello and welcome, motion, patches, and 20
-// snapshots a second with the clock, nearby players and the towns each client keeps. The rules
-// are in src/world/net/host.ts; saving to disk is the caller's (server/main.ts).
+// Moves messages between WebSockets and a WorldHost: hello and welcome, motion, patches,
+// gestures passed on to the players nearby, and 20 snapshots a second with the clock, nearby
+// players and the towns each client keeps. The rules are in src/world/net/host.ts; saving to
+// disk is the caller's (server/main.ts).
 //
 // What a connection may do is limited here: pages from other web sites cannot connect (Origin
 // check), an optional password keeps strangers out, each connection has a message budget, a
@@ -205,6 +206,12 @@ export function serve(host: WorldHost, opts: ServeOptions): Promise<Served> {
           break;
         case 'act':
           deliver(host.arena.act(id, m));
+          break;
+        case 'gesture':
+          for (const to of host.gesture(id)) {
+            const ws = sockets.get(to);
+            if (ws) send(ws, { t: 'gesture', from: id, g: m.g });
+          }
           break;
         default:
           break;

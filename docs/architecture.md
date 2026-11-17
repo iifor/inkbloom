@@ -11,7 +11,7 @@ src/
   modes/           组合根：一个模式 = 一组系统 + 顺序。open-world.ts 是唯一知道所有系统的文件
   systems/         每帧运行的功能模块：player / scenes / wilderness / city / interaction / tools / save / debug
   game/            契约：types.ts（System、GameScene、GameContext…）、events.ts、loop.ts
-  engine/          与玩法无关：render（手绘上色、昼夜光影、几何构建）、physics（AABB + 平滑地面）、input
+  engine/          与玩法无关：render（手绘上色、昼夜光影、几何构建）、physics（盒子 + 平滑地面）、input
   world/           纯数据与纯函数：数学、野外生成、城市生成、表面状态、补丁、存档。无 Three.js，Node 可测
   content/         设计数据：调色板、群系、模板、数值、按键、名字。改设计主要改这里
 tests/             world/ 和 physics 的单元测试；墨潮、墨怪、战斗的无头模拟（support/headless.ts，vitest）
@@ -64,7 +64,7 @@ renderer.render()
 
 ## 渲染
 
-所有静态网格用 `GeometryBuilder` 合并成每区块 / 每城一个网格，一个材质（`ink-material.ts`）。顶点带 `aColor`（原色）和 `aSurface`（表面编号，`-1` 表示跟随派生颜色）。材质写 G-buffer（R 受光，已乘上太阳阴影；G 颜色码；BA 法线），后处理（`renderer.ts`）把它画成手绘动画背景：暖色日光、天空色的冷阴影、按世界坐标的笔触斑驳（草和树叶强，墙面弱，见调色板的 `texture`）、角落的柔和接触阴影、天空和积云、远处的雾，没有描边；最后一遍 FXAA 抗锯齿。饱和度 0 是同一幅画褪成灰色，1 是彩色。
+所有静态网格用 `GeometryBuilder` 合并成每区块 / 每城一个网格，一个材质（`ink-material.ts`）。顶点带 `aColor`（原色）和 `aSurface`（表面编号，`-1` 表示跟随派生颜色）。材质写 G-buffer（R 受光，已乘上太阳阴影；G 颜色码；BA 法线），后处理（`renderer.ts` 排各遍的先后；上色一遍是 `paint-shader.ts` / `paint-pass.ts`，天空和水在 `sky-paint.ts`、`water-paint.ts`，笔触一遍 `brush-pass.ts`，泛光 `glow.ts`，太阳阴影 `sun-shadows.ts`）把它画成手绘动画背景：暖色日光、天空色的冷阴影、按世界坐标的笔触斑驳（草和树叶强，墙面弱，见调色板的 `texture`）、角落的柔和接触阴影、天空和积云、远处的雾，没有描边；最后一遍 FXAA 抗锯齿。饱和度 0 是同一幅画褪成灰色，1 是彩色。
 
 一帧三遍：太阳阴影图（玩家前方 140 米见方，按纹素对齐，草不投影）→ G-buffer → 上色 + FXAA。光照随一天的时间变化（`daylight.ts`：太阳位置、日光 / 阴影 / 天空颜色按时刻插值，夜里出星星、有色街道的窗户亮灯），时刻由 `AtmosphereSystem` 从世界时钟算出，`TUNING.day` 调一天多长。
 
@@ -72,4 +72,4 @@ renderer.render()
 
 AABB 盒子 + 空间哈希，自动上 0.55 米台阶；野外另有平滑地面（`physics.ground` 高度函数：站立、下坡贴地、坡度上限、射线命中）。碰撞体按组添加删除（每个野外区块一组）。射线按网格 DDA 走，命中的盒子带 `faces` / `decals` 映射到表面编号——笔刷就是这样知道打到了哪面墙。
 
-盒子只能轴对齐：城市道路只做直角转弯。需要斜向建筑时要先加旋转碰撞体。
+盒子可以带 `yaw` 绕竖轴转：哈希格和粗测用它转后的 AABB，再在盒子自己的坐标系里精测（身体用分离轴、射线用 slab），身体沿斜墙的法线推出、贴墙滑；`yaw` 为 0 的盒子走原来的轴对齐路径，开销不变。野外遗迹的石头用它斜放。镇上斜放的房子、桥和竞技场的墙还用 `turnedBox`：几块轴对齐的切片拼出斜盒子，边上是台阶状的；城市道路仍只做直角转弯（表面编号进存档）。

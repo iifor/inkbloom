@@ -196,7 +196,7 @@ export function startOpenWorld(opts: {
       },
       correct,
     };
-    net = new NetSystem(ctx, opts.net, remote, remotePatches);
+    net = new NetSystem(ctx, opts.net, remote, remotePatches, () => belt.inHand());
     ctx.net = net;
     arena = new ArenaSystem(ctx, net, remote, wild, weapons);
     ctx.arena = arena;

@@ -45,7 +45,15 @@ export function wildMonstersInChunk(
       if (y <= WATER_LEVEL + 0.5) continue;
       if (Math.hypot(x, z) < 60) continue; // leave the spawn area calm
       if (w.townAt(x, z, TUNING.structures.townClearance)) continue;
-      const type = unit(h >>> 16) < TUNING.combat.spitterChance ? enemyIndex('spitter') : enemyIndex('blot');
+      const giant =
+        k === 0 &&
+        saturation < TUNING.combat.wild.drainedBelow &&
+        unit(hashAt(w.seed, 'wild-giant', cx, cz)) < TUNING.combat.giantChance.wild;
+      const type = giant
+        ? enemyIndex('giant')
+        : unit(h >>> 16) < TUNING.combat.spitterChance
+          ? enemyIndex('spitter')
+          : enemyIndex('blot');
       out.push({ id: `${cx},${cz}:${k}`, type, x, y, z });
       break;
     }

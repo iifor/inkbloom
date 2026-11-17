@@ -75,7 +75,6 @@ export function standInSlice(): PlayerSlice {
   const lots = 1e9;
   s.inventory.generic = lots;
   s.inventory.ink = lots;
-  s.inventory.colored = PALETTE.map(() => lots);
   s.unlocked = PALETTE.flatMap((c, i) => (c.paintable ? [i] : []));
   return s;
 }

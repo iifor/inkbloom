@@ -5,7 +5,8 @@ import { ENEMIES } from '@/content/enemies';
 import { color } from '@/content/palette';
 import { MonsterFigures, type Pose, monsterRig, posedTop } from '@/systems/combat/monster-figure';
 import { rigTop } from '@/systems/figures/figure';
-import { PlayerFigures, type PlayerPose, characterRig } from '@/systems/figures/player-figure';
+import { PlayerFigures, type PlayerPose, characterRig, posePlayer } from '@/systems/figures/player-figure';
+import { HELD_ITEMS } from '@/world/net/protocol';
 
 const rest: Pose = {
   x: 0,
@@ -63,10 +64,78 @@ describe('player figures', () => {
   });
 });
 
+describe('player figures: what they hold', () => {
+  const world = (o: THREE.Object3D, local?: THREE.Vector3): THREE.Vector3 => {
+    o.updateWorldMatrix(true, false);
+    return local ? o.localToWorld(local.clone()) : new THREE.Vector3().setFromMatrixPosition(o.matrixWorld);
+  };
+
+  it('the prop sits in the main hand, and two-handed things in both, through every action', () => {
+    for (const c of CHARACTERS) {
+      const r = characterRig(c.key);
+      for (const held of HELD_ITEMS)
+        for (const kind of ['attack', 'skill'] as const)
+          for (const t of [0, 0.2, 0.35, 0.5, 0.8]) {
+            posePlayer(r, { ...standing, stride: 1, walk: t * 4, held, action: { kind, t }, paint: 1 });
+            const prop = r.props[held];
+            expect(world(r.palmR).distanceTo(world(prop.node))).toBeLessThan(0.01);
+            // the other hand may fall a little short at full stretch, never far
+            if (prop.off) expect(world(r.palmL).distanceTo(world(prop.node, prop.off))).toBeLessThan(0.06);
+          }
+    }
+  });
+
+  it("the katana's slash sweeps the blade from the right shoulder across the body", () => {
+    const r = characterRig('courier');
+    const tip = (t: number): THREE.Vector3 => {
+      posePlayer(r, { ...standing, held: 'katana', action: { kind: 'attack', t } });
+      return world(r.props.katana.node, r.props.katana.tip);
+    };
+    const rest = tip(0);
+    const up = tip(0.2);
+    const through = tip(0.45);
+    // figures face -z, so their right is +x: raised on the right, cut through to the left
+    expect(up.y).toBeGreaterThan(rest.y + 0.3);
+    expect(up.x).toBeGreaterThan(0.2);
+    expect(through.x).toBeLessThan(-0.4);
+    expect(through.y).toBeLessThan(up.y - 0.6);
+    // and back to rest at the end
+    expect(tip(1).distanceTo(rest)).toBeLessThan(1e-6);
+  });
+
+  it('a gun kicks back toward the body when it fires', () => {
+    const r = characterRig('ranger');
+    const muzzle = (t: number): THREE.Vector3 => {
+      posePlayer(r, { ...standing, held: 'rifle', aim: 1, action: t < 0 ? null : { kind: 'attack', t } });
+      return world(r.props.rifle.node, r.props.rifle.tip);
+    };
+    const sighted = muzzle(-1);
+    const kicked = muzzle(0.12);
+    expect(kicked.z).toBeGreaterThan(sighted.z + 0.03);
+    expect(kicked.y).toBeGreaterThan(sighted.y);
+  });
+
+  it('draws the held prop with the figure, and none while gliding', () => {
+    const count = (p: PlayerPose): number => {
+      const parent = new THREE.Group();
+      const figures = new PlayerFigures(parent, new THREE.MeshBasicMaterial());
+      figures.begin();
+      figures.draw(defaultLook('mason'), p);
+      figures.end();
+      return parent.children.reduce((n, m) => n + (m as THREE.InstancedMesh).count, 0);
+    };
+    const bare = count(standing);
+    const r = characterRig('mason');
+    expect(count({ ...standing, held: 'staff' })).toBe(bare + r.props.staff.parts.length);
+    expect(count({ ...standing, held: 'staff', glide: true })).toBe(bare);
+  });
+});
+
 describe('monster figures', () => {
   for (const def of ENEMIES)
     it(`${def.name} is drawn at its collision height`, () => {
-      expect(posedTop(monsterRig(def), rest)).toBeCloseTo(def.height, 1);
+      // within a few percent: the big ones are drawn at the same proportions as the small
+      expect(posedTop(monsterRig(def), rest) / def.height).toBeCloseTo(1, 1);
     });
 
   it('墨团 stretches up and raises its arms to strike, its hit box unchanged', () => {

@@ -23,6 +23,21 @@ export const GROUNDED = 1;
 export const GLIDING = 2;
 export const SWIMMING = 4;
 export const DASHING = 8;
+/** Working a surface with the brush (or pushing back the tide's curtain). */
+export const PAINTING = 16;
+/** Sighting down a gun: the sniper's scope, or a skill that steadies the aim. */
+export const AIMING = 32;
+const FLAGS = 63;
+
+/** What a player can have in hand for others to see: the brush or one of the weapons. The ink
+ * marker and empty hands send nothing. */
+export type HeldItem = 'brush' | WeaponKey;
+export const HELD_ITEMS: readonly HeldItem[] = ['brush', ...WEAPONS.map((w) => w.key)];
+
+/** Something another player does with what is in their hand, for their figure to act out
+ * (the swing of a blade, a gun's recoil, a staff's cast). Outside the arena only: in the arena
+ * the server already passes every attack on as an `act`. */
+export type Gesture = 'attack' | 'skill';
 
 export type Vec3 = readonly [number, number, number];
 
@@ -37,8 +52,10 @@ export interface Motion {
   readonly v: Vec3;
   readonly yaw: number;
   readonly pitch: number;
-  /** GROUNDED | GLIDING | SWIMMING | DASHING */
+  /** GROUNDED | GLIDING | SWIMMING | DASHING | PAINTING | AIMING */
   readonly f: number;
+  /** What is in hand; absent for nothing. */
+  readonly h?: HeldItem;
 }
 
 export type ClientMessage =
@@ -58,6 +75,9 @@ export type ClientMessage =
   | { readonly t: 'patch'; readonly seq: number; readonly patch: Patch }
   /** Into or out of the arena, or a vote for the next round's mode. */
   | { readonly t: 'arena'; readonly a: 'join' | 'leave' | 'vote'; readonly mode?: ArenaMode }
+  /** An attack or a skill outside the arena, for the players nearby to see. A few a second
+   * at most (the server drops the rest). */
+  | { readonly t: 'gesture'; readonly g: Gesture }
   /** In the arena: an attack or a skill, from `o` along `d`, as the player saw the world at
    * world clock `at`. The server works out what it hits. */
   | {
@@ -94,6 +114,8 @@ export type ServerMessage =
    * `password` is set so the client can ask for it). */
   | { readonly t: 'refused'; readonly reason: string; readonly password?: boolean }
   | { readonly t: 'joined'; readonly player: PlayerInfo }
+  /** Another player nearby attacked or used a skill (outside the arena). */
+  | { readonly t: 'gesture'; readonly from: number; readonly g: Gesture }
   | { readonly t: 'left'; readonly id: number }
   /** The clock, nearby players' motion, and the towns this client runs the tide for. */
   | {
@@ -189,10 +211,25 @@ export function parseClientMessage(text: string): ClientMessage | null {
       const v = vec3(m.v, MAX_SPEED);
       const s = validScene(m.scene);
       if (!p || !v || !s || !finite(m.yaw) || !finite(m.pitch) || !finite(m.f)) return null;
+      // empty hands, or something that can be held: anything else is not a move
+      const h = m.h === undefined || m.h === null ? undefined : HELD_ITEMS.find((x) => x === m.h);
+      if (h === undefined && m.h !== undefined && m.h !== null) return null;
       const town = validCity(m.town) ? m.town : null;
       const pitch = Math.max(-1.6, Math.min(1.6, m.pitch));
-      return { t: 'move', p, v, yaw: m.yaw % (Math.PI * 2), pitch, f: m.f & 15, scene: s, town };
+      const move = {
+        t: 'move',
+        p,
+        v,
+        yaw: m.yaw % (Math.PI * 2),
+        pitch,
+        f: m.f & FLAGS,
+        scene: s,
+        town,
+      } as const;
+      return h ? { ...move, h } : move;
     }
+    case 'gesture':
+      return m.g === 'attack' || m.g === 'skill' ? { t: 'gesture', g: m.g } : null;
     case 'patch': {
       const patch = validPatch(m.patch);
       return finite(m.seq) && patch ? { t: 'patch', seq: m.seq, patch } : null;

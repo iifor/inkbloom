@@ -66,7 +66,6 @@ export type Patch =
       readonly kind: 'grant';
       readonly generic?: number;
       readonly ink?: number;
-      readonly colored?: readonly { readonly color: number; readonly amount: number }[];
       readonly unlock?: readonly number[];
     };
 
@@ -178,18 +177,16 @@ function applyRules(state: WorldState, patch: Patch, ctx: PatchContext): PatchRe
   const inv = state.inventory;
   switch (patch.kind) {
     case 'grant': {
-      for (const g of patch.colored ?? []) if (!PALETTE[g.color]) return fail(`未知颜色 ${g.color}`);
+      for (const c of patch.unlock ?? []) if (!PALETTE[c]?.paintable) return fail(`未知颜色 ${c}`);
       if (patch.generic) inv.generic = Math.max(0, inv.generic + patch.generic);
       if (patch.ink) inv.ink = Math.max(0, inv.ink + patch.ink);
-      for (const g of patch.colored ?? [])
-        inv.colored[g.color] = Math.max(0, (inv.colored[g.color] ?? 0) + g.amount);
       for (const c of patch.unlock ?? []) if (!state.unlocked.includes(c)) state.unlocked.push(c);
       return OK;
     }
     case 'upgrade': {
       const next = BRUSH_TIERS[inv.brushTier + 1];
       if (!next?.cost) return fail('笔刷已经是最好的了');
-      if (inv.generic < next.cost.generic) return fail(`通用颜料不够（需要 ${next.cost.generic}）`);
+      if (inv.generic < next.cost.generic) return fail(`颜料不够（需要 ${next.cost.generic}）`);
       if (inv.ink < next.cost.ink) return fail(`墨不够（需要 ${next.cost.ink}）`);
       inv.generic -= next.cost.generic;
       inv.ink -= next.cost.ink;
@@ -220,7 +217,7 @@ function applyRules(state: WorldState, patch: Patch, ctx: PatchContext): PatchRe
     case 'spend': {
       const g = Math.max(0, patch.generic ?? 0);
       const k = Math.max(0, patch.ink ?? 0);
-      if (inv.generic < g) return fail('通用颜料不足');
+      if (inv.generic < g) return fail('颜料不足');
       if (inv.ink < k) return fail('墨不足');
       inv.generic -= g;
       inv.ink -= k;
@@ -233,7 +230,7 @@ function applyRules(state: WorldState, patch: Patch, ctx: PatchContext): PatchRe
       state.discovered.push(r.id);
       state.growth.xp += XP.ruinFound;
       if (!state.unlocked.includes(r.color)) state.unlocked.push(r.color);
-      else inv.colored[r.color] = (inv.colored[r.color] ?? 0) + TUNING.structures.ruinPigment;
+      else inv.generic += TUNING.structures.ruinPigment;
       if (PAINTABLE.every((c) => state.unlocked.includes(c)))
         milestone(state.growth, 'all-colors', MILESTONES.allColors);
       return OK;
@@ -241,7 +238,7 @@ function applyRules(state: WorldState, patch: Patch, ctx: PatchContext): PatchRe
     case 'mark': {
       if (state.marks.length >= TUNING.marks.max)
         return fail(`最多 ${TUNING.marks.max} 个墨迹标记（右键收回一个）`);
-      if (inv.generic < TUNING.marks.cost) return fail(`通用颜料不够（要 ${TUNING.marks.cost}）`);
+      if (inv.generic < TUNING.marks.cost) return fail(`颜料不够（要 ${TUNING.marks.cost}）`);
       inv.generic -= TUNING.marks.cost;
       state.marks.push({ id: `m${state.nextMark++}`, x: patch.x, y: patch.y, z: patch.z });
       return OK;
@@ -264,7 +261,7 @@ function applyRules(state: WorldState, patch: Patch, ctx: PatchContext): PatchRe
       if (!src) return fail('这里没有颜料');
       if (!sourceReady(state, src.id)) return fail('还没长回来');
       state.harvested.set(src.id, state.clock);
-      inv.colored[src.color] = (inv.colored[src.color] ?? 0) + src.amount;
+      inv.generic += src.amount;
       inv.ink += src.ink;
       if (PALETTE[src.color]?.paintable && !state.unlocked.includes(src.color))
         state.unlocked.push(src.color);
@@ -321,9 +318,9 @@ function applyRules(state: WorldState, patch: Patch, ctx: PatchContext): PatchRe
       if (r.kind === 'recolor') {
         if (!recolorDone(r, states)) return fail('四面墙还没都涂成想要的颜色');
       } else {
-        if ((inv.colored[r.color] ?? 0) < r.count)
-          return fail(`${PALETTE[r.color]!.name}颜料不够（要 ${r.count}）`);
-        inv.colored[r.color]! -= r.count;
+        if (!state.unlocked.includes(r.color)) return fail(`还没有${PALETTE[r.color]!.name}的蜡笔`);
+        if (inv.generic < r.count) return fail(`颜料不够（要 ${r.count}）`);
+        inv.generic -= r.count;
       }
       requestsDone[patch.request] = 1;
       inv.generic += REQUEST_RULES.reward.generic;
@@ -388,7 +385,7 @@ function applyRules(state: WorldState, patch: Patch, ctx: PatchContext): PatchRe
     case 'restore': {
       if (current === ORIGINAL) return fail('已经是原色');
       const cost = surfaceCost(info);
-      if (inv.generic < cost) return fail('通用颜料不足');
+      if (inv.generic < cost) return fail('颜料不足');
       inv.generic -= cost;
       states[patch.surface] = ORIGINAL;
       if (current === DRAINED) state.growth.xp += XP.surface;
@@ -402,8 +399,8 @@ function applyRules(state: WorldState, patch: Patch, ctx: PatchContext): PatchRe
       if (!state.unlocked.includes(patch.color)) return fail('还没有这支蜡笔');
       if (current === graffiti(patch.color)) return fail('已经是这个颜色');
       const cost = surfaceCost(info);
-      if ((inv.colored[patch.color] ?? 0) < cost) return fail(`${def.name}颜料不足`);
-      inv.colored[patch.color]! -= cost;
+      if (inv.generic < cost) return fail('颜料不足');
+      inv.generic -= cost;
       states[patch.surface] = graffiti(patch.color);
       if (current === DRAINED) state.growth.xp += XP.surface;
       blockMilestones(state, patch.city, skel.surfaces, states, coloredOnce, info.chunk);

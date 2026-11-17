@@ -70,7 +70,7 @@ export class WildSources {
         TUNING.economy.regrowSeconds - (this.ctx.state.clock - this.ctx.state.harvested.get(src.id)!);
       return `${name}：${Math.ceil(left / 60)} 分钟后长回来`;
     }
-    return `E 采集${name}（${PALETTE[src.color]!.name}颜料 +${src.amount}，墨 +${src.ink}）`;
+    return `E 采集${name}（颜料 +${src.amount}，墨 +${src.ink}）`;
   }
 
   private harvest(src: PigmentSource): void {

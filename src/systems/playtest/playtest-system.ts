@@ -27,7 +27,6 @@ const PERSIST_EVERY_MS = 30_000;
 interface Purse {
   generic: number;
   ink: number;
-  colored: number;
 }
 
 export class PlaytestSystem implements System {
@@ -72,7 +71,6 @@ export class PlaytestSystem implements System {
         addFlow(this.log, patch.kind, {
           generic: now.generic - this.purse.generic,
           ink: now.ink - this.purse.ink,
-          colored: now.colored - this.purse.colored,
         });
         this.purse = now;
         if (patch.kind === 'upgrade')
@@ -138,7 +136,7 @@ export class PlaytestSystem implements System {
 
   private read(): Purse {
     const inv = this.ctx.state.inventory;
-    return { generic: inv.generic, ink: inv.ink, colored: inv.colored.reduce((a, x) => a + x, 0) };
+    return { generic: inv.generic, ink: inv.ink };
   }
 
   private city(id: string, name: string): CityLog {

@@ -14,7 +14,7 @@ import { stats } from '@/world/progression';
 import { defaultLook, type Look } from '@/content/characters';
 import { ShotFx } from './shot-fx';
 import { type Hands, handsOf, viewModel } from './viewmodels';
-import type { Tool, ToolHud } from './tool';
+import type { InHand, Tool, ToolHud } from './tool';
 
 /** How fast the viewmodel settles after a shot (per second, exponential). */
 const RECOIL_RETURN = 16;
@@ -576,6 +576,14 @@ export class WeaponSlot implements Tool {
       this.slashMesh.rotation.set(0, 0, 0.9 - k * 1.5);
       this.slashMesh.scale.setScalar(0.9 + k * 0.25);
     }
+  }
+
+  inHand(): InHand {
+    const key = this.current?.def.key as WeaponKey | undefined;
+    if (!key) return { item: null, aiming: false, painting: false };
+    // the sniper's scope, or 专注射击's steadied aim
+    const aiming = key === 'sniper' && (this.ctx.input.held('alt') || this.focusT > 0);
+    return { item: key, aiming, painting: false };
   }
 
   hud(): ToolHud {

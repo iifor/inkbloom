@@ -1,16 +1,28 @@
 // The other players in a server world, drawn with the character models. Motion arrives 20 times
 // a second; each player is drawn 100 ms in the past, between the two samples around that moment,
 // so they move smoothly however the packets bunch up. Their walk cycle comes from how fast
-// they are going; flags say whether they are on the ground, gliding or swimming. In the arena
-// they also flinch when hit and go down in ink, and wear their team's colour.
+// they are going; flags say whether they are on the ground, gliding or swimming. They carry what
+// they hold (the motion says what), sight down a gun or work a wall with the brush, and act out
+// their attacks and skills as the gestures come in. In the arena they also flinch when hit and
+// go down in ink, and wear their team's colour.
 import * as THREE from 'three';
 import type { Look } from '@/content/characters';
 import { TUNING } from '@/content/tuning';
 import { makeInkMaterial } from '@/engine/render/ink-material';
 import type { GameContext, System } from '@/game/types';
 import { NameTags } from '@/shell/name-tags';
-import { PlayerFigures } from '@/systems/figures/player-figure';
-import { GLIDING, GROUNDED, type Motion, type PlayerInfo, SWIMMING } from '@/world/net/protocol';
+import { ACTION_SECONDS, PlayerFigures } from '@/systems/figures/player-figure';
+import {
+  AIMING,
+  GLIDING,
+  GROUNDED,
+  type Gesture,
+  type HeldItem,
+  type Motion,
+  PAINTING,
+  type PlayerInfo,
+  SWIMMING,
+} from '@/world/net/protocol';
 
 /** How far in the past others are drawn, seconds. */
 const DELAY = 0.1;
@@ -18,6 +30,10 @@ const DELAY = 0.1;
 const KEEP = 12;
 /** Players not heard from for this long (out of range, or gone) are not drawn. */
 const STALE = 2;
+/** After firing, a gun stays up at the shoulder this long. */
+const AIM_HOLD = 0.8;
+/** How fast sighting and painting ease in and out (per second, exponential). */
+const EASE = 10;
 
 interface Sample {
   readonly t: number;
@@ -32,15 +48,15 @@ interface Remote {
   hurt: number;
   /** -1 standing; 0..1 going down in ink. */
   dying: number;
+  /** The attack or skill being acted out: when it starts (this system's clock; a gesture is
+   * played as late as the motion is drawn) and what it was done with. */
+  action: { readonly kind: Gesture; readonly item: HeldItem | null; readonly start: number } | null;
+  /** When they last fired, for keeping the gun up. */
+  fired: number;
+  aim: number;
+  paint: number;
   /** A team colour over their own accent, or null. */
   accent: number | null;
-  /** Seconds left holding a weapon up, a shot's kick (1 easing to 0), and a sword sweep
-   * (0..1 through it, -1 for none). */
-  aimT: number;
-  kick: number;
-  swing: number;
-  /** The colour of the weapon in hand (shown while aiming or swinging). */
-  held: number | undefined;
   /** Where they are drawn this frame (feet), followed by hit markers and health bars. */
   readonly at: { x: number; y: number; z: number; yaw: number };
   drawn: boolean;
@@ -48,9 +64,6 @@ interface Remote {
 
 /** Seconds to go all the way down in ink. */
 const FALL = 1.2;
-/** Seconds a weapon stays up after a shot, and a sword sweep lasts. */
-const AIM_HOLD = 2.5;
-const SWING_TIME = 0.4;
 
 /** The motion between two samples at time t (positions and angles eased, flags from the later). */
 export function interpolate(samples: readonly Sample[], t: number): Motion | null {
@@ -71,6 +84,7 @@ export function interpolate(samples: readonly Sample[], t: number): Motion | nul
     yaw: angle(a.m.yaw, b.m.yaw),
     pitch: lerp(a.m.pitch, b.m.pitch),
     f: b.m.f,
+    h: b.m.h,
   };
 }
 
@@ -106,11 +120,11 @@ export class RemotePlayers implements System {
         walk: Math.random() * 6,
         hurt: 0,
         dying: -1,
+        action: null,
+        fired: -Infinity,
+        aim: 0,
+        paint: 0,
         accent: null,
-        aimT: 0,
-        kick: 0,
-        swing: -1,
-        held: undefined,
         at: { x: 0, y: 0, z: 0, yaw: 0 },
         drawn: false,
       });
@@ -128,19 +142,19 @@ export class RemotePlayers implements System {
     return [...this.players].filter(([, r]) => r.drawn && r.dying < 0).map(([id]) => id);
   }
 
-  /** They attacked (the arena relays it): raise the weapon, kick, or sweep the sword. */
-  attack(id: number, weapon: number, kind: 'aim' | 'shoot' | 'swing'): void {
-    const r = this.players.get(id);
-    if (!r) return;
-    r.held = weapon;
-    r.aimT = AIM_HOLD;
-    if (kind === 'shoot') r.kick = 1;
-    if (kind === 'swing') r.swing = 0;
-  }
-
   flinch(id: number): void {
     const r = this.players.get(id);
     if (r) r.hurt = 1;
+  }
+
+  /** They attacked or used a skill: act it out. With `item`, it is done with that (the arena
+   * says which weapon) rather than whatever their motion last said was in hand. */
+  gesture(id: number, kind: Gesture, item?: HeldItem): void {
+    const r = this.players.get(id);
+    if (!r || r.dying >= 0 || (kind !== 'attack' && kind !== 'skill')) return;
+    const start = this.t + DELAY;
+    r.action = { kind, item: item ?? null, start };
+    if (kind === 'attack') r.fired = start;
   }
 
   fall(id: number): void {
@@ -154,6 +168,7 @@ export class RemotePlayers implements System {
     if (!r) return;
     r.dying = -1;
     r.hurt = 0;
+    r.action = null;
     const last = r.samples[r.samples.length - 1]?.m;
     r.samples.length = 0;
     r.samples.push({ t: this.t - 1, m: { p, v: [0, 0, 0], yaw, pitch: 0, f: last?.f ?? 1 } });
@@ -191,9 +206,6 @@ export class RemotePlayers implements System {
         continue;
       }
       r.hurt = Math.max(0, r.hurt - dt * 4);
-      r.aimT = Math.max(0, r.aimT - dt);
-      r.kick = Math.max(0, r.kick - dt * 6);
-      if (r.swing >= 0) r.swing = r.swing + dt / SWING_TIME > 1 ? -1 : r.swing + dt / SWING_TIME;
       if (r.dying >= 0) r.dying = Math.min(1, r.dying + dt / FALL);
       r.at.x = m.p[0];
       r.at.y = m.p[1];
@@ -204,6 +216,24 @@ export class RemotePlayers implements System {
       r.walk += dt * 6 * Math.min(1.5, stride);
       const look: Look = r.accent === null ? r.info.look : { ...r.info.look, accent: r.accent };
       const swim = (m.f & SWIMMING) !== 0;
+      // what they act with: the weapon an arena attack named, while it plays out
+      let held: HeldItem | null = m.h ?? null;
+      let action: { kind: Gesture; t: number } | null = null;
+      const a = r.action;
+      if (a && this.t >= a.start) {
+        const item = a.item ?? held;
+        const seconds = item ? ACTION_SECONDS[item]?.[a.kind] : undefined;
+        const k = seconds ? (this.t - a.start) / seconds : 1;
+        if (k >= 1) r.action = null;
+        else {
+          held = item;
+          action = { kind: a.kind, t: k };
+        }
+      }
+      const sighted = (m.f & AIMING) !== 0 || this.t - r.fired < AIM_HOLD;
+      const ease = 1 - Math.exp(-EASE * dt);
+      r.aim += ((sighted ? 1 : 0) - r.aim) * ease;
+      r.paint += (((m.f & PAINTING) !== 0 ? 1 : 0) - r.paint) * ease;
       this.figures.draw(look, {
         x: m.p[0],
         y: m.p[1],
@@ -218,11 +248,10 @@ export class RemotePlayers implements System {
         hurt: r.hurt,
         dying: r.dying,
         t: this.t,
-        // up quickly, down over the last half second
-        aim: r.dying >= 0 ? 0 : Math.min(1, r.aimT / 0.5),
-        kick: r.kick,
-        swing: r.swing,
-        held: r.held,
+        held,
+        action,
+        aim: r.aim,
+        paint: r.paint,
       });
       if (r.dying >= 0) this.tags.remove(id);
       else

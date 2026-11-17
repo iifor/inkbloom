@@ -219,7 +219,7 @@ export class MonsterGroup implements TargetSource {
       damage: (amount, from, opts: HitOptions = {}) => {
         if (m.dead) return false;
         // caught winding up (the blow has not landed, the ink not left): the attack breaks
-        const broke = m.act !== null && !m.act.done && amount >= FEEL.interruptMin;
+        const broke = m.act !== null && !m.act.done && amount >= (m.def.poise ?? FEEL.interruptMin);
         if (broke) {
           m.act = null;
           m.stunT = FEEL.interruptStun;

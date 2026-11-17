@@ -252,7 +252,7 @@ export class Hud implements System {
     const parts = {
       level: `Lv ${lp.level}${points}`,
       ink: `墨 ${inv.ink}`,
-      generic: `通用颜料 ${inv.generic}`,
+      generic: `颜料 ${inv.generic}`,
     };
     // news is only what changed: a new level or points, ink, pigment (unless the brush's own
     // line is already counting it). Experience ticking up is not; the first values are not

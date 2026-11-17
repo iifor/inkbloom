@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { defaultLook } from '@/content/characters';
 import { MAX_SAVED_PLAYERS, NEAR, TIDE_GAP, WorldHost } from '@/world/net/host';
-import { GROUNDED, PROTOCOL, parseClientMessage, type Motion } from '@/world/net/protocol';
+import { AIMING, GROUNDED, PAINTING, PROTOCOL, parseClientMessage, type Motion } from '@/world/net/protocol';
 import { deserializeSlice } from '@/world/net/slices';
 import { validPatch } from '@/world/net/validate';
 import type { Patch } from '@/world/patch';
@@ -105,7 +105,9 @@ describe('world host: patches', () => {
     const b = joined(h, 2, src.x, src.z);
     const r = h.patch(a, { kind: 'harvest', source: src.id });
     expect(r).toMatchObject({ ok: true, shared: true });
-    expect(deserializeSlice(h.sliceOf(a)!).inventory.colored[src.color]).toBeGreaterThan(0);
+    expect(deserializeSlice(h.sliceOf(a)!).inventory.generic).toBeGreaterThan(
+      deserializeSlice(h.sliceOf(b)!).inventory.generic,
+    );
     expect(h.patch(b, { kind: 'harvest', source: src.id }).ok).toBe(false);
   });
 
@@ -237,6 +239,31 @@ describe('world host: clock, keepers, nearby', () => {
     joined(h, 3, 5000, 0);
     expect(h.nearby(a).map((m) => m.id)).toEqual([b]);
   });
+
+  it('passes what is in hand on with the motion', () => {
+    const h = host();
+    const a = joined(h, 1, 0, 0);
+    const b = joined(h, 2, 5, 0);
+    h.move(b, { ...at(5, 0), f: GROUNDED | AIMING, h: 'sniper' }, wild, null);
+    expect(h.nearby(a)[0]).toMatchObject({ id: b, h: 'sniper', f: GROUNDED | AIMING });
+  });
+
+  it('shows a gesture to the players in view, a burst and then a few a second', () => {
+    const h = host();
+    const a = joined(h, 1, 0, 0);
+    const b = joined(h, 2, 50, 0);
+    joined(h, 3, 5000, 0);
+    expect(h.gesture(a)).toEqual([b]);
+    // a flood is cut off, and the allowance comes back with time
+    let shown = 1;
+    for (let i = 0; i < 100; i++) if (h.gesture(a).length) shown++;
+    expect(shown).toBeLessThan(20);
+    expect(h.gesture(a)).toEqual([]);
+    h.tick(1);
+    expect(h.gesture(a)).toEqual([b]);
+    // nobody who is not in the world
+    expect(h.gesture(999)).toEqual([]);
+  });
 });
 
 describe('world host: saving', () => {
@@ -288,6 +315,46 @@ describe('protocol', () => {
     expect(
       parseClientMessage(JSON.stringify({ t: 'patch', seq: 1, patch: { kind: 'spend', generic: 1 } })),
     ).not.toBeNull();
+  });
+
+  it('checks what is in hand and the motion flags', () => {
+    const move = (extra: object): ReturnType<typeof parseClientMessage> =>
+      parseClientMessage(
+        JSON.stringify({
+          t: 'move',
+          p: [0, 0, 0],
+          v: [0, 0, 0],
+          yaw: 0,
+          pitch: 0,
+          f: GROUNDED,
+          scene: { kind: 'wild' },
+          town: null,
+          ...extra,
+        }),
+      );
+    expect(move({ h: 'katana' })).toMatchObject({ h: 'katana' });
+    expect(move({ h: 'brush', f: PAINTING })).toMatchObject({ h: 'brush', f: PAINTING });
+    // empty hands: no field at all
+    expect(move({})).not.toHaveProperty('h');
+    expect(move({ h: null })).not.toHaveProperty('h');
+    // only what can be held; the marker, a made-up weapon or any other shape is not a move
+    for (const h of ['marker', 'bazooka', 'toString', '', 3, ['rifle'], { k: 'rifle' }])
+      expect(move({ h })).toBeNull();
+    // flags past the known ones are dropped
+    expect(move({ f: 1024 | AIMING })).toMatchObject({ f: AIMING });
+  });
+
+  it('accepts a gesture only as an attack or a skill, and nothing riding along', () => {
+    expect(parseClientMessage(JSON.stringify({ t: 'gesture', g: 'attack' }))).toEqual({
+      t: 'gesture',
+      g: 'attack',
+    });
+    expect(parseClientMessage(JSON.stringify({ t: 'gesture', g: 'skill', junk: 'x'.repeat(100) }))).toEqual({
+      t: 'gesture',
+      g: 'skill',
+    });
+    for (const g of ['dance', 'slash', undefined, 1, null, ['attack']])
+      expect(parseClientMessage(JSON.stringify({ t: 'gesture', g }))).toBeNull();
   });
 
   it('checks every field of a patch and keeps only the known ones', () => {

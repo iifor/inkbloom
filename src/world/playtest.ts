@@ -13,8 +13,6 @@ export const MAX_SAMPLES = 720;
 export interface Flow {
   generic: number;
   ink: number;
-  /** All coloured pigments together. */
-  colored: number;
   count: number;
 }
 
@@ -45,7 +43,6 @@ export interface Sample {
   level: number;
   generic: number;
   ink: number;
-  colored: number;
   scene: string;
 }
 
@@ -114,29 +111,20 @@ export function parseLog(text: string | null, world: string, now: Date): Playtes
   }
 }
 
-const emptyFlow = (): Flow => ({ generic: 0, ink: 0, colored: 0, count: 0 });
+const emptyFlow = (): Flow => ({ generic: 0, ink: 0, count: 0 });
 
 /** Book a change of inventory under the patch kind that caused it. */
-export function addFlow(
-  log: PlaytestLog,
-  kind: string,
-  d: { generic: number; ink: number; colored: number },
-): void {
-  const up = { generic: Math.max(0, d.generic), ink: Math.max(0, d.ink), colored: Math.max(0, d.colored) };
-  const down = {
-    generic: Math.max(0, -d.generic),
-    ink: Math.max(0, -d.ink),
-    colored: Math.max(0, -d.colored),
-  };
+export function addFlow(log: PlaytestLog, kind: string, d: { generic: number; ink: number }): void {
+  const up = { generic: Math.max(0, d.generic), ink: Math.max(0, d.ink) };
+  const down = { generic: Math.max(0, -d.generic), ink: Math.max(0, -d.ink) };
   for (const [book, part] of [
     [log.gain, up],
     [log.spend, down],
   ] as const) {
-    if (!part.generic && !part.ink && !part.colored) continue;
+    if (!part.generic && !part.ink) continue;
     const f = (book[kind] ??= emptyFlow());
     f.generic += part.generic;
     f.ink += part.ink;
-    f.colored += part.colored;
     f.count++;
   }
 }
@@ -208,9 +196,7 @@ export function clock(s: number): string {
 }
 
 const flowText = (f: Flow): string =>
-  [f.generic && `通用 ${f.generic}`, f.ink && `墨 ${f.ink}`, f.colored && `彩色 ${f.colored}`]
-    .filter(Boolean)
-    .join('，');
+  [f.generic && `颜料 ${f.generic}`, f.ink && `墨 ${f.ink}`].filter(Boolean).join('，');
 
 /** The report as Markdown, for the player to send back. The raw log goes in a JSON block. */
 export function report(log: PlaytestLog, playClock: number): string {
@@ -268,17 +254,12 @@ export function report(log: PlaytestLog, playClock: number): string {
   }
 
   if (log.samples.length) {
-    L.push(
-      '## 资源曲线（每 5 分钟）',
-      '',
-      '| 时间 | 等级 | 通用颜料 | 墨 | 彩色颜料 | 在哪 |',
-      '|---|---|---|---|---|---|',
-    );
+    L.push('## 资源曲线（每 5 分钟）', '', '| 时间 | 等级 | 颜料 | 墨 | 在哪 |', '|---|---|---|---|---|');
     let next = 0;
     for (const s of log.samples) {
       if (s.t < next) continue;
       next = s.t + 300;
-      L.push(`| ${clock(s.t)} | ${s.level} | ${s.generic} | ${s.ink} | ${s.colored} | ${s.scene} |`);
+      L.push(`| ${clock(s.t)} | ${s.level} | ${s.generic} | ${s.ink} | ${s.scene} |`);
     }
     L.push('');
   }

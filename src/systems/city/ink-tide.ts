@@ -1,7 +1,7 @@
 // The ink tide. Every few minutes of play in a city, a wave of ink rolls from a drained block
 // into a neighbouring block that has colour. It is announced `warning` seconds ahead, then a
 // curtain of ink advances across the block for `duration` seconds, draining every surface it
-// passes. Hold the use button on the curtain to push it back with generic pigment. The block
+// passes. Hold the use button on the curtain to push it back with pigment. The block
 // is held if it keeps `holdRatio` of its colour; an undefended wave sweeps `reach` of it.
 //
 // Its timers live in the city's save (`TideSave`) as seconds still to go, written every frame
@@ -130,7 +130,7 @@ export class InkTide {
       this.host.spawnTideMonsters(w.chunk, w.from, () => this.knockBack(T.monsterKnockBack));
       this.ctx.events.emit('tide:start', { at: this.blockCentre(w.chunk) });
       this.ctx.events.emit('toast', {
-        text: '对准墨帘按住左键，用通用颜料把它推回去',
+        text: '对准墨帘按住左键，用颜料把它推回去',
         seconds: 5,
         once: 'tide-push',
       });
@@ -218,7 +218,7 @@ export class InkTide {
     if (w.spendOwed >= 1) {
       const r = this.ctx.apply({ kind: 'spend', generic: 1 });
       if (!r.ok) {
-        w.blocked = '通用颜料不足，推不动墨潮';
+        w.blocked = '颜料不足，推不动墨潮';
         w.spendOwed = 1;
         return;
       }

@@ -61,10 +61,12 @@ export class Residents {
         ? `E 告诉${r.resident}：房子涂成${name}了`
         : `${r.resident}：“${r.line}”（用涂鸦把四面墙涂成${name}：${walls}/4）`;
     }
-    const have = this.ctx.state.inventory.colored[r.color] ?? 0;
+    if (!this.ctx.state.unlocked.includes(r.color))
+      return `${r.resident}：“${r.line}”（先找到${name}的蜡笔）`;
+    const have = this.ctx.state.inventory.generic;
     return have >= r.count
-      ? `E 把 ${r.count} 份${name}颜料交给${r.resident}`
-      : `${r.resident}：“${r.line}”（有 ${have}/${r.count}）`;
+      ? `E 调 ${r.count} 份${name}颜料交给${r.resident}`
+      : `${r.resident}：“${r.line}”（颜料 ${have}/${r.count}）`;
   }
 
   private handIn(i: number): void {
