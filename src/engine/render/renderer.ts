@@ -21,6 +21,29 @@ import { NO_SHADOW_LAYER, shared, wildernessDrainGLSL } from './ink-material';
 
 const WAKE_COUNT = 18;
 
+/** Cells on a side of the value-noise lattice (see makeNoise); the pattern repeats this often. */
+const NOISE_SIZE = 256;
+
+/** The value-noise lattice: a random value per cell, read with bilinear filtering and wrapped,
+ * so one texture read is one octave of smooth noise. Seeded, so every run paints alike. */
+function makeNoise(): THREE.DataTexture {
+  const data = new Uint8Array(NOISE_SIZE * NOISE_SIZE);
+  let h = 0x9e3779b9;
+  for (let i = 0; i < data.length; i++) {
+    // xorshift32
+    h ^= h << 13;
+    h ^= h >>> 17;
+    h ^= h << 5;
+    data[i] = (h >>> 0) & 0xff;
+  }
+  const t = new THREE.DataTexture(data, NOISE_SIZE, NOISE_SIZE, THREE.RedFormat, THREE.UnsignedByteType);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.magFilter = t.minFilter = THREE.LinearFilter;
+  t.generateMipmaps = false;
+  t.needsUpdate = true;
+  return t;
+}
+
 const postVert = /* glsl */ `
 varying vec2 vUv;
 void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`;
@@ -34,6 +57,7 @@ uniform vec2 uRes;
 uniform float uNear;
 uniform float uFar;
 uniform float uReversedDepth;
+uniform sampler2D uNoise;
 uniform float uAspect;
 uniform vec3 uColors[${MAX_COLORS}];
 uniform float uSolid[${MAX_COLORS}];
@@ -77,10 +101,12 @@ uniform float uTime;
 ${wildernessDrainGLSL}
 
 float hash21(vec2 p) { p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }
+/** Value noise: random values on a unit lattice, blended with smoothstep weights. The lattice
+ * is a small texture of random values, so the GPU's own bilinear filter does the four-corner
+ * blend in one read (the smoothed fraction picks where between the texel centres it reads). */
 float vnoise(vec2 p) {
   vec2 i = floor(p); vec2 f = fract(p); f = f * f * (3.0 - 2.0 * f);
-  float a = hash21(i), b = hash21(i + vec2(1.0, 0.0)), c = hash21(i + vec2(0.0, 1.0)), d = hash21(i + vec2(1.0, 1.0));
-  return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+  return texture2D(uNoise, (i + f + 0.5) / ${NOISE_SIZE}.0).r;
 }
 float fbm(vec2 p) {
   float v = 0.0, a = 0.5;
@@ -510,6 +536,8 @@ void main() {
 /** Half the side of the square of ground that gets sun shadows, metres. */
 const SHADOW_REACH = 70;
 const SHADOW_SIZE = 2048;
+/** Metres the shadow square may move before a skipped frame draws it anyway. */
+const SHADOW_JUMP = 4;
 const BIAS = new THREE.Matrix4().set(0.5, 0, 0, 0.5, 0, 0.5, 0, 0.5, 0, 0, 0.5, 0.5, 0, 0, 0, 1);
 const _right = new THREE.Vector3();
 const _up = new THREE.Vector3();
@@ -699,6 +727,10 @@ export class InkRenderer {
   /** Sun shadows: a depth map from the sun's side, covering a square around the camera. */
   private readonly shadowRt: THREE.WebGLRenderTarget;
   private readonly canopyBrush = makeCanopyBrush();
+  private readonly noise = makeNoise();
+  /** Frames counted for drawing shadows every other one, and where the last map was centred. */
+  private shadowFrame = 0;
+  private readonly shadowAt = new THREE.Vector3(Infinity, Infinity, Infinity);
   private readonly shadowCam = new THREE.OrthographicCamera(
     -SHADOW_REACH,
     SHADOW_REACH,
@@ -845,6 +877,7 @@ export class InkRenderer {
         uNear: { value: this.camera.near },
         uFar: { value: this.camera.far },
         uReversedDepth: shared.uReversedDepth,
+        uNoise: { value: this.noise },
         uColors: { value: colors },
         uSolid: { value: perColor((c) => (c.solid ? 1 : 0), 0) },
         uTexture: { value: perColor((c) => c.texture ?? 0.25, 0.25) },
@@ -1111,6 +1144,9 @@ export class InkRenderer {
   /**
    * Draw the scene's depth as the sun sees it, over a square centred a little ahead of the
    * camera. The square moves in whole texels so shadow edges do not crawl as the player walks.
+   * Every other frame is enough: in this pass nothing sways, only monsters move, and a frame
+   * old is unseen. The map and its matrix always change together, so a skipped frame reads the
+   * last map exactly where it was drawn; a jump (a teleport, a fast turn) redraws at once.
    */
   private renderShadows(): void {
     const dir = this.day.dir;
@@ -1125,6 +1161,8 @@ export class InkRenderer {
     const r = Math.round(_centre.dot(_right) / texel) * texel - _centre.dot(_right);
     const u = Math.round(_centre.dot(_up) / texel) * texel - _centre.dot(_up);
     _centre.addScaledVector(_right, r).addScaledVector(_up, u);
+    if (++this.shadowFrame % 2 === 1 && _centre.distanceToSquared(this.shadowAt) < SHADOW_JUMP ** 2) return;
+    this.shadowAt.copy(_centre);
     const sc = this.shadowCam;
     sc.position.copy(_centre).addScaledVector(dir, 250);
     sc.up.copy(_up);
@@ -1168,6 +1206,7 @@ export class InkRenderer {
 
   dispose(): void {
     this.canopyBrush.dispose();
+    this.noise.dispose();
     if (shared.uCanopyBrush.value === this.canopyBrush) shared.uCanopyBrush.value = null;
     this.precipitation.dispose();
     this.rt.dispose();
