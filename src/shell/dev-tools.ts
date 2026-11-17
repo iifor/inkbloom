@@ -100,6 +100,71 @@ export function installDevTools(game: OpenWorld): void {
       lineup.place();
       lineup.act = on === true ? 'cycle' : on;
     },
+    /** GPU milliseconds per render pass, each drawn n times and waited for. */
+    benchPasses: (n = 20) => ctx.renderer.benchPasses(n),
+    /** Where a frame's time goes, averaged over `seconds`: each system's update on the CPU and
+     * each render pass on the GPU (timer queries), in milliseconds per frame. */
+    async profile(seconds = 4) {
+      const loop = game.loop;
+      const cpu = new Map<string, number>();
+      const gpu = new Map<string, number>();
+      let frames = 0;
+      let calls = 0;
+      let triangles = 0;
+      loop.profile = cpu;
+      ctx.renderer.passTimes = gpu;
+      ctx.renderer.gpuFrames = 0;
+      const info = ctx.renderer.renderer.info;
+      // a hidden page (or a hidden browser pane) gets few or no animation frames: then step the
+      // game here, as fast as it goes
+      const ticking = await new Promise<boolean>((done) => {
+        const t = setTimeout(() => done(false), 300);
+        requestAnimationFrame(() => {
+          clearTimeout(t);
+          done(true);
+        });
+      });
+      const hidden = document.hidden || !ticking;
+      if (hidden) loop.stop();
+      const start = performance.now();
+      await new Promise<void>((done) => {
+        const count = (): void => {
+          if (hidden) loop.step(1 / 60);
+          frames++;
+          calls += info.render.calls;
+          triangles += info.render.triangles;
+          if (performance.now() - start >= seconds * 1000) done();
+          else if (hidden) setTimeout(count, 0);
+          else requestAnimationFrame(count);
+        };
+        if (hidden) setTimeout(count, 0);
+        else requestAnimationFrame(count);
+      });
+      if (hidden) loop.start();
+      loop.profile = null;
+      ctx.renderer.passTimes = null;
+      const per = (m: Map<string, number>, n: number) =>
+        Object.fromEntries(
+          [...m]
+            .sort((a, b) => b[1] - a[1])
+            .map(([k, v]) => [k, Math.round((v / Math.max(1, n)) * 100) / 100]),
+        );
+      const size = ctx.renderer.renderer.getDrawingBufferSize(new THREE.Vector2());
+      return {
+        hidden,
+        fps: Math.round(frames / seconds),
+        frames,
+        drawingBuffer: `${size.x}x${size.y}`,
+        calls: Math.round(calls / frames),
+        triangles: Math.round(triangles / frames),
+        cpu: per(cpu, frames),
+        gpu: per(gpu, ctx.renderer.gpuFrames),
+        gpuTotal:
+          Math.round(
+            ([...gpu.values()].reduce((a, b) => a + b, 0) / Math.max(1, ctx.renderer.gpuFrames)) * 100,
+          ) / 100,
+      };
+    },
   };
   let lineup: FigureLineup | null = null;
   (window as unknown as { inkbloom: typeof api }).inkbloom = api;

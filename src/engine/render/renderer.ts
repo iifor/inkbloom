@@ -29,6 +29,8 @@ const RIVER_SAMPLES = 129;
 /** A river's current mid-channel, metres a second, and the seconds of one flow phase. */
 const FLOW_SPEED = 1.3;
 const FLOW_CYCLE = 2;
+/** Most pixels drawn a frame at each quality: about 2300 x 1400, and 1900 x 1100. */
+const PIXEL_BUDGET = { high: 3.2e6, low: 2.1e6 } as const;
 /** The brush's colours come first in the palette; walls and doors are painted in them. */
 const PAINTABLE_COUNT = PALETTE.findIndex((c) => !c.paintable);
 
@@ -830,6 +832,8 @@ export class InkRenderer {
   private pixelRatio: number;
   /** The quality setting's pixel ratio: the most the frame is ever drawn at. */
   private maxPixelRatio: number;
+  /** Most pixels drawn a frame (see resize). */
+  private pixelBudget: number = PIXEL_BUDGET.high;
   /** Automatic resolution: how much of maxPixelRatio is drawn now. */
   private readonly governor = new ResolutionGovernor();
   /** Sun shadows: a depth map from the sun's side, covering a square around the camera. */
@@ -1124,6 +1128,7 @@ export class InkRenderer {
 
   setQuality(quality: 'high' | 'low'): void {
     this.maxPixelRatio = Math.min(window.devicePixelRatio || 1, quality === 'high' ? 1.5 : 1);
+    this.pixelBudget = quality === 'high' ? PIXEL_BUDGET.high : PIXEL_BUDGET.low;
     // a new setting starts again from full resolution and finds its own level
     this.governor.reset();
     this.pixelRatio = this.maxPixelRatio;
@@ -1136,10 +1141,13 @@ export class InkRenderer {
     const el = this.renderer.domElement;
     const w = Math.max(2, el.clientWidth);
     const h = Math.max(2, el.clientHeight);
-    this.renderer.setPixelRatio(this.pixelRatio);
+    // a big window draws no more pixels than the budget (never under one per CSS pixel): every
+    // pass after the scene runs once a pixel, and the brush filter softens the detail anyway
+    const ratio = Math.min(this.pixelRatio, Math.max(1, Math.sqrt(this.pixelBudget / (w * h))));
+    this.renderer.setPixelRatio(ratio);
     this.renderer.setSize(w, h, false);
-    const rw = Math.floor(w * this.pixelRatio);
-    const rh = Math.floor(h * this.pixelRatio);
+    const rw = Math.floor(w * ratio);
+    const rh = Math.floor(h * ratio);
     this.rt.setSize(rw, rh);
     this.paintRt.setSize(rw, rh);
     this.brushRt.setSize(rw, rh);
@@ -1230,6 +1238,101 @@ export class InkRenderer {
     this.post.uniforms.uWakes!.value[i].set(x, z, performance.now() / 1000, fromPlayer ? 1 : 0.52);
   }
 
+  /** While profiling (dev tools): GPU milliseconds per pass, summed over the frames measured
+   * (`gpuFrames`). Timed with the GPU's own timer queries, which answer a frame or two late. */
+  passTimes: Map<string, number> | null = null;
+  gpuFrames = 0;
+  private readonly pending: { name: string; query: WebGLQuery; last: boolean }[] = [];
+  private current: { name: string; query: WebGLQuery } | null = null;
+  private timer: { TIME_ELAPSED_EXT: number; GPU_DISJOINT_EXT: number } | null | undefined;
+
+  /** End the pass being timed, if any, and start timing `next` (null: the frame is done). */
+  private pass(next: string | null): void {
+    if (!this.passTimes) return;
+    const gl = this.renderer.getContext() as WebGL2RenderingContext;
+    if (this.timer === undefined) this.timer = gl.getExtension('EXT_disjoint_timer_query_webgl2');
+    const ext = this.timer;
+    if (!ext) return;
+    if (this.current) {
+      gl.endQuery(ext.TIME_ELAPSED_EXT);
+      this.pending.push({ ...this.current, last: next === null });
+      this.current = null;
+    }
+    if (next) {
+      const query = gl.createQuery()!;
+      gl.beginQuery(ext.TIME_ELAPSED_EXT, query);
+      this.current = { name: next, query };
+    }
+    // collect what the GPU has answered
+    const disjoint = gl.getParameter(ext.GPU_DISJOINT_EXT) as boolean;
+    while (this.pending.length && gl.getQueryParameter(this.pending[0]!.query, gl.QUERY_RESULT_AVAILABLE)) {
+      const done = this.pending.shift()!;
+      if (!disjoint) {
+        const ms = (gl.getQueryParameter(done.query, gl.QUERY_RESULT) as number) / 1e6;
+        this.passTimes.set(done.name, (this.passTimes.get(done.name) ?? 0) + ms);
+        if (done.last) this.gpuFrames++;
+      }
+      gl.deleteQuery(done.query);
+    }
+  }
+
+  /** Dev tools: milliseconds per pass, each drawn `n` times over and then waited for (a pixel
+   * read makes the GPU finish), less the cost of the wait itself. Steadier than timer queries
+   * when the page is in the background. */
+  benchPasses(n = 20): Record<string, number> {
+    const r = this.renderer;
+    const px = new Uint8Array(4);
+    // reading the screen waits for everything drawn to it, and so for every pass before it
+    const gl = r.getContext();
+    const wait = (): void => {
+      r.setRenderTarget(null);
+      r.render(this.fxaaScene, this.postCam);
+      gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+    };
+    const out: Record<string, number> = {};
+    const time = (name: string, draw: () => void): void => {
+      wait();
+      const t = performance.now();
+      for (let i = 0; i < n; i++) draw();
+      wait();
+      out[name] = (performance.now() - t) / n;
+    };
+    this.render();
+    time('(wait)', () => {});
+    time('frame', () => this.render());
+    time('scene', () => {
+      r.setRenderTarget(this.rt);
+      r.clear(true, true, false);
+      r.render(this.scene, this.camera);
+    });
+    time('shadows', () => {
+      const camVisible = this.camera.visible;
+      this.camera.visible = false;
+      this.scene.overrideMaterial = this.shadowMaterial;
+      r.setRenderTarget(this.shadowRt);
+      r.clear(false, true, false);
+      r.render(this.scene, this.shadowCam);
+      this.scene.overrideMaterial = null;
+      this.camera.visible = camVisible;
+    });
+    time('paint', () => {
+      r.setRenderTarget(this.paintRt);
+      r.render(this.postScene, this.postCam);
+    });
+    time('brush', () => {
+      r.setRenderTarget(this.brushRt);
+      r.render(this.brushScene, this.postCam);
+    });
+    time('fxaa', () => {
+      r.setRenderTarget(null);
+      r.render(this.fxaaScene, this.postCam);
+    });
+    time('glow', () => this.renderGlow());
+    const base = out['(wait)']!;
+    for (const k of Object.keys(out)) if (k !== '(wait)') out[k] = Math.round((out[k]! - base) * 100) / 100;
+    return out;
+  }
+
   render(): void {
     const now = performance.now();
     const dt = Math.min(0.1, (now - this.lastFrame) / 1000);
@@ -1249,11 +1352,14 @@ export class InkRenderer {
     shared.uLightDir.value.copy(this.day.dir).transformDirection(this.camera.matrixWorldInverse);
     const r = this.renderer;
     r.info.reset();
+    this.pass('shadows');
     this.renderShadows();
+    this.pass('scene');
     r.setRenderTarget(this.rt);
     r.setClearColor(this.clearColor, 0);
     r.clear(true, true, false);
     r.render(this.scene, this.camera);
+    this.pass('paint');
     const u = this.post.uniforms;
     u.uNear!.value = this.camera.near;
     u.uFar!.value = this.camera.far;
@@ -1273,14 +1379,19 @@ export class InkRenderer {
     u.uTime!.value = shared.uTime.value;
     r.setRenderTarget(this.paintRt);
     r.render(this.postScene, this.postCam);
+    this.pass('brush');
     this.brush.uniforms.uTime!.value = u.uTime!.value;
     r.setRenderTarget(this.brushRt);
     r.render(this.brushScene, this.postCam);
+    this.pass('weather');
     // after the brush pass, which would smear one-pixel streaks away
     this.precipitation.render(r, this.camera, { ...w, night: this.day.night }, u.uTime!.value);
+    this.pass('fxaa');
     r.setRenderTarget(null);
     r.render(this.fxaaScene, this.postCam);
+    this.pass('glow');
     this.renderGlow();
+    this.pass(null);
   }
 
   /**

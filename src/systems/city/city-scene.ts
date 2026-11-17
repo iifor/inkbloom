@@ -24,8 +24,9 @@ import { Residents } from './residents';
 import { Studios } from './studios';
 
 /** Metres from a district's middle beyond which its houses are drawn as shells. A district is
- * 128 m across, so its nearest houses are then over 100 m off: window frames are a few pixels. */
-const FAR_DETAIL = 200;
+ * 128 m across, so its nearest houses are then some 70 m off, where a window frame is about a
+ * pixel; a district in full is some 200 thousand triangles, as a shell a tenth of that. */
+const FAR_DETAIL = 130;
 /** Radians a second the waterwheel turns. */
 const WHEEL_TURN = 0.45;
 

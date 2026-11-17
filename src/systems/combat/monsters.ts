@@ -42,6 +42,11 @@ const SPIT_TIME = 0.6;
 const SPIT_LEAVES = 0.45;
 /** Seconds a defeated monster takes to melt into a puddle. */
 const MELT_TIME = 0.6;
+/** Monsters farther than this from the camera are not drawn (a few pixels tall by then, and
+ * every one of their parts costs a draw in the view and again in the sun's shadow pass). */
+const DRAW_RANGE = 130;
+/** Drawn a little outside the view too, so a shadow cast in from just off screen still falls. */
+const VIEW_MARGIN = 6;
 /** Extra height cleared on a jump, so the body's feet pass over the lip. */
 const JUMP_MARGIN = 0.35;
 /** How far ahead of its body a monster looks for a ledge. */
@@ -106,6 +111,9 @@ function spitGeo(): THREE.BufferGeometry {
 }
 
 const _to = new THREE.Vector3();
+const _view = new THREE.Frustum();
+const _viewMatrix = new THREE.Matrix4();
+const _sphere = new THREE.Sphere();
 const _dir = new THREE.Vector3();
 const _eye = new THREE.Vector3();
 
@@ -483,9 +491,22 @@ export class MonsterGroup implements TargetSource {
 
   private draw(): void {
     const t = this.ctx.state.clock;
+    // headless runs (tests) have no renderer: then everything is "drawn"
+    const camera = (this.ctx.renderer as GameContext['renderer'] | undefined)?.camera;
+    if (camera)
+      _view.setFromProjectionMatrix(
+        _viewMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse),
+      );
     this.figures.begin();
     for (const m of this.monsters) {
       const b = m.body;
+      // only those near enough to see, and in (or just outside) the view
+      if (camera) {
+        if (b.pos.distanceToSquared(camera.position) > DRAW_RANGE * DRAW_RANGE) continue;
+        _sphere.center.set(b.pos.x, b.pos.y + m.def.height / 2, b.pos.z);
+        _sphere.radius = m.def.height + VIEW_MARGIN;
+        if (!_view.intersectsSphere(_sphere)) continue;
+      }
       // a heavy hit holds the drawn pose still for a moment (the body still moves underneath)
       // a hit flashes the body in the colour it stole for a blink (also through the hitstop)
       const flash = !m.dead && m.hurtT > FLASH_AFTER;

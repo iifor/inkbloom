@@ -58,6 +58,7 @@ export class EffectsSystem implements System {
       this.mesh.setMatrixAt(i, HIDDEN);
       this.mesh.setColorAt(i, this.c.setRGB(0, 0, 0));
     }
+    this.mesh.count = 0;
     ctx.renderer.scene.add(this.mesh);
 
     const ink = color('charcoal');
@@ -180,6 +181,8 @@ export class EffectsSystem implements System {
   update(dt: number): void {
     if (!this.dirty) return;
     let alive = false;
+    // draw only up to the last fleck in flight, not all MAX slots every frame
+    let top = 0;
     for (let i = 0; i < MAX; i++) {
       const f = this.flecks[i];
       if (!f) continue;
@@ -190,6 +193,7 @@ export class EffectsSystem implements System {
         continue;
       }
       alive = true;
+      top = i + 1;
       f.vy += f.lift * dt;
       const drag = Math.exp(-2.5 * dt);
       f.vx *= drag;
@@ -201,6 +205,7 @@ export class EffectsSystem implements System {
       this.mesh.setMatrixAt(i, this.m.compose(this.v.set(f.x, f.y, f.z), this.q, this.s.set(k, k, k)));
     }
     this.mesh.instanceMatrix.needsUpdate = true;
+    this.mesh.count = top;
     this.dirty = alive;
   }
 

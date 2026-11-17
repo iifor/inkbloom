@@ -52,13 +52,15 @@ export function splatGeometry(seed: number, h = 0.04): THREE.BufferGeometry {
   const lobes = [2, 3, 5, 7].map((k) => ({ k, a: rng.range(0, Math.PI * 2), amp: rng.range(0.05, 0.14) }));
   const outline = (a: number): number =>
     0.86 + lobes.reduce((s, l) => s + l.amp * Math.sin(l.k * a + l.a), 0);
-  dome(pos, index, 0, 0, outline, h, 40);
-  const drops = 3 + Math.floor(rng.next() * 3);
+  // segments enough for the outline to read round under the brush filter, and no more:
+  // towns lay hundreds of these
+  dome(pos, index, 0, 0, outline, h, 24);
+  const drops = 2 + Math.floor(rng.next() * 3);
   for (let i = 0; i < drops; i++) {
     const a = rng.range(0, Math.PI * 2);
     const d = outline(a) + rng.range(0.12, 0.38);
     const r = rng.range(0.05, 0.12);
-    dome(pos, index, Math.cos(a) * d, Math.sin(a) * d, () => r, h * 0.8, 12);
+    dome(pos, index, Math.cos(a) * d, Math.sin(a) * d, () => r, h * 0.8, 7);
   }
   return geometry(pos, index);
 }
@@ -96,12 +98,12 @@ export function lumpGeometry(seed: number, rough = 0.16): THREE.BufferGeometry {
  * top (+y). */
 export function dropGeometry(): THREE.BufferGeometry {
   const profile: THREE.Vector2[] = [];
-  for (let i = 0; i <= 8; i++) {
-    const t = i / 8;
+  for (let i = 0; i <= 5; i++) {
+    const t = i / 5;
     // a circle for the lower part, easing into a point
     const a = Math.PI * t;
     const r = Math.sin(a) * (1 - 0.55 * t * t);
     profile.push(new THREE.Vector2(r * 0.5, -Math.cos(a) * 0.5 * (1 + 0.5 * t)));
   }
-  return new THREE.LatheGeometry(profile, 10);
+  return new THREE.LatheGeometry(profile, 8);
 }

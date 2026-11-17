@@ -6,6 +6,8 @@ export class Loop {
   private frame = 0;
   private last = 0;
   private running = false;
+  /** While profiling (dev tools): milliseconds spent in each system and in drawing, summed. */
+  profile: Map<string, number> | null = null;
 
   constructor(
     private readonly systems: readonly System[],
@@ -37,8 +39,20 @@ export class Loop {
     const dt = dtOverride ?? Math.min(0.05, (now - this.last) / 1000);
     this.last = now;
     this.before();
-    for (const s of this.systems) s.update?.(dt);
+    const profile = this.profile;
+    if (!profile) {
+      for (const s of this.systems) s.update?.(dt);
+      this.after();
+      return;
+    }
+    for (const s of this.systems) {
+      const t = performance.now();
+      s.update?.(dt);
+      profile.set(s.id, (profile.get(s.id) ?? 0) + performance.now() - t);
+    }
+    const t = performance.now();
     this.after();
+    profile.set('(draw)', (profile.get('(draw)') ?? 0) + performance.now() - t);
   }
 
   stop(): void {
