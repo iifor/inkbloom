@@ -275,6 +275,7 @@ export class WeaponSlot implements Tool {
       h.mag < h.def.magazine
     )
       this.reload(h);
+    if (input.pressed('use') && h.reloading > 0) this.ctx.events.emit('weapon:dry', { key: h.def.key });
     if (!input.held('use') || h.cooldown > 0 || h.reloading > 0) return;
     if (h.def.magazine && h.mag <= 0) {
       this.reload(h);
@@ -293,6 +294,7 @@ export class WeaponSlot implements Tool {
     this.index = (((this.index + step) % n) + n) % n;
     this.show();
     const h = this.current;
+    if (h) this.ctx.events.emit('equip', { key: h.def.key });
     if (h)
       this.ctx.events.emit('toast', {
         text: `G ${h.def.skill.name}：${h.def.skill.help}`,

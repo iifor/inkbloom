@@ -4,11 +4,14 @@
 import { type Loop, Synth, midi } from '@/engine/audio/synth';
 import type { Point3 } from '@/game/events';
 import type { GameContext, System } from '@/game/types';
+import { WEAPONS } from '@/content/weapons';
 import { Ambience } from './ambience';
+import { groundUnder, stepLayers } from './footsteps';
 import { Music } from './music';
 
 /** Major pentatonic steps; colours map onto it so every bloom is in key. */
 const PENTA = [0, 2, 4, 7, 9];
+const WEAPON_KEYS = new Set<string>(WEAPONS.map((w) => w.key));
 const note = (degree: number, base = 72): number =>
   midi(base + PENTA[((degree % 5) + 5) % 5]! + 12 * Math.floor(degree / 5));
 
@@ -24,6 +27,11 @@ export class AudioSystem implements System {
   private rain: Loop | null = null;
   private stepT = 0;
   private stepSide = 0;
+  /** The weapon last fired or taken in hand (blade hits and switching sound by it). */
+  private weapon = 'rifle';
+  private dabAt = -1;
+  private dripAt = -1;
+  private rejectAt = -1;
 
   constructor(private readonly ctx: GameContext) {
     this.music = new Music(this.synth, ctx);
@@ -37,12 +45,18 @@ export class AudioSystem implements System {
         s.tone({ freq: 220, freqEnd: 110, dur: 0.35, gain: 0.08, type: 'triangle', pos: at });
         s.noise({ dur: 0.25, gain: 0.08, freq: 500, freqEnd: 150, pos: at });
       }),
-      on('weapon:fired', ({ key }) => this.fire(key)),
+      on('weapon:fired', ({ key }) => {
+        this.weapon = key;
+        this.fire(key);
+      }),
       on('weapon:skill', ({ key }) => this.skill(key)),
       on('weapon:reload', () => {
         s.noise({ dur: 0.04, gain: 0.2, type: 'highpass', freq: 3000 });
         s.noise({ dur: 0.05, gain: 0.25, type: 'highpass', freq: 2200, delay: 0.25 });
       }),
+      // pulling the trigger mid-reload: a dry click
+      on('weapon:dry', () => s.noise({ dur: 0.02, gain: 0.12, type: 'bandpass', freq: 3000, q: 4 })),
+      on('equip', ({ key }) => this.equip(key)),
       on('blast', ({ at, radius }) => {
         s.noise({ dur: 0.7, gain: 0.7, freq: 700, freqEnd: 90, pos: at });
         s.tone({ freq: 90, freqEnd: 35 * (radius > 5 ? 0.8 : 1), dur: 0.6, gain: 0.5, pos: at });
@@ -52,6 +66,30 @@ export class AudioSystem implements System {
         // a kill lands with a low thump; a heavy blow with a dull knock
         if (killed) s.tone({ freq: 110, freqEnd: 45, dur: 0.22, gain: 0.35, type: 'sine' });
         else if (heavy) s.noise({ dur: 0.06, gain: 0.3, type: 'lowpass', freq: 500 });
+        // the blade biting in: a thick thwack, not a gun's tick
+        if (heavy && this.weapon === 'katana') {
+          s.noise({ dur: 0.12, gain: 0.3, type: 'bandpass', freq: 900, freqEnd: 400, q: 1 });
+          s.tone({ freq: 220, freqEnd: 140, dur: 0.1, gain: 0.12, type: 'triangle' });
+        }
+      }),
+      // a fleck off the brush: a soft wet pat (a brush throws many; a few are heard)
+      on('paint:dab', ({ at }) => {
+        if (performance.now() / 1000 - this.dabAt < 0.15) return;
+        this.dabAt = performance.now() / 1000;
+        s.noise({ dur: 0.05, gain: 0.04, type: 'bandpass', freq: 1400, q: 1, pos: at });
+      }),
+      // a drop of ink off the tide curtain: a small plip
+      on('tide:drip', ({ at }) => {
+        if (performance.now() / 1000 - this.dripAt < 0.1) return;
+        this.dripAt = performance.now() / 1000;
+        s.tone({ freq: 1200, freqEnd: 1800, dur: 0.06, gain: 0.04, delay: Math.random() * 0.05, pos: at });
+      }),
+      // something could not be done (not enough paint, nothing there): a soft "uh-uh"
+      on('patch:rejected', () => {
+        if (performance.now() / 1000 - this.rejectAt < 0.4) return;
+        this.rejectAt = performance.now() / 1000;
+        s.tone({ freq: 330, dur: 0.14, gain: 0.06, type: 'triangle' });
+        s.tone({ freq: 262, dur: 0.18, gain: 0.06, type: 'triangle', delay: 0.15 });
       }),
       on('monster:interrupted', ({ at }) => {
         // a sharp crack: the attack breaks
@@ -224,9 +262,50 @@ export class AudioSystem implements System {
 
   private skill(key: string): void {
     const s = this.synth;
-    if (key === 'sniper') s.tone({ freq: 300, freqEnd: 900, dur: 0.4, gain: 0.15, type: 'triangle' });
-    else if (key === 'staff') this.arpeggio([0, 3, 7], 60, 0.1, 0.06);
-    else s.noise({ dur: 0.3, gain: 0.35, type: 'bandpass', freq: 500, freqEnd: 2500 });
+    switch (key) {
+      case 'sniper':
+        s.tone({ freq: 300, freqEnd: 900, dur: 0.4, gain: 0.15, type: 'triangle' });
+        break;
+      case 'staff':
+        this.arpeggio([0, 3, 7], 60, 0.1, 0.06);
+        break;
+      case 'rifle':
+        // a quick sidestep, and the shield shimmering up
+        s.noise({ dur: 0.22, gain: 0.25, type: 'bandpass', freq: 600, freqEnd: 2400 });
+        s.tone({ freq: 660, freqEnd: 990, dur: 0.3, gain: 0.05, type: 'triangle', delay: 0.05 });
+        break;
+      case 'katana':
+        // a rushing dash, and the blade ringing
+        s.noise({ dur: 0.3, gain: 0.3, type: 'highpass', freq: 800, freqEnd: 4000 });
+        s.tone({ freq: 1320, dur: 0.5, gain: 0.05, type: 'triangle', delay: 0.1 });
+        s.tone({ freq: 1980, dur: 0.4, gain: 0.03, delay: 0.1 });
+        break;
+      case 'launcher':
+        // the big shell going: a deep swell under a heavy whump
+        s.tone({ freq: 70, freqEnd: 140, dur: 0.35, gain: 0.2 });
+        s.noise({ dur: 0.4, gain: 0.4, type: 'lowpass', freq: 300 });
+        break;
+      default:
+        s.noise({ dur: 0.3, gain: 0.35, type: 'bandpass', freq: 500, freqEnd: 2500 });
+    }
+  }
+
+  /** Taking something in hand: a gun's click-clack, a blade's ring, a staff's hum, a brush's rustle. */
+  private equip(key: string): void {
+    const s = this.synth;
+    const weapon = key === 'weapons' ? this.weapon : key;
+    if (key === 'weapons' || WEAPON_KEYS.has(key)) this.weapon = weapon;
+    if (weapon === 'katana' && (key === 'weapons' || key === 'katana')) {
+      s.noise({ dur: 0.25, gain: 0.12, type: 'highpass', freq: 3000, freqEnd: 6000 });
+      s.tone({ freq: 2400, dur: 0.35, gain: 0.025 });
+    } else if (weapon === 'staff' && (key === 'weapons' || key === 'staff')) {
+      s.tone({ freq: 520, freqEnd: 780, dur: 0.25, gain: 0.05, type: 'triangle' });
+    } else if (key === 'weapons' || WEAPON_KEYS.has(key)) {
+      s.noise({ dur: 0.03, gain: 0.15, type: 'bandpass', freq: 2000, q: 3 });
+      s.noise({ dur: 0.04, gain: 0.13, type: 'bandpass', freq: 1400, q: 3, delay: 0.08 });
+    } else {
+      s.noise({ dur: 0.1, gain: 0.08, type: 'lowpass', freq: 900 });
+    }
   }
 
   private arpeggio(degrees: number[], base: number, gain: number, step = 0.09): void {
@@ -253,15 +332,8 @@ export class AudioSystem implements System {
       if (this.stepT <= 0) {
         this.stepT = water ? 0.63 : player.speed > 8 ? 0.3 : 0.44;
         this.stepSide ^= 1;
-        const city = this.ctx.scenes.active.ref.kind === 'city';
-        this.synth.noise({
-          dur: water ? 0.21 : 0.07,
-          gain: 0.09,
-          type: city || water ? 'bandpass' : 'lowpass',
-          freq: water ? 2200 : city ? 900 + this.stepSide * 120 : 420 + this.stepSide * 60,
-          freqEnd: water ? 520 : undefined,
-          q: city ? 2 : 1,
-        });
+        // what is underfoot: grass, paving, sand, rock or shallows, with snow, rain or leaves
+        for (const layer of stepLayers(groundUnder(this.ctx), this.stepSide)) this.synth.noise(layer);
       }
     } else this.stepT = 0;
     this.music.update(dt);

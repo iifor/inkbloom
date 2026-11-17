@@ -23,6 +23,11 @@ export interface GameEvents {
   'weapon:fired': { readonly key: string };
   'weapon:skill': { readonly key: string };
   'weapon:reload': { readonly key: string };
+  /** The trigger was pulled with nothing to fire (still reloading). */
+  'weapon:dry': { readonly key: string };
+  /** Something new taken in hand: a tool's id ('brush', 'marker', 'weapons'), or a weapon's
+   * key when switching weapons. */
+  equip: { readonly key: string };
   blast: { readonly at: Point3; readonly radius: number };
   'monster:hit': {
     readonly at: Point3;

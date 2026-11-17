@@ -46,6 +46,7 @@ export class ToolBelt implements System {
     if (!this.stowed) this.active?.onUnequip?.();
     this.index = i;
     if (!this.stowed) this.active?.onEquip?.();
+    if (this.active) this.ctx.events.emit('equip', { key: this.active.id });
   }
 
   update(dt: number): void {
