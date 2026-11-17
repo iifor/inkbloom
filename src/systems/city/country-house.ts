@@ -1,5 +1,6 @@
 // Country houses in both the wilderness chunk mesh and the paintable village mesh.
 // All details share the surface of the roof, door or wall they grow from.
+import * as THREE from 'three';
 import { color } from '@/content/palette';
 import type { HouseStyle } from '@/content/templates';
 import { NO_SURFACE, type GeometryBuilder } from '@/engine/render/geometry-builder';
@@ -31,6 +32,12 @@ const faces: readonly Face[] = ['px', 'nx', 'pz', 'nz'];
 const up = { x: 0, y: 1, z: 0 };
 const v = (x: number, y: number, z: number): Vec3Like => ({ x, y, z });
 const allFaces = (c: number) => ({ px: c, nx: c, py: c, ny: c, pz: c, nz: c });
+/** 0..1 for a house and a salt: each house its own sag, ivy and so on, the same every build. */
+const roll = (h: House, k: number): number => {
+  const r = Math.sin(h.x0 * 12.9898 + h.z0 * 78.233 + k * 37.719) * 43758.5453;
+  return r - Math.floor(r);
+};
+const LEAF = new THREE.SphereGeometry(1, 7, 5);
 
 /** Orient a polygon towards its outside irrespective of the house's compass bearing. */
 function panel(g: GeometryBuilder, points: Vec3Like[], out: Vec3Like, tint: number, surface: number): void {
@@ -105,7 +112,36 @@ export function buildCountryHouse(g: GeometryBuilder, h: House, box: BoxSink, de
   );
 
   if (detail) addFacade(g, h);
+  if (detail) addIvy(g, h);
   addRoof(g, h, box, detail);
+}
+
+/** Ivy up one front corner of some cottages: clumps of leaves climbing from the ground and
+ * thinning out toward the eaves, painted (and drained) with the wall they cling to. */
+function addIvy(g: GeometryBuilder, h: House): void {
+  if (h.style !== 'cottage' || roll(h, 1) > 0.45) return;
+  const { front, height } = h;
+  const onFace = wallPoint(h);
+  const [lo, hi] = xFace(front) ? [h.z0, h.z1] : [h.x0, h.x1];
+  const corner = roll(h, 2) < 0.5 ? lo : hi;
+  const inward = corner === lo ? 1 : -1;
+  const sid = h.surfaces?.walls[front] ?? NO_SURFACE;
+  const m = new THREE.Matrix4();
+  const reach = height * (0.55 + 0.35 * roll(h, 3));
+  for (let k = 0; k < 16; k++) {
+    const t = k / 15;
+    const y = 0.2 + reach * t;
+    // the clump spreads along the wall as it climbs, and thins out near the top
+    const along = corner + inward * (0.15 + roll(h, 10 + k) * (0.25 + 0.9 * t));
+    const size = (0.32 - 0.14 * t) * (0.75 + 0.5 * roll(h, 30 + k));
+    const p = onFace(front, along, y, 0.12 + size * 0.3);
+    m.compose(
+      new THREE.Vector3(p.x, p.y, p.z),
+      new THREE.Quaternion().setFromEuler(new THREE.Euler(roll(h, 50 + k), roll(h, 70 + k) * 6, 0)),
+      new THREE.Vector3(size * 1.2, size * 0.8, size),
+    );
+    g.meshSmooth(LEAF, m, color(k % 3 ? 'leaf' : 'forest'), sid);
+  }
 }
 
 function addFacade(g: GeometryBuilder, h: House): void {
@@ -277,12 +313,36 @@ function addRoof(g: GeometryBuilder, h: House, box: BoxSink, detail: boolean): v
     rise = Math.min(4.5, across * (h.style === 'barn' ? 0.88 : 0.65));
   const top = eave + rise,
     edge = eave - (lip * rise) / across + 0.14;
+  // no roof is ruled straight: the ridge sags a little toward its middle (an old barn's most),
+  // and the eaves waver; the ends, where hips and gables meet it, stay true
+  const sag = (h.style === 'barn' ? 0.1 : 0.05) + 0.07 * roll(h, 4);
+  const settle = (p: Vec3Like, t: number, s: number): Vec3Like => ({
+    x: p.x,
+    y:
+      p.y -
+      sag * Math.sin(Math.PI * t) * (0.25 + 0.75 * s) +
+      (1 - s) * 0.025 * Math.sin(t * 9 + roll(h, 5) * 6) * Math.sin(Math.PI * t),
+    z: p.z,
+  });
+  const lerp3 = (a: Vec3Like, b: Vec3Like, t: number): Vec3Like => ({
+    x: a.x + (b.x - a.x) * t,
+    y: a.y + (b.y - a.y) * t,
+    z: a.z + (b.z - a.z) * t,
+  });
+  const SAG_ALONG = 6,
+    SAG_UP = 2;
   for (const side of [-1, 1]) {
     const edgeA = axis(-end, edge, side * run),
       edgeB = axis(end, edge, side * run);
     const peakA = axis(-ridge, top, 0),
       peakB = axis(ridge, top, 0);
-    panel(g, [edgeA, edgeB, peakB, peakA], up, h.tile, roof);
+    const at = (t: number, s: number): Vec3Like =>
+      settle(lerp3(lerp3(edgeA, edgeB, t), lerp3(peakA, peakB, t), s), t, s);
+    for (let i = 0; i < SAG_ALONG; i++)
+      for (let j = 0; j < SAG_UP; j++) {
+        const [t0, t1, s0, s1] = [i / SAG_ALONG, (i + 1) / SAG_ALONG, j / SAG_UP, (j + 1) / SAG_UP];
+        panel(g, [at(t0, s0), at(t1, s0), at(t1, s1), at(t0, s1)], up, h.tile, roof);
+      }
     const innerA = axis(-along, eave, side * across),
       innerB = axis(along, eave, side * across);
     if (detail) {
@@ -343,7 +403,21 @@ function addRoof(g: GeometryBuilder, h: House, box: BoxSink, detail: boolean): v
   }
   const block = (u0: number, u1: number, y0: number, y1: number, t0: number, t1: number, c: number) =>
     g.box(axis(u0, y0, t0), axis(u1, y1, t1), allFaces(c), allFaces(roof));
-  block(-ridge - 0.08, ridge + 0.08, top - 0.1, top + 0.13, -0.14, 0.14, h.tile);
+  // the ridge capping follows the sag, a short length at a time
+  for (let i = 0; i < SAG_ALONG; i++) {
+    const u0 = -ridge + (2 * ridge * i) / SAG_ALONG,
+      u1 = -ridge + (2 * ridge * (i + 1)) / SAG_ALONG;
+    const drop = sag * Math.sin(Math.PI * ((i + 0.5) / SAG_ALONG));
+    block(
+      i === 0 ? u0 - 0.08 : u0 - 0.02,
+      i === SAG_ALONG - 1 ? u1 + 0.08 : u1 + 0.02,
+      top - 0.1 - drop,
+      top + 0.13 - drop,
+      -0.14,
+      0.14,
+      h.tile,
+    );
+  }
   // the chimney stays in the shell: its shadow on the roof shows from far off
   if (h.style !== 'barn') {
     const u = -ridge * 0.48,

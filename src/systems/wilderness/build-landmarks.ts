@@ -9,8 +9,9 @@ import type { Vec3Like } from '@/engine/physics/world';
 import type { WildChunk } from '@/world/wilderness/chunk';
 import type { Wilderness } from '@/world/wilderness/generator';
 import { type Lookout, type Spring, springLevel } from '@/world/wilderness/landmarks';
+import { BOULDER } from './stone-shape';
 
-const ROCK = new THREE.IcosahedronGeometry(1, 0);
+const ROCK = BOULDER;
 /** Segments round a pool's rim. */
 const RIM = 20;
 
@@ -82,26 +83,40 @@ function appendLookout(l: Lookout, w: Wilderness, g: GeometryBuilder): void {
   const q = new THREE.Quaternion();
   // a cairn: flat stones stacked, smaller toward the top
   let y = w.heightAt(l.x, l.z) - 0.1;
+  // stacked by hand: each stone its own size and set, the pile leaning as it climbs
+  let lean = 0;
   for (let i = 0; i < 6; i++) {
-    const size = 0.85 - i * 0.11;
-    const h = size * 0.42;
-    q.setFromEuler(new THREE.Euler(0, roll(l.seed, i) * 6, (roll(l.seed, i + 10) - 0.5) * 0.15));
-    const off = (roll(l.seed, i + 20) - 0.5) * 0.12;
-    m.compose(new THREE.Vector3(l.x + off, y + h, l.z - off), q, new THREE.Vector3(size, h, size * 0.9));
+    const size = (0.85 - i * 0.1) * (0.8 + 0.4 * roll(l.seed, i + 30));
+    const h = size * (0.32 + 0.2 * roll(l.seed, i + 40));
+    q.setFromEuler(
+      new THREE.Euler(
+        (roll(l.seed, i + 50) - 0.5) * 0.3,
+        roll(l.seed, i) * 6,
+        (roll(l.seed, i + 10) - 0.5) * 0.3,
+      ),
+    );
+    lean += (roll(l.seed, i + 20) - 0.5) * 0.14;
+    const side = (roll(l.seed, i + 60) - 0.5) * 0.14;
+    m.compose(
+      new THREE.Vector3(l.x + lean, y + h, l.z + side),
+      q,
+      new THREE.Vector3(size, h, size * (0.75 + 0.3 * roll(l.seed, i + 70))),
+    );
     g.meshSmooth(ROCK, m, stone);
-    y += h * 1.7;
+    y += h * 1.55;
   }
-  // a pole out of the top, with a cloth flag
+  // a pole out of the top of the pile, with a cloth flag
   const top = y + 1.6;
+  const px = l.x + lean;
   g.box(
-    { x: l.x - 0.05, y: y - 0.3, z: l.z - 0.05 },
-    { x: l.x + 0.05, y: top, z: l.z + 0.05 },
+    { x: px - 0.05, y: y - 0.3, z: l.z - 0.05 },
+    { x: px + 0.05, y: top, z: l.z + 0.05 },
     { px: wood, nx: wood, pz: wood, nz: wood, py: wood },
   );
   const flag = { px: l.flag, nx: l.flag, py: l.flag, ny: l.flag, pz: l.flag, nz: l.flag };
   g.box(
-    { x: l.x + 0.05, y: top - 0.55, z: l.z - 0.015 },
-    { x: l.x + 0.95, y: top - 0.05, z: l.z + 0.015 },
+    { x: px + 0.05, y: top - 0.55, z: l.z - 0.015 },
+    { x: px + 0.95, y: top - 0.05, z: l.z + 0.015 },
     flag,
   );
 }

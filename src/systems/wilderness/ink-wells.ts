@@ -20,10 +20,11 @@ import {
   wellSeeping,
 } from '@/world/wilderness/ink-wells';
 import { chunkSaturation } from '@/world/wilderness/wild-monsters';
+import { BOULDER } from './stone-shape';
 
 type Look = 'seeping' | 'clear' | 'dry';
 
-const ROCK = new THREE.IcosahedronGeometry(1, 0);
+const ROCK = BOULDER;
 const DISC = new THREE.CircleGeometry(1, 18).rotateX(-Math.PI / 2);
 const BALL = new THREE.SphereGeometry(1, 6, 4);
 /** The pool's radius, metres. */

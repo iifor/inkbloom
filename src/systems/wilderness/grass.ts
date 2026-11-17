@@ -74,6 +74,8 @@ export class GrassField {
     private readonly wilderness: Wilderness,
     root: THREE.Object3D,
     private readonly camera: THREE.Camera,
+    /** Whether a spot inside a town is lawn, where grass grows (false for anywhere unknown). */
+    private readonly lawn: (x: number, z: number) => boolean = () => false,
   ) {
     this.windMap = makeWindMap(wilderness.seed ^ 0x714d);
     this.grids = [
@@ -143,6 +145,19 @@ export class GrassField {
           dx * dx + dz * dz < RADIUS * RADIUS &&
           this.frustum.intersectsBox(mesh.boundingBox!);
       }
+    }
+  }
+
+  /** Lay every patch afresh as it next streams in (a town nearby has just been laid out, and
+   * its lawns can now grow grass). */
+  invalidate(): void {
+    for (const grid of this.grids) {
+      for (const patch of grid.patches.values()) {
+        patch.mesh.visible = false;
+        grid.spare.push(patch);
+      }
+      grid.patches.clear();
+      grid.lastI = grid.lastK = Infinity;
     }
   }
 
@@ -219,9 +234,9 @@ export class GrassField {
           z = (k - 0.25 + r(1) * 1.5) * grid.step;
         const y = w.heightAt(x, z);
         if (y <= WATER_LEVEL) continue;
-        // towns have paving and yards of their own; footpaths are trodden bare down the middle,
-        // with the meadow spilling over their edges
-        if (w.townAt(x, z, 1)) continue;
+        // towns have paving and bare yards of their own, but their lawns grow grass like any
+        // meadow; footpaths are trodden bare down the middle, the meadow spilling over their edges
+        if (w.townAt(x, z, 1) && !this.lawn(x, z)) continue;
         // the meadow creeps in over a path's edges, thinning out toward the trodden middle
         const onPath = -paths.edgeDistance(x, z);
         if (onPath > 0.25 && r(11) < Math.min(1, (onPath - 0.25) / 0.7)) continue;

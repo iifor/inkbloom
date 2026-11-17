@@ -51,6 +51,8 @@ export interface OpenWorld {
   readonly belt: ToolBelt;
   /** The weapons in hand (drawn with the player's own hands). */
   readonly weapons: WeaponSlot;
+  /** The player: its swimming arms are drawn in the player's own colours too. */
+  readonly player: PlayerSystem;
   readonly save: SaveSystem;
   readonly loop: Loop;
   readonly audio: AudioSystem;
@@ -251,6 +253,7 @@ export function startOpenWorld(opts: {
     scenes,
     belt,
     weapons,
+    player,
     save,
     playtest,
     loop,

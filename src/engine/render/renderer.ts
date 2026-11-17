@@ -490,6 +490,7 @@ export class InkRenderer {
       (1 - THREE.MathUtils.smoothstep(sunUp, 0.5, 0.7)) *
       (1 - this.day.night);
     u.uFrost!.value = w.frost;
+    u.uRainfall!.value = w.rain;
     (u.uWarm!.value as THREE.Vector4).copy(this.warmSpot);
     u.uNight!.value = this.day.night;
     u.uTime!.value = shared.uTime.value;

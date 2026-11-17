@@ -1,7 +1,7 @@
 // Page entry: load or create the world save, start the open world, and drive the menus and
 // pointer lock. URL options: ?world=<id> picks a save slot, ?seed=<n> seeds a new world,
 // ?server=<host:port> joins a world server instead (multiplayer; see server/main.ts).
-import { defaultLook } from './content/characters';
+import { defaultLook, type Look } from './content/characters';
 import { PALETTE } from './content/palette';
 import { startOpenWorld, type OpenWorld } from './modes/open-world';
 import { Menu } from './shell/menu';
@@ -165,8 +165,12 @@ async function boot(): Promise<void> {
   apply(settings);
 
   let profile = loadProfile(kv);
-  // the hands holding the weapons are this character's
-  if (profile) game.weapons.setLook(profile.look);
+  // the hands holding the weapons, and swimming, are this character's
+  const dress = (look: Look): void => {
+    game.weapons.setLook(look);
+    game.player.setLook(look);
+  };
+  if (profile) dress(profile.look);
   const preview = new CharacterPreview(game.ctx);
   const world = state;
   const input = game.ctx.input;
@@ -207,7 +211,7 @@ async function boot(): Promise<void> {
     saveProfile(p) {
       saveProfile(kv, p);
       profile = loadProfile(kv);
-      if (profile) game.weapons.setLook(profile.look);
+      if (profile) dress(profile.look);
     },
     preview: (look) => preview.show(look),
     accents: () => world.unlocked.filter((c) => PALETTE[c]?.paintable),

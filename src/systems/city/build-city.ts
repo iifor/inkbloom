@@ -134,11 +134,14 @@ export function buildCity(city: CityLayout, physics: ColliderSink): CityTile[] {
       // the same sandy shallows as any river in the wild
       if (surface < 0 && riverside(ix, iz)) continue;
       const c = surface >= 0 ? city.surfaces[surface]!.color : grass;
-      const P = (kx: number, kz: number): Vec3Like => ({
-        x: ox + kx * cell,
-        y: corner(kx, kz),
-        z: oz + kz * cell,
-      });
+      const P = (kx: number, kz: number): Vec3Like => {
+        const x = ox + kx * cell;
+        const z = oz + kz * cell;
+        // under the square the ground sinks out of sight, so none of it shows through the
+        // flagstones where the grid and the round square disagree
+        const under = Math.hypot(x - city.square.x, z - city.square.z) < city.square.r + 0.1;
+        return { x, y: corner(kx, kz) - (under ? 0.35 : 0), z };
+      };
       // (x+1, z), (x, z), (x, z+1), (x+1, z+1): the diagonal runs (x+1, z)–(x, z+1)
       tileAt(ox + (ix + 0.5) * cell, oz + (iz + 0.5) * cell).base.quadSmooth(
         P(ix + 1, iz),
@@ -204,10 +207,19 @@ export function buildCity(city: CityLayout, physics: ColliderSink): CityTile[] {
       const nx = -(b.z - a.z) / len;
       const nz = (b.x - a.x) / len;
       return [-1, 0, 1].map((u) => {
-        const x = p.x + nx * u * (st.width / 2);
-        const z = p.z + nz * u * (st.width / 2);
-        const y = deck[i] ?? ground(x, z) + lift;
-        return { p: { x, y, z }, n: deck[i] === undefined ? normalAt(x, z) : UP };
+        // on the ground a street's edges wander and sink into the verge rather than running
+        // ruled straight a hand's breadth over it; on a bridge deck they keep to the deck
+        const onDeck = deck[i] !== undefined;
+        const ragged =
+          u === 0 || onDeck
+            ? 1
+            : 0.9 +
+              0.1 * Math.sin(p.x * 1.3 + p.z * 0.7 + u) +
+              0.06 * Math.sin(p.x * 3.7 - p.z * 2.9 + u * 2);
+        const x = p.x + nx * u * (st.width / 2) * ragged;
+        const z = p.z + nz * u * (st.width / 2) * ragged;
+        const y = deck[i] ?? ground(x, z) + (u === 0 ? lift : lift * 0.35);
+        return { p: { x, y, z }, n: onDeck ? UP : normalAt(x, z) };
       });
     });
     for (const span of spansOf(deck)) buildBridge(span, pts, deck, st.width, tileAt, group, physics);

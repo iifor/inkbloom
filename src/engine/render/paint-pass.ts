@@ -121,6 +121,7 @@ export function makePaintMaterial(o: PaintInputs): THREE.ShaderMaterial {
       uCloudShade: { value: 0 },
       uRainbow: { value: 0 },
       uFrost: { value: 0 },
+      uRainfall: { value: 0 },
       uSeas: { value: o.seas },
       uSeaLobes: { value: o.seaLobes },
       uWarm: { value: new THREE.Vector4() },

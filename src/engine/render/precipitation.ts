@@ -52,14 +52,20 @@ float visible() {
   return step(vDepth, scene + 0.05);
 }`;
 
-/** A drop's place in the box: its own fraction, moved by velocity over time and wrapped. */
+/**
+ * A drop's place in the box: its own fraction, carried along by how far the air has moved it
+ * (`uTravel`, summed frame by frame on the CPU, so a gust changes the drift instead of throwing
+ * every drop across the box), and pinned to the world: the box wraps round the camera, so
+ * walking through the rain or snow passes the drops by rather than carrying them along.
+ */
 const dropPlace = /* glsl */ `
 uniform float uTime;
 uniform vec3 uVelocity;
+uniform vec3 uTravel;
 uniform float uLevel;
 attribute vec4 aSeed;
 vec3 dropPlace() {
-  vec3 f = fract(aSeed.xyz + uVelocity * uTime / ${BOX.toFixed(1)});
+  vec3 f = fract(aSeed.xyz + (uTravel - cameraPosition) / ${BOX.toFixed(1)});
   return cameraPosition + (f - 0.5) * ${BOX.toFixed(1)};
 }`;
 
@@ -251,6 +257,7 @@ export class Precipitation {
           ...this.shared,
           uTime: { value: 0 },
           uVelocity: { value: new THREE.Vector3() },
+          uTravel: { value: new THREE.Vector3() },
           uLevel: { value: 0 },
           uColor: { value: new THREE.Color() },
           ...extra,
@@ -352,22 +359,30 @@ export class Precipitation {
     this.shared.uNear!.value = camera.near;
     this.shared.uFar!.value = camera.far;
     const light = 1 - 0.65 * look.night;
+    /** A kind of drop this frame: how many fall, how fast and which way (with `drift` of the
+     * wind), and how far that has carried them all (kept within one box, so it stays exact). */
     const set = (
       m: THREE.ShaderMaterial,
       level: number,
       fall: number,
+      drift: number,
       colour: THREE.ColorRepresentation,
     ): void => {
       m.uniforms.uTime!.value = time;
       m.uniforms.uLevel!.value = level;
-      (m.uniforms.uVelocity!.value as THREE.Vector3).set(look.windX, -fall, look.windZ);
+      const v = (m.uniforms.uVelocity!.value as THREE.Vector3).set(
+        look.windX * drift,
+        -fall,
+        look.windZ * drift,
+      );
+      const t = (m.uniforms.uTravel!.value as THREE.Vector3).addScaledVector(v, dt);
+      t.set(t.x % BOX, t.y % BOX, t.z % BOX);
       (m.uniforms.uColor!.value as THREE.Color).set(colour).multiplyScalar(light);
     };
-    set(this.rainMat, look.rain, 11, 0xc4ccdc);
-    set(this.snowMat, look.snowfall, 1.4, 0xffffff);
+    set(this.rainMat, look.rain, 11, 1, 0xc4ccdc);
+    set(this.snowMat, look.snowfall, 1.4, 1, 0xffffff);
     // leaves ride the wind more than they fall
-    set(this.litterMat, look.litter, 0.8, 0xffffff);
-    (this.litterMat.uniforms.uVelocity!.value as THREE.Vector3).set(look.windX * 0.9, -0.8, look.windZ * 0.9);
+    set(this.litterMat, look.litter, 0.8, 0.9, 0xffffff);
     const colors = this.litterMat.uniforms.uColors!.value as THREE.Color[];
     SEASONS[look.litterSeason]!.litter.colors.forEach((c, i) => colors[i]!.setRGB(c[0], c[1], c[2]));
     this.litterMat.uniforms.uLight!.value = light;

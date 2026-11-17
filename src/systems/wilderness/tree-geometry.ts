@@ -107,11 +107,10 @@ type Lump = readonly [x: number, y: number, z: number, width: number, height: nu
  * lump, the way a painted tree reads; each lump's own normals alone make a cluster of balls.
  */
 /** How finely foliage is built: near by, from a field away (a great tree), or far off. */
-type Detail = 'near' | 'mid' | 'spray' | 'far';
+type Detail = 'near' | 'mid' | 'far';
 const RINGS: Record<Detail, { sides: number; latitudes: readonly number[] }> = {
   near: { sides: 26, latitudes: [-1.04, -0.69, -0.32, 0.08, 0.48, 0.85, 1.19] },
   mid: { sides: 14, latitudes: [-0.95, -0.42, 0.12, 0.62, 1.08] },
-  spray: { sides: 11, latitudes: [-0.7, 0, 0.7] },
   far: { sides: 8, latitudes: [-0.55, 0.59] },
 };
 
@@ -563,26 +562,31 @@ function bamboo(distant: boolean): { wood: THREE.BufferGeometry; leaves: THREE.B
       [0, 0.25, 0.5, 0.75, 1].map((t): Section => [...at(t), 0.02 * (1 - 0.6 * t)]),
       distant ? 3 : 6,
     );
-    const banks = distant ? 2 : 5;
-    for (let k = 0; k < banks; k++) {
-      const t = 0.45 + (0.55 * (k + 0.5)) / banks;
-      const [x, y, z] = at(t);
-      // thin, flat sprays hanging off alternate sides of the culm, the top ones out past its tip
-      const side = (k % 2 ? 1 : -1) * (0.14 + 0.06 * Math.sin(i + k));
-      const reach = 0.1 + 0.18 * t;
-      const size = distant ? 1.3 : 1.15 - 0.4 * (t - 0.45);
+    // many small, thick tufts of leaves clustered round the upper culm and out past its tip,
+    // so a clump reads as a feathery mass and not as flat discs on sticks
+    const tufts = distant ? 3 : 9;
+    for (let k = 0; k < tufts; k++) {
+      const r = (n: number) => {
+        const h = Math.sin(i * 12.9898 + k * 78.233 + n * 37.719) * 43758.5453;
+        return h - Math.floor(h);
+      };
+      const t = 0.4 + 0.62 * ((k + r(1)) / tufts);
+      const [x, y, z] = at(Math.min(1, t));
+      const side = (r(2) - 0.5) * 0.36;
+      const reach = 0.04 + 0.2 * t + (r(3) - 0.3) * 0.12;
+      const size = (distant ? 1.5 : 1) * (0.75 + 0.5 * r(4)) * (1.1 - 0.35 * (t - 0.4));
       lumps.push([
         x + dx * reach - dz * side,
-        y - 0.025 * t,
+        y - 0.04 * t + (r(5) - 0.5) * 0.05,
         z + dz * reach + dx * side,
-        0.3 * size,
-        0.028 * size,
+        0.16 * size,
+        0.045 * size,
       ]);
     }
   }
   const leaves = new TreeMesh();
-  // the sprays are flat: a handful of rings round them is as good as many
-  foliage(leaves, lumps, distant ? 'far' : 'spray', [0, 0.72, 0], NORMAL_TRANSFER, false);
+  // the tufts are small: a handful of rings round each is as good as many
+  foliage(leaves, lumps, 'far', [0, 0.72, 0], NORMAL_TRANSFER, false);
   return { wood: wood.geometry(), leaves: leaves.geometry() };
 }
 

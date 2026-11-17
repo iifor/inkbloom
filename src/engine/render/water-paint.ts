@@ -71,6 +71,29 @@ vec3 wakeLight(vec2 surface, float surfaceDist) {
 
 /** The water's surface, inlined into the paint pass's main(): it works on that pass's locals
  * (s, wpos, rd, col, light, lit, sat, fish) and changes col. */
+/** Metres from the eye within which a figure is the swimmer's own arms (see swim-arms.ts). */
+export const OWN_ARMS = 1.2;
+
+/** Raindrop rings on the water at `p` (metres): a few staggered layers of cells, each drop in a
+ * cell landing on its own beat and spreading a ring. Returns how much ring is here, 0..1. */
+export const rainRingsGLSL = /* glsl */ `
+float rainRings(vec2 p, float rain) {
+  float ring = 0.0;
+  for (int k = 0; k < 3; k++) {
+    vec2 q = p * 4.5 + float(k) * vec2(3.7, 1.3);
+    vec2 id = floor(q);
+    float seed = hash21(id + float(k) * 17.0);
+    // only some cells have a drop: more in a downpour
+    if (seed > 0.25 + 0.75 * rain) continue;
+    vec2 at = id + 0.2 + 0.6 * hash22(id + 4.0);
+    float age = fract(uTime * (1.1 + 0.6 * seed) + seed * 7.0);
+    float r = length(q - at);
+    float edge = abs(r - age * 0.45);
+    ring = max(ring, (1.0 - smoothstep(0.0, 0.05 + 0.04 * age, edge)) * (1.0 - age) * (1.0 - age));
+  }
+  return ring;
+}`;
+
 export const waterGLSL = /* glsl */ `
     float waterDepth = ${WATER_LEVEL} - wpos.y;
     bool submerged = uWildWater && waterDepth > 0.0;
@@ -109,7 +132,15 @@ export const waterGLSL = /* glsl */ `
         water += vec3(0.92, 0.96, 1.0) * smoothstep(0.76, 0.8, rip) * 0.22 * lit * (1.0 - uNight);
         float glint = pow(max(0.0, dot(rdir, uSun)), 120.0) * step(0.55, vnoise(rp * 5.0 + uTime * 1.3));
         water += uSunColor * glint * 1.4 * (1.0 - uNight);
+        // rain: each drop that lands starts a small ring spreading out and fading, more of them
+        // the harder it rains; too fine to see far off
+        if (uRainfall > 0.01) {
+          float rings = rainRings(rp, uRainfall) * (1.0 - smoothstep(8.0, 28.0, d));
+          water = mix(water, vec3(0.9, 0.94, 0.98) * mix(light, vec3(1.0), 0.5), rings * 0.55);
+        }
         opacity = submerged ? smoothstep(0.0, 0.22, waterDepth) * mix(0.38, 0.8, smoothstep(0.2, 3.0, waterDepth)) : 1.0;
+        // the swimmer's own arms lie only just under the surface, yet should read as under it
+        if (figure && d < ${OWN_ARMS.toFixed(1)}) opacity = max(opacity, 0.4 * smoothstep(0.0, 0.015, waterDepth));
       }
       if (submerged && (!fish || eye.y > ${WATER_LEVEL})) water += wakeLight(rp, distance(rp, eye.xz)) * mix(0.4, 1.0, lit);
       col = mix(col, mix(drainedAt(water), water, sat), opacity);
@@ -122,6 +153,11 @@ export const waterGLSL = /* glsl */ `
         vec3 foam = vec3(0.95, 0.97, 0.98) * mix(light, vec3(1.0), 0.4);
         col = mix(col, mix(drainedAt(foam), foam, sat), shore * lace * 0.55 * (1.0 - 0.6 * uNight));
       }
+    }
+    // a thin bright line where each of the swimmer's arms breaks the surface
+    if (uWildWater && figure && d < ${OWN_ARMS.toFixed(1)}) {
+      float meniscus = 1.0 - smoothstep(0.002, 0.007, abs(waterDepth));
+      col = mix(col, vec3(0.94, 0.97, 1.0) * mix(light, vec3(1.0), 0.5), meniscus * 0.45 * (1.0 - 0.6 * uNight));
     }`;
 
 /** River middles and half-widths around the player, as a texture for the paint pass. */

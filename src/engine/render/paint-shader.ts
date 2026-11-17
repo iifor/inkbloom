@@ -5,7 +5,7 @@ import { MAX_COLORS, PALETTE, color } from '@/content/palette';
 import { BANK_HEIGHT, WATER_LEVEL } from '@/world/wilderness/generator';
 import { wildernessDrainGLSL } from './ink-material';
 import { skyGLSL } from './sky-paint';
-import { WAKE_COUNT, riverGLSL, wakeGLSL, waterGLSL } from './water-paint';
+import { OWN_ARMS, WAKE_COUNT, rainRingsGLSL, riverGLSL, wakeGLSL, waterGLSL } from './water-paint';
 
 /** Flower seas the paint pass washes in at once (the nearest). */
 export const SEA_SLOTS = 6;
@@ -73,6 +73,8 @@ uniform float uCloudShade;
 /** How bright a rainbow is (0 none), and how much hoar frost lies on the ground. */
 uniform float uRainbow;
 uniform float uFrost;
+/** Rain falling (not snow), 0..1: drops ring the water where they land. */
+uniform float uRainfall;
 /** Flower seas near by (world/wilderness/groves.ts): x, z, radius (0 for none), and the palette
  * index of their colour plus how far in bloom (0..1) times 0.9; then their edge's lobe phases. */
 uniform vec4 uSeas[${SEA_SLOTS}];
@@ -174,6 +176,8 @@ ${skyGLSL}
 
 ${wakeGLSL}
 
+${rainRingsGLSL}
+
 void main() {
   vec2 px = 1.0 / uRes;
   vec4 s = texture2D(tScene, vUv);
@@ -200,6 +204,13 @@ void main() {
     col = mix(drainedAt(painted), painted, skySat);
   } else {
     vec3 wpos = (uInvView * vec4(vpos, 1.0)).xyz;
+    // the swimmer's own arms under the surface waver as the water moves over them: read the
+    // frame a little to one side, where that is still the arm (not the lake behind it)
+    if (uWildWater && d < ${OWN_ARMS.toFixed(1)} && wpos.y < ${WATER_LEVEL}) {
+      vec2 wob = vec2(sin(vUv.y * 90.0 + uTime * 3.1), cos(vUv.x * 70.0 + uTime * 2.3)) * 0.0035;
+      wob *= smoothstep(0.0, 0.04, ${WATER_LEVEL} - wpos.y);
+      if (linDepth(texture2D(tDepth, vUv + wob).x) < ${OWN_ARMS.toFixed(1)}) s = texture2D(tScene, vUv + wob);
+    }
     // people in cloth carry their normal's x lifted out of range (ink-material.ts CLOTH)
     bool figure = s.b > 3.0;
     if (figure) s.b -= 4.0;
@@ -242,6 +253,15 @@ void main() {
       vec2 joints = 1.0 - smoothstep(vec2(0.02), vec2(0.06) + footprint, min(f, 1.0-f));
       float wash = hash21(floor(tile)) - 0.5;
       base *= 1.0 + fade * (0.11 * wash + 0.06 * sin(6.283 * f.x) - 0.21 * joints.y - 0.10 * joints.x);
+      // old roofs carry moss in their joints and pale lichen in patches across the tiles
+      // patches of faded and darker tiles that still read from across the street
+      float patchy = fbm2(wpos.xz * 0.6 + across * 0.3);
+      base *= 0.86 + 0.28 * patchy;
+      base = mix(base, vec3(dot(base, vec3(0.3, 0.59, 0.11))) * vec3(1.05, 1.0, 0.93), 0.22);
+      float moss = smoothstep(0.55, 0.72, fbm2(wpos.xz * 0.4 + 7.0) + wash * 0.25);
+      base = mix(base, base * vec3(0.66, 0.92, 0.46) + vec3(0.03, 0.06, 0.0), moss * (0.5 + 0.35 * joints.y * fade));
+      float lichen = step(0.82, hash21(floor(tile) + 2.7)) * fade;
+      base = mix(base, base * vec3(1.18, 1.16, 0.92), lichen * 0.35);
     }
     bool cedar = indexOf(s.g) == uCedar;
     bool crown = cedar || seasonKind > 1.5;
@@ -263,9 +283,14 @@ void main() {
       float streak = vnoise(vec2(across * 4.5, wpos.y * 0.6)) * 0.6 + vnoise(vec2(across * 11.0, wpos.y * 1.4)) * 0.4;
       float wallNear = near * (1.0 - smoothstep(45.0, 130.0, d));
       float thin = smoothstep(0.5, 0.78, big + (leaf - 0.5) * 0.4 + (streak - 0.5) * 0.25);
-      base = mix(base, paletteColor(${color('limewash')}.0), 0.42 * thin * wallNear);
+      base = mix(base, paletteColor(${color('limewash')}.0), 0.3 * thin * wallNear);
       base *= 1.0 + (streak - 0.5) * 0.28 * wallNear;
-      base = mix(vec3(dot(base, vec3(0.3, 0.59, 0.11))), base, 0.8);
+      // rain has run down it in long darker streaks from sills and eaves, fading as they go
+      float column = smoothstep(0.6, 0.85, vnoise(vec2(across * 3.1, 7.3)));
+      float run = vnoise(vec2(across * 3.1, wpos.y * 0.45 + 3.0));
+      base *= 1.0 - 0.13 * column * smoothstep(0.35, 0.7, run) * wallNear;
+      // a painter's mix, not a tube colour: a little greyer and warmer than the pigment
+      base = mix(vec3(dot(base, vec3(0.3, 0.59, 0.11))) * vec3(1.04, 1.0, 0.92), base, 0.78);
     }
     // Bark in long broken strokes up the trunk, cooler and a little mossy in the furrows
     if (!figure && pigment == ${color('bark')} && an.y < 0.7) {
@@ -283,12 +308,58 @@ void main() {
       q.x = q.x * (0.75 + 0.5 * hash21(vec2(row, 3.1))) + hash21(vec2(row, 7.7)) * 4.0;
       q.y += 0.08 * sin(q.x * 1.7);
       vec2 footprint = fwidth(q);
+      // laid all over, worn smoother in places; gone into a wash where under a pixel
       float paving = (1.0 - smoothstep(0.1, 0.4, max(footprint.x, footprint.y)))
-        * smoothstep(0.42, 0.72, big + (leaf - 0.5) * 0.7);
+        * mix(0.55, 1.0, smoothstep(0.42, 0.72, big + (leaf - 0.5) * 0.7));
       vec2 f = fract(q);
       vec2 joints = 1.0 - smoothstep(vec2(0.02), vec2(0.13) + footprint, min(f, 1.0 - f));
       float stoneWash = hash21(floor(q)) - 0.5;
-      base *= 1.0 + paving * (0.1 * stoneWash - 0.09 * max(joints.x, joints.y));
+      base *= 1.0 + paving * (0.16 * stoneWash - 0.14 * max(joints.x, joints.y));
+      // and grimy where many feet and cartwheels go, mossy in the joints at the edges
+      base = mix(base, base * vec3(0.84, 0.82, 0.76), smoothstep(0.45, 0.7, big) * 0.4);
+      base = mix(base, base * vec3(0.78, 0.92, 0.66), max(joints.x, joints.y) * paving * smoothstep(0.55, 0.75, leaf) * 0.6);
+    }
+    // Trodden earth (footpaths, yards): gritty, with small stones pressed into it, darker in
+    // damp patches; the stones go into the grit where they would be under a pixel.
+    if (!figure && !petal && !ground && pigment == ${color('sand')} && wn.y > 0.75) {
+      vec2 q = wpos.xz * 3.4;
+      vec2 cell = floor(q);
+      vec2 at = fract(q) - 0.5 - (hash22(cell) - 0.5) * 0.45;
+      float size = 0.13 + 0.17 * hash21(cell + 9.1);
+      float stone = step(0.72, hash21(cell + 3.3)) * (1.0 - smoothstep(size * 0.45, size, length(at)));
+      vec2 footprint = fwidth(q);
+      stone *= 1.0 - smoothstep(0.2, 0.5, max(footprint.x, footprint.y));
+      // each stone its own pale grey-brown, lit on the sun's side and shaded on the other
+      vec3 pebble = mix(paletteColor(${color('rock')}.0), base, 0.55) * mix(0.9, 1.12, hash21(cell + 5.5));
+      pebble *= 1.0 - 0.18 * dot(normalize(at + 1e-4), normalize(uSun.xz + 1e-4));
+      base = mix(base, pebble, stone * 0.7);
+      float grit = vnoise(wpos.xz * 11.0) * 0.6 + vnoise(wpos.xz * 27.0) * 0.4;
+      base *= 1.0 + ((grit - 0.5) * 0.16 * (1.0 - smoothstep(4.0, 25.0, d)) + (big - 0.5) * 0.22) * near;
+      base = mix(base, base * vec3(0.8, 0.76, 0.7), smoothstep(0.58, 0.75, big + (leaf - 0.5) * 0.5) * 0.45);
+    }
+    // Wood laid flat (decks, boards): grain running along the plank, each plank its own tone,
+    // the odd knot. Bridges run east and west, so their planks lie along z.
+    if (!figure && !petal && (pigment == ${color('bark')} || pigment == ${color('brown')}) && wn.y > 0.75) {
+      float plank = floor(wpos.x / 0.3);
+      float grain = vnoise(vec2(wpos.x * 38.0, wpos.z * 1.4 + plank * 3.1)) * 0.6
+        + vnoise(vec2(wpos.x * 90.0, wpos.z * 3.0)) * 0.4;
+      float fineFade = 1.0 - smoothstep(3.0, 18.0, d);
+      base *= 1.0 + (grain - 0.5) * 0.3 * fineFade + (hash21(vec2(plank, 1.7)) - 0.5) * 0.24;
+      vec2 knotAt = vec2(fract(wpos.x / 0.3) - 0.5, fract(wpos.z * 0.6 + hash21(vec2(plank, 4.2))) - 0.5) * vec2(0.3, 1.67);
+      float knot = step(0.55, hash21(vec2(plank, floor(wpos.z * 0.6 + hash21(vec2(plank, 4.2))))));
+      base *= 1.0 - 0.35 * knot * (1.0 - smoothstep(0.012, 0.03, length(knotAt))) * fineFade;
+      // grey where the weather gets at it
+      base = mix(base, vec3(dot(base, vec3(0.3, 0.59, 0.11))) * vec3(1.0, 0.98, 0.95), 0.18 + 0.2 * (big - 0.5));
+    }
+    // Stone (boulders, cairns, rims, old walls): pale lichen on the faces that catch the rain,
+    // and dark cracks; both fade out with distance
+    if (!figure && !petal && pigment == ${color('rock')}) {
+      float lichen = smoothstep(0.66, 0.74, vnoise(bp * 2.6 + 4.0) + 0.25 * wn.y + (leaf - 0.5) * 0.3);
+      base = mix(base, mix(base, vec3(0.86, 0.87, 0.78), 0.45), lichen * 0.4 * near);
+      // fine cracks, broken into short runs rather than one line wandering over the stone
+      float crack = 1.0 - smoothstep(0.0, 0.018, abs(vnoise(bp * 3.4 + 11.0) - 0.5));
+      crack *= smoothstep(0.55, 0.7, vnoise(bp * 1.3 + 2.0));
+      base *= 1.0 - 0.2 * crack * near * (1.0 - smoothstep(4.0, 20.0, d));
     }
     // where meadow ground gets steep, bare rock shows through, with a ragged painted edge
     if (grassBlade) {
@@ -391,7 +462,9 @@ void main() {
     float field = fbm2(wpos.xz * 0.011 + 3.0);
     vec3 warm = base * vec3(1.12, 1.07, 0.8);
     vec3 cool = base * vec3(0.88, 0.99, 1.06);
-    base = mix(base, mix(cool, warm, smoothstep(0.32, 0.68, field)), tex * near);
+    // (on smooth things too, a little: no surface in a painting is one flat colour)
+    float fieldAmt = figure ? tex : max(tex, 0.4);
+    base = mix(base, mix(cool, warm, smoothstep(0.32, 0.68, field)), fieldAmt * near);
     // sunlit dapples in foliage turn yellow-green
     base = mix(base, base * vec3(1.18, 1.14, 0.78), tex * smoothstep(0.55, 0.75, leaf) * 0.55 * near);
 
@@ -439,6 +512,12 @@ void main() {
     float ao = 1.0 - (occ / float(AO_TAPS)) * 0.45;
 
     vec3 painted = base * light * ao;
+    // weathering: dirt and moss gather where surfaces meet (the contact shadow finds them):
+    // at the foot of a wall, under the eaves, in corners and joints
+    if (!figure && !petal && !ground && !grassBlade && !crown && !fish) {
+      float grime = smoothstep(0.93, 0.62, ao) * (0.7 + 0.6 * (big - 0.5));
+      painted = mix(painted, painted * vec3(0.7, 0.74, 0.58), grime * 0.65);
+    }
     if (petal) {
       // Dense colour at the throat, a thin irregular wash at the lip. Let skylight fill
       // the folds so turning over a petal doesn't produce a solid black underside.

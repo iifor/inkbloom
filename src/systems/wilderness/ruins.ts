@@ -11,9 +11,9 @@ import { hashAt, unit } from '@/world/math/hash';
 import { Rng } from '@/world/math/rng';
 import type { Ruin } from '@/world/wilderness/ruins';
 import { buildCountryHouse } from '../city/country-house';
+import { SLAB } from './stone-shape';
 
 const solid = (c: number) => ({ px: c, nx: c, pz: c, nz: c, py: c });
-const UNIT_BOX = new THREE.BoxGeometry(1, 1, 1);
 const UP = new THREE.Vector3(0, 1, 0);
 const _m = new THREE.Matrix4();
 const _p = new THREE.Vector3();
@@ -52,7 +52,7 @@ export function buildRuin(r: Ruin, g: GeometryBuilder, physics: PhysicsWorld, gr
       _q.setFromAxisAngle(UP, yaw),
       _s.set(w, max.y - min.y, d),
     );
-    g.mesh(UNIT_BOX, _m, tpl.stone);
+    g.meshSmooth(SLAB, _m, tpl.stone);
     physics.addBox(group, min, max, {}, yaw);
   };
   if (tpl.shape === 'circle') {

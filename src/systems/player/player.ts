@@ -1,6 +1,7 @@
 // First-person body and camera. Movement abilities (glide, grapple, mount) will be added as
 // separate modules that adjust velocity here, not as branches inside this file.
 import * as THREE from 'three';
+import type { Look } from '@/content/characters';
 import { TUNING } from '@/content/tuning';
 import { type Body, makeBody } from '@/engine/physics/world';
 import type { GameContext, PlayerApi, System } from '@/game/types';
@@ -239,7 +240,10 @@ export class PlayerSystem implements System, PlayerApi {
     if (input.held('crouch')) up -= 1;
     b.pos.x += this.wish.x * speed * dt;
     b.pos.z += this.wish.z * speed * dt;
-    b.pos.y += up * speed * dt;
+    // free flight still keeps out of the ground (feet a little over it, or over the water) and
+    // under a ceiling high enough to see the land as a map
+    const floor = Math.max(this.ctx.wilderness.heightAt(b.pos.x, b.pos.z), WATER_LEVEL) + 0.2;
+    b.pos.y = THREE.MathUtils.clamp(b.pos.y + up * speed * dt, floor, Math.max(floor, P.flyCeiling));
     b.vel.set(0, 0, 0);
   }
 
@@ -283,6 +287,11 @@ export class PlayerSystem implements System, PlayerApi {
     );
     cam.updateMatrixWorld();
     this.forward.set(0, 0, -1).applyQuaternion(cam.quaternion);
+  }
+
+  /** Draw the swimming arms in this character's skin and coat. */
+  setLook(look: Look): void {
+    this.arms.setLook(look);
   }
 
   dispose(): void {

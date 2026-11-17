@@ -1,8 +1,10 @@
 import * as THREE from 'three';
+import type { Look } from '@/content/characters';
 import { color } from '@/content/palette';
 import { ALWAYS_COLOR, GeometryBuilder } from '@/engine/render/geometry-builder';
 import { makeInkMaterial } from '@/engine/render/ink-material';
 import { disposeTree } from '@/engine/resources';
+import { type Hands, handsOf } from '@/systems/tools/viewmodels';
 
 const v = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
 const upperLength = 0.305,
@@ -12,33 +14,34 @@ const downArm = v(0, 0, -1);
  * catch, a quick hard pull in under the chin, then the reach forward. `t` is when each pose is
  * reached, `turn` the hand's (pitch, yaw, roll), `elbow` the way the elbow points and `grip`
  * the fingers' (curl, spread, thumb out), 0..1. The poses stay inside the view at a level
- * gaze, the hands just under the water (about y = -0.19). */
+ * gaze, the hands just under the water (about y = -0.19): near enough in the glide and turned
+ * enough in the sweep that the backs of the hands stay in sight. */
 const KEYS = [
   {
     t: 0,
-    wrist: v(0.075, -0.235, -0.56),
-    turn: v(-0.06, 0.06, 0.1),
+    wrist: v(0.085, -0.222, -0.53),
+    turn: v(-0.08, 0.06, 0.1),
     elbow: v(1, -0.8, 0.15),
     grip: v(0.1, 0.15, 0.3),
   },
   {
     t: 0.2,
-    wrist: v(0.09, -0.24, -0.55),
-    turn: v(-0.1, 0, 0.3),
+    wrist: v(0.1, -0.226, -0.52),
+    turn: v(-0.12, 0, 0.3),
     elbow: v(1, -0.8, 0.15),
     grip: v(0.12, 0.12, 0.3),
   },
   {
     t: 0.36,
-    wrist: v(0.24, -0.25, -0.5),
-    turn: v(-0.3, -0.3, 0.8),
+    wrist: v(0.23, -0.234, -0.48),
+    turn: v(-0.3, -0.3, 0.6),
     elbow: v(1, -0.5, 0.2),
     grip: v(0.22, 0.3, 0.5),
   },
   {
     t: 0.5,
-    wrist: v(0.28, -0.25, -0.47),
-    turn: v(-0.75, -0.15, 0.95),
+    wrist: v(0.27, -0.238, -0.45),
+    turn: v(-0.7, -0.15, 0.72),
     elbow: v(1, 0.05, 0.3),
     grip: v(0.35, 0.2, 0.55),
   },
@@ -69,6 +72,9 @@ const KICK = 0.8;
 /** Where a stroke comes to rest while the swimmer treads water, so moving off starts with the
  * sweep. A stroke under way finishes its way round to here instead of jumping. */
 const REST = 0.2;
+/** Metres the arms sit lower while swimming than the poses say (the poses are as seen with the
+ * head just out of the water; the arms belong under it). */
+const SUNK = 0.05;
 /** How quickly the hand turns and the fingers settle towards the pose (per second): a little
  * behind the arm, as if the water held them back. */
 const HAND_FOLLOW = 16;
@@ -128,13 +134,29 @@ function limb(length: number, base: number, tip: number, paint: number, sides: n
   return g.build();
 }
 
+/** A forearm with its sleeve rolled up to the elbow: a turned-back cuff of the coat, then bare
+ * skin down to the wrist. Same frame as `limb` (from the elbow down -z). */
+function forearm(sleeve: number, skin: number) {
+  const g = new GeometryBuilder(),
+    m = new THREE.Matrix4();
+  const arm = new THREE.CylinderGeometry(0.034, 0.045, lowerLength, 12);
+  g.mesh(arm, m.makeRotationX(-Math.PI / 2).setPosition(0, 0, -lowerLength / 2), skin, ALWAYS_COLOR);
+  const cuff = new THREE.CylinderGeometry(0.054, 0.056, 0.075, 12);
+  g.mesh(cuff, m.makeRotationX(-Math.PI / 2).setPosition(0, 0, -0.045), sleeve, ALWAYS_COLOR);
+  const joint = new THREE.SphereGeometry(0.054, 12, 6);
+  g.mesh(joint, m.identity(), sleeve, ALWAYS_COLOR);
+  arm.dispose();
+  cuff.dispose();
+  joint.dispose();
+  return g.build();
+}
+
 /** The right palm, palm down with the fingers along -z and the thumb towards -x: the wrist,
  * a flat slab widening to the knuckles, and the pad at the root of the thumb. */
-function palm() {
+function palm(skin: number) {
   const g = new GeometryBuilder(),
     m = new THREE.Matrix4(),
-    q = new THREE.Quaternion(),
-    skin = color('sand');
+    q = new THREE.Quaternion();
   const ball = new THREE.SphereGeometry(1, 10, 6),
     slab = new THREE.CylinderGeometry(1, 0.78, 1, 10);
   const put = (shape: THREE.BufferGeometry, at: THREE.Vector3, size: THREE.Vector3, tilt = 0) =>
@@ -168,8 +190,13 @@ interface Digit {
   readonly middle: THREE.Object3D;
 }
 
-function digit(parent: THREE.Object3D, lengths: number[], thick: number, material: THREE.Material): Digit {
-  const skin = color('sand');
+function digit(
+  parent: THREE.Object3D,
+  lengths: number[],
+  thick: number,
+  skin: number,
+  material: THREE.Material,
+): Digit {
   const base = new THREE.Object3D(),
     middle = new THREE.Object3D();
   base.add(new THREE.Mesh(limb(lengths[0]!, thick, thick * 0.92, skin, 7), material), middle);
@@ -184,7 +211,9 @@ export class SwimArms {
    * the water it is): `lift` metres up, `surge` metres along the swim, `nod` and `roll` radians. */
   readonly head = { lift: 0, surge: 0, nod: 0, roll: 0 };
   private readonly root = new THREE.Group();
-  private readonly limbs;
+  /** Painted like cloth, as the hands holding the weapons are (see viewmodels.ts). */
+  private readonly material = makeInkMaterial({ cloth: true });
+  private limbs: ReturnType<SwimArms['build']>;
   private phase = REST;
   /** The stroke has come to rest at REST and waits for the swimmer to move off. */
   private parked = true;
@@ -208,30 +237,42 @@ export class SwimArms {
   private readonly aim = new THREE.Quaternion();
 
   constructor(camera: THREE.Camera) {
-    const material = makeInkMaterial(),
-      teal = color('teal');
-    const upper = limb(upperLength, 0.062, 0.047, teal, 12),
-      lower = limb(lowerLength, 0.047, 0.034, teal, 12),
-      hand = palm();
-    this.limbs = [-1, 1].map((side) => {
+    this.limbs = this.build({ skin: color('skinLight'), sleeve: color('cream') });
+    this.root.visible = false;
+    camera.add(this.root);
+  }
+
+  /** The player's own colours: their skin, and their coat on the upper arms (the sleeves are
+   * rolled to the elbow to swim), as on the hands that hold the weapons. */
+  setLook(look: Look): void {
+    for (const child of [...this.root.children]) disposeTree(child);
+    this.root.clear();
+    this.limbs = this.build(handsOf(look));
+    this.settled = false;
+  }
+
+  private build({ skin, sleeve }: Hands) {
+    const material = this.material;
+    const upper = limb(upperLength, 0.062, 0.047, sleeve, 12),
+      lower = forearm(sleeve, skin),
+      hand = palm(skin);
+    return [-1, 1].map((side) => {
       const arm = new THREE.Mesh(upper, material),
-        forearm = new THREE.Mesh(lower, material),
+        fore = new THREE.Mesh(lower, material),
         wrist = new THREE.Group();
       wrist.add(new THREE.Mesh(hand, material));
       // mirrored for the left hand (three.js turns the faces round for a negative scale)
       wrist.scale.x = side;
       const fingers = FINGERS.map((f) => {
-        const d = digit(wrist, f.lengths, f.thick, material);
+        const d = digit(wrist, f.lengths, f.thick, skin, material);
         d.base.position.set(f.x, 0.001, -0.088);
         return d;
       });
-      const thumb = digit(wrist, THUMB.lengths, THUMB.thick, material);
+      const thumb = digit(wrist, THUMB.lengths, THUMB.thick, skin, material);
       thumb.base.position.copy(THUMB.at);
-      this.root.add(arm, forearm, wrist);
-      return { side, arm, forearm, hand: wrist, fingers, thumb, grip: new THREE.Vector3() };
+      this.root.add(arm, fore, wrist);
+      return { side, arm, forearm: fore, hand: wrist, fingers, thumb, grip: new THREE.Vector3() };
     });
-    this.root.visible = false;
-    camera.add(this.root);
   }
 
   /** Pose the arms for this frame from the body's velocity and the view. Returns true on the
@@ -281,8 +322,9 @@ export class SwimArms {
     head.nod = 0.018 * this.effort * Math.cos(stroke - 0.12);
     head.surge = 0.05 * this.effort * Math.cos((this.phase - 0.1) * Math.PI * 2);
     head.roll = -0.03 * this.lean;
-    // the arms stay low in the water while the head rises out of it
-    this.root.position.y = -(1 - blend) * 0.38 - head.lift * blend * 0.4;
+    // the arms stay low in the water while the head rises out of it: a hand's breadth under
+    // the surface, so they read as swimming rather than resting on it
+    this.root.position.y = -(1 - blend) * 0.38 - head.lift * blend * 0.4 - SUNK * blend;
     this.root.rotation.set(-THREE.MathUtils.clamp(pitch, -0.75, 0.75) * 0.45, 0, -this.lean * 0.08);
 
     const u = strokeParam(this.phase);
@@ -358,5 +400,6 @@ export class SwimArms {
 
   dispose(): void {
     disposeTree(this.root);
+    this.material.dispose();
   }
 }
