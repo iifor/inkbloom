@@ -5,7 +5,7 @@ import { enemyIndex } from '@/content/enemies';
 import { TUNING } from '@/content/tuning';
 import { hashAt, unit } from '../math/hash';
 import { type Wilderness, WATER_LEVEL } from './generator';
-import { saturationAt } from './drain';
+import { influenceOf, saturationAt } from './drain';
 
 export interface WildMonster {
   /** `<cx>,<cz>:<k>`; stable across sessions for the same land. */
@@ -35,7 +35,6 @@ export function wildMonstersInChunk(
   const cell = TUNING.world.cellSize;
   const n = size / cell;
   const count = wildMonsterCount(w.seed, cx, cz, saturation);
-  const entrances = w.entrancesNear((cx + 0.5) * size, (cz + 0.5) * size, 1);
   const out: WildMonster[] = [];
   for (let k = 0; k < count; k++) {
     for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
@@ -45,8 +44,7 @@ export function wildMonstersInChunk(
       const y = w.heightAt(x, z);
       if (y <= WATER_LEVEL + 0.5) continue;
       if (Math.hypot(x, z) < 60) continue; // leave the spawn area calm
-      if (entrances.some((e) => Math.hypot(x - e.x, z - e.z) < TUNING.structures.entranceFlatRadius))
-        continue;
+      if (w.townAt(x, z, TUNING.structures.townClearance)) continue;
       const type = unit(h >>> 16) < TUNING.combat.spitterChance ? enemyIndex('spitter') : enemyIndex('blot');
       out.push({ id: `${cx},${cz}:${k}`, type, x, y, z });
       break;
@@ -72,6 +70,6 @@ export function chunkSaturation(
   const size = TUNING.world.chunkSize;
   const x = (cx + 0.5) * size;
   const z = (cz + 0.5) * size;
-  const cities = w.entrancesNear(x, z, 1).map((e) => ({ x: e.x, z: e.z, progress: progressOf(e.cityId) }));
+  const cities = w.entrancesNear(x, z, 1).map((e) => influenceOf(e, progressOf(e.cityId)));
   return saturationAt(x, z, cities);
 }

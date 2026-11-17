@@ -7,6 +7,7 @@ import { TUNING } from '@/content/tuning';
 import { surfaceAt } from '@/engine/physics/world';
 import type { GameContext } from '@/game/types';
 import { standingMonsters } from '@/world/city/features';
+import { groundSurfaceAt } from '@/world/city/layout';
 import { stats } from '@/world/progression';
 import { ORIGINAL, graffiti, surfaceCost } from '@/world/paint/surfaces';
 import type { Tool, ToolHud } from './tool';
@@ -89,7 +90,11 @@ export class Brush implements Tool {
       this.setStroking(input.held('use') && curtain <= TUNING.tide.pushRange);
       return;
     }
-    const surface = hit ? surfaceAt(hit) : null;
+    // a yard is the land itself, not a collider: look it up where the ray met the ground
+    const surface = hit
+      ? (surfaceAt(hit) ??
+        (layout && hit.box.group === 'ground' ? groundSurfaceAt(layout, hit.point.x, hit.point.z) : null))
+      : null;
     if (surface === null || !layout) {
       this.target = null;
       this.progress = 0;
@@ -101,7 +106,7 @@ export class Brush implements Tool {
     const current = this.ctx.state.cities.get(cityId)?.states[surface] ?? 0;
     const want = this.mode === 'restore' ? ORIGINAL : graffiti(this.color);
     const cost = surfaceCost(info);
-    this.hint = `${KIND_NAMES[info.kind]} · 需要 ${cost} ${this.mode === 'restore' ? '通用颜料' : PALETTE[this.color]!.name + '颜料'}`;
+    this.hint = `${KIND_NAMES[info.kind]} · ${cost} ${this.mode === 'restore' ? '通用颜料' : PALETTE[this.color]!.name + '颜料'}`;
     if (current === want) {
       this.hint = `${KIND_NAMES[info.kind]} · 已完成`;
       this.target = null;

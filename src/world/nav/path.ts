@@ -2,8 +2,11 @@
 // wilderness: 4 m terrace cells), so one small pathfinder serves both. Pure; tested in Node.
 
 export interface NavGrid {
-  /** Cell size in metres; cell (ix, iz) covers [ix*cell, (ix+1)*cell). */
+  /** Cell size in metres; cell (ix, iz) covers [ox + ix*cell, ox + (ix+1)*cell). */
   readonly cell: number;
+  /** World position of cell (0, 0)'s corner; the origin when left out. */
+  readonly ox?: number;
+  readonly oz?: number;
   /** Can a monster stand in this cell? */
   walkable(ix: number, iz: number): boolean;
   /** Can it step from one cell to a neighbouring one (terrace heights)? Default: yes. */
@@ -30,7 +33,8 @@ const OFFSET = 1 << 15;
 const key = (ix: number, iz: number): number => (ix + OFFSET) * 65536 + (iz + OFFSET);
 
 /** Binary min-heap of node keys by f-score. */
-class Heap {
+/** Min-heap of integer keys by priority. */
+export class Heap {
   private readonly keys: number[] = [];
   private readonly f: number[] = [];
   get size(): number {
@@ -86,10 +90,12 @@ function step(g: NavGrid, ax: number, az: number, bx: number, bz: number): boole
  */
 export function findPath(g: NavGrid, from: Waypoint, to: Waypoint, maxExpand = 2500): Waypoint[] | null {
   const c = g.cell;
-  const sx = Math.floor(from.x / c);
-  const sz = Math.floor(from.z / c);
-  const gx = Math.floor(to.x / c);
-  const gz = Math.floor(to.z / c);
+  const ox = g.ox ?? 0;
+  const oz = g.oz ?? 0;
+  const sx = Math.floor((from.x - ox) / c);
+  const sz = Math.floor((from.z - oz) / c);
+  const gx = Math.floor((to.x - ox) / c);
+  const gz = Math.floor((to.z - oz) / c);
   if (sx === gx && sz === gz) return [to];
   const goalOpen = g.walkable(gx, gz);
   const h = (ix: number, iz: number): number => {
@@ -145,7 +151,10 @@ export function findPath(g: NavGrid, from: Waypoint, to: Waypoint, maxExpand = 2
   for (let k = reached; k !== start; k = came.get(k)!)
     cells.push([Math.floor(k / 65536) - OFFSET, (k % 65536) - OFFSET]);
   cells.reverse();
-  const pts = smooth(g, [sx, sz], cells).map(([ix, iz]) => ({ x: (ix + 0.5) * c, z: (iz + 0.5) * c }));
+  const pts = smooth(g, [sx, sz], cells).map(([ix, iz]) => ({
+    x: ox + (ix + 0.5) * c,
+    z: oz + (iz + 0.5) * c,
+  }));
   if (reached === key(gx, gz)) pts[pts.length - 1] = to;
   return pts;
 }

@@ -5,7 +5,24 @@ import { color } from '@/content/palette';
 import { TUNING } from '@/content/tuning';
 import { ALWAYS_COLOR, GeometryBuilder } from '@/engine/render/geometry-builder';
 import type { GameContext } from '@/game/types';
-import type { CityLayout } from '@/world/city/layout';
+import { type CityLayout, groundAt } from '@/world/city/layout';
+
+/** A stain lies on the slope under it, just over the street's paving. */
+function stainPose(
+  l: CityLayout,
+  s: { x: number; z: number },
+): { at: THREE.Vector3; tilt: THREE.Quaternion } {
+  const g = (x: number, z: number): number => groundAt(l, x, z);
+  const normal = new THREE.Vector3(
+    g(s.x - 1, s.z) - g(s.x + 1, s.z),
+    2,
+    g(s.x, s.z - 1) - g(s.x, s.z + 1),
+  ).normalize();
+  return {
+    at: new THREE.Vector3(s.x, g(s.x, s.z) + 0.14, s.z),
+    tilt: new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), normal),
+  };
+}
 
 const HIDDEN = new THREE.Matrix4().makeScale(0, 0, 0);
 
@@ -25,9 +42,10 @@ export class InkStains {
     this.mesh = new THREE.InstancedMesh(g.build(), material, layout.stains.length);
     const m = new THREE.Matrix4();
     layout.stains.forEach((s, i) => {
+      const { at, tilt } = stainPose(layout, s);
       m.compose(
-        new THREE.Vector3(s.x, 0.02, s.z),
-        new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), s.x),
+        at,
+        tilt.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), s.x)),
         new THREE.Vector3(s.size, 1, s.size * 0.8),
       );
       this.mesh.setMatrixAt(i, collected[i] ? HIDDEN : m);
@@ -55,7 +73,7 @@ export class InkStains {
 
   update(): void {
     const p = this.ctx.player.position;
-    if (p.y > 2.5) return;
+    if (p.y - groundAt(this.layout, p.x, p.z) > 2.5) return;
     const r = TUNING.economy.stainPickupRadius;
     this.layout.stains.forEach((s, i) => {
       if (this.collected[i]) return;

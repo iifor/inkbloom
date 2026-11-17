@@ -2,7 +2,7 @@
 // Cities near the player are also worked out ahead of time in a worker (layout, geometry,
 // colliders), so neither the first mention of a city's name nor walking into it stalls a frame.
 import type { BuiltCity, CityApi, GameContext } from '@/game/types';
-import { type CityLayout, generateCity } from '@/world/city/layout';
+import { type CityLayout, townLayout } from '@/world/city/layout';
 import { TUNING } from '@/content/tuning';
 import { savedProgress } from '@/world/state';
 import type { Entrance } from '@/world/wilderness/generator';
@@ -31,7 +31,7 @@ export class CityRegistry implements CityApi {
     if (!worker) return;
     this.entrances.set(id, entrance);
     this.pending.add(id);
-    const job: CityJob = { cityId: id, seed: entrance.seed, chunks: entrance.chunks };
+    const job: CityJob = { town: entrance, worldSeed: this.ctx.wilderness.seed };
     worker.postMessage(job);
   }
 
@@ -40,6 +40,10 @@ export class CityRegistry implements CityApi {
     if (l) return l.name;
     this.prefetch(entrance);
     return null;
+  }
+
+  ready(id: string): boolean {
+    return this.built.has(id);
   }
 
   takeBuilt(id: string): BuiltCity | undefined {
@@ -78,7 +82,7 @@ export class CityRegistry implements CityApi {
   layout(entrance: Entrance): CityLayout {
     let l = this.layouts.get(entrance.cityId);
     if (!l) {
-      l = generateCity(entrance.cityId, entrance.seed, entrance.chunks);
+      l = townLayout(entrance, this.ctx.wilderness);
       this.layouts.set(entrance.cityId, l);
       this.entrances.set(entrance.cityId, entrance);
     }

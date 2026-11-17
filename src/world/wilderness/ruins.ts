@@ -37,8 +37,7 @@ export function ruinInCell(w: Wilderness, gx: number, gz: number): Ruin | null {
     const y = w.heightAt(x, z);
     if (y <= WATER_LEVEL + 0.75) continue;
     if (Math.hypot(x, z) < 80) continue;
-    if (w.entrancesNear(x, z, 1).some((e) => Math.hypot(x - e.x, z - e.z) < S.entranceFlatRadius + 20))
-      continue;
+    if (w.townAt(x, z, S.townClearance + 20)) continue;
     return {
       id: `r${gx}_${gz}`,
       template: h0 % RUINS.length,

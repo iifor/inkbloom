@@ -4,12 +4,11 @@
 // year, and the weather where the player is (eased, so it never pops), with lightning. A
 // listener like audio and effects: gameplay never reads it.
 import { SEASONS } from '@/content/seasons';
-import { TUNING } from '@/content/tuning';
 import type { GameContext, System } from '@/game/types';
 import { calendarAt, seasonBlend } from '@/world/climate/calendar';
 import { meanTemperature, snowCover } from '@/world/climate/temperature';
 import { type WeatherAt, boltsAt, createWeather } from '@/world/climate/weather';
-import { saturationAt } from '@/world/wilderness/drain';
+import { influenceOf, saturationAt } from '@/world/wilderness/drain';
 
 /** Gloom while a tide is announced, and while it rolls. */
 const WARNING_GLOOM = 0.35;
@@ -84,22 +83,14 @@ export class AtmosphereSystem implements System {
     const ref = scenes.active.ref;
     if (ref.kind === 'city') return cities.progress(ref.id);
     const p = player.position;
-    const near = wilderness
-      .entrancesNear(p.x, p.z, 1)
-      .map((e) => ({ x: e.x, z: e.z, progress: cities.progress(e.cityId) }));
+    const near = wilderness.entrancesNear(p.x, p.z, 1).map((e) => influenceOf(e, cities.progress(e.cityId)));
     return saturationAt(p.x, p.z, near);
   }
 
-  /** Where the weather is read: the player in the wild; in a city, its entrance tower outside
-   * (a city is its own scene with its own coordinates). */
+  /** Where the weather is read: where the player stands, towns included. */
   private weatherPoint(): { x: number; z: number; ground: number } {
-    const { player, scenes, wilderness } = this.ctx;
-    const ref = scenes.active.ref;
-    const m = ref.kind === 'city' ? /^c(-?\d+)_(-?\d+)$/.exec(ref.id) : null;
-    const size = TUNING.world.chunkSize;
-    const x = m ? (Number(m[1]) + 0.5) * size : player.position.x;
-    const z = m ? (Number(m[2]) + 0.5) * size : player.position.z;
-    return { x, z, ground: Math.max(0, wilderness.heightAt(x, z)) };
+    const { x, z } = this.ctx.player.position;
+    return { x, z, ground: Math.max(0, this.ctx.wilderness.heightAt(x, z)) };
   }
 
   private sampleWeather(snap: boolean): void {
@@ -122,8 +113,7 @@ export class AtmosphereSystem implements System {
     const litter =
       SEASONS[year.from]!.litter.amount * (1 - year.t) + SEASONS[year.to]!.litter.amount * year.t;
     const blow = Math.min(1, 0.3 + Math.hypot(w.wind[0], w.wind[1]) / 10);
-    const wild = this.ctx.scenes.active.ref.kind === 'wild';
-    t.litter = wild ? litter * blow * (1 - 0.7 * w.precip) : 0;
+    t.litter = litter * blow * (1 - 0.7 * w.precip);
     this.litterSeason = year.t < 0.5 ? year.from : year.to;
     if (snap) Object.assign(this.weatherNow, t);
   }
@@ -131,12 +121,10 @@ export class AtmosphereSystem implements System {
   /** Lightning in this play-clock second: draw the bolts, light the sky, let audio thunder. */
   private lightning(second: number): void {
     const { x, z } = this.weatherPoint();
-    const wild = this.ctx.scenes.active.ref.kind === 'wild';
     for (const b of boltsAt(this.weather, this.ctx.wilderness.seed, second, x, z, BOLT_REACH)) {
       const distance = Math.hypot(b.x - x, b.z - z);
       const at = { x: b.x, y: Math.max(0, this.ctx.wilderness.heightAt(b.x, b.z)), z: b.z };
-      // in a city the bolts are out over the walls: only their light and sound come through
-      if (wild) this.ctx.renderer.strike(at, b.shape);
+      this.ctx.renderer.strike(at, b.shape);
       this.flash = Math.max(this.flash, 1 - (distance / BOLT_REACH) * 0.7);
       this.ctx.events.emit('weather:bolt', { at, distance });
     }

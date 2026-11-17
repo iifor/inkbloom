@@ -8,6 +8,8 @@ import type { NavGrid } from './path';
 export function cityNav(l: CityLayout): NavGrid {
   return {
     cell: l.cell,
+    ox: l.ox,
+    oz: l.oz,
     walkable: (ix, iz) => {
       if (ix < 1 || iz < 1 || ix >= l.n - 1 || iz >= l.n - 1) return false;
       const i = iz * l.n + ix;

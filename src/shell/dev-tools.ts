@@ -14,7 +14,8 @@ export function installDevTools(game: OpenWorld): void {
     ctx,
     /** Move the player; y defaults to the ground. */
     teleport(x: number, z: number, y?: number) {
-      const ground = scenes.active.ref.kind === 'wild' ? ctx.wilderness.heightAt(x, z) : 0;
+      // inside a town the land lies just under its paving
+      const ground = ctx.wilderness.townAt(x, z)?.y ?? ctx.wilderness.heightAt(x, z);
       ctx.player.teleport(new THREE.Vector3(x, y ?? ground + 0.05, z));
     },
     look(yaw: number, pitch = 0) {
@@ -24,13 +25,13 @@ export function installDevTools(game: OpenWorld): void {
     fly(on = true) {
       ctx.player.flying = on;
     },
-    /** Enter the city whose entrance is nearest the player. */
+    /** Go to the main street of the town nearest the player. */
     enterNearestCity() {
       const p = ctx.player.position;
       const e = ctx.wilderness
         .entrancesNear(p.x, p.z, 1)
         .sort((a, b) => Math.hypot(a.x - p.x, a.z - p.z) - Math.hypot(b.x - p.x, b.z - p.z))[0];
-      if (!e) throw new Error('No entrance nearby');
+      if (!e) throw new Error('No town nearby');
       scenes.enterCity(e);
       return e.cityId;
     },

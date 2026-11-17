@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
-import { PhysicsWorld, makeBody, surfaceAt } from '@/engine/physics/world';
+import { PhysicsWorld, makeBody, surfaceAt, turnedBox } from '@/engine/physics/world';
 
 describe('physics', () => {
   it('raycasts across grid cells and reports the nearest face', () => {
@@ -126,5 +126,62 @@ describe('smooth ground', () => {
     const box = w.raycast({ x: -10, y: 5, z: 0 }, { x: 1, y: 0, z: 0 }, 100)!;
     expect(surfaceAt(box)).toBe(4);
     expect(w.groundBelow(20, 50, 0)).toBeCloseTo(10, 1);
+  });
+});
+
+describe('turned boxes', () => {
+  const frame = {
+    x: 10,
+    y: 2,
+    z: -4,
+    angle: 0.6,
+    hx: 4,
+    hz: 3,
+    faces: { px: 1, nx: 2, pz: 3, nz: 4, py: 5 },
+    decals: [
+      { face: 'pz' as const, min: { x: -0.8, y: 0, z: 2.9 }, max: { x: 0.8, y: 2.4, z: 3.1 }, surface: 9 },
+    ],
+  };
+  /** A point in the turned box's own frame, in the world. */
+  const world = (u: number, y: number, v: number) => {
+    const c = Math.cos(frame.angle);
+    const s = Math.sin(frame.angle);
+    return new THREE.Vector3(frame.x + c * u + s * v, frame.y + y, frame.z - s * u + c * v);
+  };
+
+  it('stand in for it with slices that never poke out of it', () => {
+    const boxes: { min: { x: number; z: number }; max: { x: number; z: number } }[] = [];
+    turnedBox(frame, 2, 6, (min, max) => boxes.push({ min, max }));
+    expect(boxes.length).toBeGreaterThan(8);
+    const c = Math.cos(frame.angle);
+    const s = Math.sin(frame.angle);
+    for (const b of boxes)
+      for (const [x, z] of [
+        [b.min.x, b.min.z],
+        [b.max.x, b.max.z],
+        [b.min.x, b.max.z],
+        [b.max.x, b.min.z],
+      ] as const) {
+        const u = (x - frame.x) * c - (z - frame.z) * s;
+        const v = (x - frame.x) * s + (z - frame.z) * c;
+        expect(Math.abs(u)).toBeLessThanOrEqual(frame.hx + 1e-6);
+        expect(Math.abs(v)).toBeLessThanOrEqual(frame.hz + 1e-6);
+      }
+  });
+
+  it('paint the face of the turned box a ray meets, door included', () => {
+    const w = new PhysicsWorld(8);
+    turnedBox(frame, 2, 6, (min, max, data) => w.addBox('house', min, max, data));
+    const shoot = (from: THREE.Vector3, to: THREE.Vector3) => {
+      const d = to.clone().sub(from).normalize();
+      const hit = w.raycast(from, d, 50)!;
+      return surfaceAt(hit);
+    };
+    // straight at the front, beside the door and at the door; then the side, the back and the top
+    expect(shoot(world(2.5, 1.5, 12), world(2.5, 1.5, 0))).toBe(3);
+    expect(shoot(world(0, 1.2, 12), world(0, 1.2, 0))).toBe(9);
+    expect(shoot(world(12, 1.5, 0.5), world(0, 1.5, 0.5))).toBe(1);
+    expect(shoot(world(-1, 1.5, -12), world(-1, 1.5, 0))).toBe(4);
+    expect(shoot(world(0.5, 20, 0.3), world(0.5, 0, 0.3))).toBe(5);
   });
 });

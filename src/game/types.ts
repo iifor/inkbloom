@@ -41,7 +41,8 @@ export interface Interactable {
   readonly scene: string;
   readonly pos: THREE.Vector3;
   readonly radius: number;
-  label(): string;
+  /** The prompt; null leaves the thing out (nothing to do here right now). */
+  label(): string | null;
   activate(): void;
   /** Optional second action on F, shown under the main prompt (null hides it). */
   alt?: { label(): string | null; activate(): void };
@@ -75,15 +76,20 @@ export interface PlayerApi {
 }
 
 export interface SceneApi {
+  /** The wilderness, or the town the player is standing in. Towns stand in the wilderness:
+   * walking through a town's wall switches this, with nothing to load in between. */
   readonly active: GameScene;
+  /** Put the player in the wilderness: at `at`, or just outside the main gate of the town
+   * they are in. */
   enterWild(at?: { pos: THREE.Vector3; yaw: number }): void;
-  /** Where to come back after being knocked out at `near`: the city gate inside a city; in
-   * the wilderness, the nearest restored city's tower door or the world spawn. */
+  /** Where to come back after being knocked out at `near`: the main street inside a town; in
+   * the wilderness, the nearest restored town's main street or the world spawn. */
   respawnPoint(near: THREE.Vector3): { pos: THREE.Vector3; yaw: number };
-  /** Go to a travel stop (a restored city's tower door, or an ink mark), from anywhere. */
+  /** Go to a travel stop (a restored town's main street, or an ink mark), from anywhere. */
   travelTo(id: string): void;
-  /** The F action at a travel stop: go to the next stop on the ring. */
-  travelAction(from: string): { label(): string | null; activate(): void };
+  /** The action at a travel stop (on `key`, F unless given): go to the next stop on the ring. */
+  travelAction(from: string, key?: 'E' | 'F'): { label(): string | null; activate(): void };
+  /** Go to a town's main street. */
   enterCity(entrance: Entrance): void;
 }
 
@@ -107,6 +113,8 @@ export interface CityApi {
   prefetch(entrance: Entrance): void;
   /** The city's name if its layout is ready; otherwise null (and it is prefetched). */
   nameOf(entrance: Entrance): string | null;
+  /** Whether the city's prebuilt geometry and colliders are waiting to be taken. */
+  ready(id: string): boolean;
   /** The city's prebuilt geometry and colliders, if ready; each is handed out once. */
   takeBuilt(id: string): BuiltCity | undefined;
   /** Layout by id, if it has been generated this session. */

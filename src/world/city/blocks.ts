@@ -28,10 +28,13 @@ export const DIRS = [
   [0, -1],
 ] as const;
 
-/** A city's block grid: `chunks` blocks per side, `size` metres per side. */
+/** A city's block grid: `chunks` blocks per side, `size` metres per side, its north-west
+ * corner at (ox, oz) (the origin when left out). */
 export interface CityGrid {
   readonly size: number;
   readonly chunks: number;
+  readonly ox?: number;
+  readonly oz?: number;
 }
 
 /** Side length of a square block list. */
@@ -87,8 +90,8 @@ export function blockBounds(
   grid: CityGrid,
 ): { x0: number; z0: number; x1: number; z1: number } {
   const per = grid.size / grid.chunks;
-  const x0 = (chunk % grid.chunks) * per;
-  const z0 = Math.floor(chunk / grid.chunks) * per;
+  const x0 = (grid.ox ?? 0) + (chunk % grid.chunks) * per;
+  const z0 = (grid.oz ?? 0) + Math.floor(chunk / grid.chunks) * per;
   return { x0, z0, x1: x0 + per, z1: z0 + per };
 }
 

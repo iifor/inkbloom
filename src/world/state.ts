@@ -203,8 +203,8 @@ export function cityStates(
   reset: boolean;
 } {
   const fingerprint = surfaceFingerprint(skel.surfaces);
-  const stainFp = stainFingerprint(skel.stains);
-  const monsterFp = monsterFingerprint(skel.monsters);
+  const stainFp = stainFingerprint(skel.stains, skel.ox, skel.oz);
+  const monsterFp = monsterFingerprint(skel.monsters, skel.ox, skel.oz);
   const requestFp = requestFingerprint(skel.requests);
   let saved = state.cities.get(cityId);
   let reset = false;

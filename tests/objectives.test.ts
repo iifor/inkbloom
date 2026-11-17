@@ -31,9 +31,9 @@ const city = {
 };
 
 describe('objectives', () => {
-  it('sends a new player to the first village entrance', () => {
+  it('sends a new player into the first town', () => {
     const o = objective(base);
-    expect(o.text).toContain('村口');
+    expect(o.text).toContain('走进');
     expect(o.target).toEqual(base.nextCity);
   });
 

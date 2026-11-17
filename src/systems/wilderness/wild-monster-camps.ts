@@ -14,8 +14,6 @@ import { wildMonsterBack } from '@/world/state';
 import { chunkKey, type WildChunk } from '@/world/wilderness/chunk';
 import { chunkSaturation, wildMonstersInChunk } from '@/world/wilderness/wild-monsters';
 
-const TOWER_CLEARANCE = 10;
-
 export class WildMonsterCamps {
   readonly group: MonsterGroup;
   private readonly chunks = new Map<string, WildChunk>();
@@ -32,10 +30,16 @@ export class WildMonsterCamps {
     const height = (ix: number, iz: number): number => {
       const c = this.chunks.get(chunkKey(Math.floor(ix / n), Math.floor(iz / n)));
       if (c) return c.heights[(iz - c.cz * n) * n + (ix - c.cx * n)]!;
-      const cell = TUNING.world.cellSize;
-      return ctx.wilderness.heightAt((ix + 0.5) * cell, (iz + 0.5) * cell);
+      return ctx.wilderness.heightAt((ix + 0.5) * TUNING.world.cellSize, (iz + 0.5) * TUNING.world.cellSize);
     };
-    this.group.nav = terrainNav(height, (ix, iz) => this.blocked.has(`${ix},${iz}`));
+    // towns are off limits: their walls and houses are not in the terrain
+    const cell = TUNING.world.cellSize;
+    this.group.nav = terrainNav(
+      height,
+      (ix, iz) =>
+        this.blocked.has(`${ix},${iz}`) ||
+        ctx.wilderness.townAt((ix + 0.5) * cell, (iz + 0.5) * cell) !== null,
+    );
   }
 
   /** Show a loaded chunk's monsters. Returns a function that removes them again. */
@@ -53,11 +57,6 @@ export class WildMonsterCamps {
     for (const r of chunk.ruins)
       for (let dx = -10; dx <= 10; dx += cell)
         for (let dz = -10; dz <= 10; dz += cell) block(r.x + dx, r.z + dz);
-    if (chunk.entrance) {
-      const e = chunk.entrance;
-      for (let dx = -TOWER_CLEARANCE; dx <= TOWER_CLEARANCE; dx += cell)
-        for (let dz = -TOWER_CLEARANCE; dz <= TOWER_CLEARANCE; dz += cell) block(e.x + dx, e.z + dz);
-    }
 
     // they wear the land's colours: its pigment sources first, then its ground and trees
     const biome =

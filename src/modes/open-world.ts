@@ -110,7 +110,7 @@ export function startOpenWorld(opts: {
   const scenes = new SceneManager(
     ctx,
     new WildScene(ctx),
-    (entrance, layout) => new CityScene(ctx, entrance, layout),
+    (entrance, layout, physics) => new CityScene(ctx, entrance, layout, physics),
   );
   ctx.scenes = scenes;
   const belt = new ToolBelt(ctx, [new Brush(ctx), new WeaponSlot(ctx), new Marker(ctx)]);

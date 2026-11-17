@@ -6,7 +6,7 @@ import { PALETTE, color } from '@/content/palette';
 import { ALWAYS_COLOR, GeometryBuilder } from '@/engine/render/geometry-builder';
 import type { GameContext } from '@/game/types';
 import { recolorWalls } from '@/world/city/features';
-import type { CityLayout } from '@/world/city/layout';
+import { type CityLayout, groundAt } from '@/world/city/layout';
 
 export class Residents {
   private readonly signs: THREE.Mesh[] = [];
@@ -27,7 +27,7 @@ export class Residents {
       this.release.push(
         ctx.interactions.add({
           scene: `city:${layout.id}`,
-          pos: new THREE.Vector3(r.door.x, 0, r.door.z),
+          pos: new THREE.Vector3(r.door.x, groundAt(layout, r.door.x, r.door.z), r.door.z),
           radius: 3,
           label: () => this.label(i),
           activate: () => this.handIn(i),
@@ -48,7 +48,7 @@ export class Residents {
       f(a),
     );
     g.box({ x: at.x - 0.4, y: 1.3, z: at.z - 0.06 }, { x: at.x + 0.4, y: 1.9, z: at.z + 0.06 }, f(c), f(a));
-    return g.build();
+    return g.build().translate(0, groundAt(this.layout, at.x, at.z), 0);
   }
 
   private label(i: number): string {

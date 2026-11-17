@@ -1,8 +1,8 @@
 // The wilderness is a set of global functions of (seed, x, z). Nothing here depends on which
 // chunks were generated before, so neighbouring chunks always agree along their shared edge.
 import { BIOME_INDEX, climateBiome, type ClimateSample } from '@/content/biomes';
-import { LANDMARKS } from '@/content/templates';
 import { TUNING } from '@/content/tuning';
+import type { Face } from '../city/layout';
 import { hashAt } from '../math/hash';
 import { createNoise2D, fbm, lerp, smoothstep, type Noise2D } from '../math/noise';
 
@@ -15,38 +15,54 @@ export function riverbedMeadow(s: ClimateSample): number {
   return 1 - smoothstep(0.24, 0.4, s.wildness) * (1 - smoothstep(0.025, 0.065, s.water));
 }
 
+/** A town: where it stands in the world. The name is historical (towns used to be entered
+ * through a door in the wilderness); every system that keys on a city still uses it. */
 export interface Entrance {
   /** Stable city id; also the key of its save data. */
   readonly cityId: string;
-  readonly chunk: readonly [number, number];
-  /** World position of the landmark centre. */
+  /** World position of the town's centre. */
   readonly x: number;
   readonly z: number;
-  /** Ground height the landmark stands on. */
+  /** The town's average ground height; its hills rise and fall about it. */
   readonly y: number;
-  readonly landmark: number;
+  /** The town's north-west corner (smallest x and z) and side length, metres. */
+  readonly ox: number;
+  readonly oz: number;
+  readonly size: number;
   readonly seed: number;
   /** City size in blocks per side. */
   readonly chunks: number;
-  /** Unit direction from the landmark to its door, axis-aligned. */
-  readonly door: readonly [number, number];
+  /** The wall the main gate is in: the one facing the world origin, so the first approach
+   * from spawn meets it. */
+  readonly gate: Face;
+}
+
+/** Metres from a point to a town's footprint; 0 inside it. */
+export function townDistance(e: Entrance, x: number, z: number): number {
+  const dx = Math.max(e.ox - x, 0, x - e.ox - e.size);
+  const dz = Math.max(e.oz - z, 0, z - e.oz - e.size);
+  return Math.hypot(dx, dz);
 }
 
 export interface Wilderness {
   readonly seed: number;
   climate(x: number, z: number): ClimateSample;
   biomeAt(x: number, z: number): number;
-  /** Ground height including riverbeds, lake shelves and entrance plateaus. */
+  /** Ground height including riverbeds, lake shelves and the level ground of towns. */
   heightAt(x: number, z: number): number;
-  /** Ground height before water channels and entrance flattening. */
+  /** Ground height before water channels and town levelling. */
   rawHeightAt(x: number, z: number): number;
   entranceInCell(gx: number, gz: number): Entrance | null;
-  /** Entrances whose grid cell is within `cells` of the cell containing (x, z). */
+  /** Towns whose grid cell is within `cells` of the cell containing (x, z). */
   entrancesNear(x: number, z: number, cells?: number): Entrance[];
+  /** The town whose footprint, grown by `margin` metres, contains the point. */
+  townAt(x: number, z: number, margin?: number): Entrance | null;
 }
 
 const W = TUNING.world;
 const S = TUNING.structures;
+/** 0..1 from the low bits of a hash. */
+const unit = (h: number): number => (h & 0x3ff) / 1024;
 
 export function cityCellOf(chunk: number): number {
   const half = Math.floor(S.cityGrid / 2);
@@ -108,33 +124,53 @@ export function createWilderness(seed: number): Wilderness {
     const known = cache.get(key);
     if (known !== undefined) return known;
     const half = Math.floor(S.cityGrid / 2);
+    const first = gx === 0 && gz === 0;
+    // the id names a chunk of the cell, as it always has, so saved progress keeps its key
     let cx: number;
     let cz: number;
-    if (gx === 0 && gz === 0) [cx, cz] = S.firstCityChunk;
+    if (first) [cx, cz] = S.firstCityChunk;
     else {
       const h = hashAt(seed, 'city-cell', gx, gz);
       cx = gx * S.cityGrid - half + (h % S.cityGrid);
       cz = gz * S.cityGrid - half + ((h >>> 8) % S.cityGrid);
     }
-    const x = (cx + 0.5) * W.chunkSize;
-    const z = (cz + 0.5) * W.chunkSize;
-    const base = rawHeightAt(x, z);
-    const first = gx === 0 && gz === 0;
+    const h = hashAt(seed, 'city', cx, cz);
+    const chunks = first ? TUNING.city.firstCityChunks : TUNING.city.chunks;
+    const size = chunks * W.chunkSize;
+    let ox: number;
+    let oz: number;
+    if (first) [ox, oz] = S.firstTownOrigin;
+    else {
+      // the middle of the cell, nudged a little, so towns never crowd one another
+      const mid = (S.cityGrid * 0.5 - half) * W.chunkSize;
+      ox = gx * S.cityGrid * W.chunkSize + mid - size / 2 + S.townJitter * (2 * unit(h >>> 4) - 1);
+      oz = gz * S.cityGrid * W.chunkSize + mid - size / 2 + S.townJitter * (2 * unit(h >>> 14) - 1);
+      // on the terrain's own 4 m grid, so the town's ground and the land meet corner to corner
+      ox = Math.round(ox / W.cellSize) * W.cellSize;
+      oz = Math.round(oz / W.cellSize) * W.cellSize;
+    }
+    // the town's hills are the land's, gentler, about its average height
+    let sum = 0;
+    for (let i = 0; i < 5; i++)
+      for (let k = 0; k < 5; k++)
+        sum += rawHeightAt(ox + ((i + 0.5) / 5) * size, oz + ((k + 0.5) / 5) * size);
+    const y = sum / 25;
     let entrance: Entrance | null = null;
-    if (first || base > WATER_LEVEL + 1) {
-      const h = hashAt(seed, 'city', cx, cz);
-      // door faces the world origin so the first approach meets it
-      const door: [number, number] = Math.abs(x) > Math.abs(z) ? [-Math.sign(x), 0] : [0, -Math.sign(z) || 1];
+    if (first || y > WATER_LEVEL + 1) {
+      const x = ox + size / 2;
+      const z = oz + size / 2;
+      const gate: Face = Math.abs(x) > Math.abs(z) ? (x > 0 ? 'nx' : 'px') : z > 0 ? 'nz' : 'pz';
       entrance = {
         cityId: `c${cx}_${cz}`,
-        chunk: [cx, cz],
         x,
         z,
-        y: Math.max(base, 0.5),
-        landmark: h % LANDMARKS.length,
+        y: Math.max(y, WATER_LEVEL + 1.25),
+        ox,
+        oz,
+        size,
         seed: h,
-        chunks: first ? TUNING.city.firstCityChunks : TUNING.city.chunks,
-        door,
+        chunks,
+        gate: first ? 'nx' : gate,
       };
     }
     cache.set(key, entrance);
@@ -154,9 +190,22 @@ export function createWilderness(seed: number): Wilderness {
   };
 
   // heightAt runs thousands of times per chunk: keep each city cell's neighbourhood of
-  // entrances ready, instead of gathering a fresh list on every call
+  // towns ready, instead of gathering a fresh list on every call. A town stays well inside
+  // its own cell, so the cells around a point hold every town that can reach it.
   const nearCache = new Map<number, Entrance[]>();
-  const flat2 = S.entranceFlatRadius * S.entranceFlatRadius;
+  const townsNear = (x: number, z: number): Entrance[] => {
+    const key = cellKey(cityCellOf(Math.floor(x / W.chunkSize)), cityCellOf(Math.floor(z / W.chunkSize)));
+    let near = nearCache.get(key);
+    if (!near) nearCache.set(key, (near = entrancesNear(x, z, 1)));
+    return near;
+  };
+  const townAt = (x: number, z: number, margin = 0): Entrance | null => {
+    for (const e of townsNear(x, z))
+      if (x > e.ox - margin && z > e.oz - margin && x < e.ox + e.size + margin && z < e.oz + e.size + margin)
+        return e;
+    return null;
+  };
+  const skirt = S.townSkirt;
   const ground = (x: number, z: number): number => {
     let h = rawHeightAt(x, z);
     if (h < WATER_LEVEL - 0.45) {
@@ -190,18 +239,15 @@ export function createWilderness(seed: number): Wilderness {
     }
     const puddle = Math.hypot((x - (spawn - 28)) / 8, (z - (spawn + 25)) / 6);
     if (puddle < 1.8) h = lerp(Math.min(h, WATER_LEVEL - 0.38), h, smoothstep(0.5, 1.8, puddle));
-    const gx = cityCellOf(Math.floor(x / W.chunkSize));
-    const gz = cityCellOf(Math.floor(z / W.chunkSize));
-    const key = cellKey(gx, gz);
-    let near = nearCache.get(key);
-    if (!near) nearCache.set(key, (near = entrancesNear(x, z, 1)));
-    for (const e of near) {
-      const dx = x - e.x;
-      const dz = z - e.z;
-      // the plateau only reaches entranceFlatRadius; skip the rest cheaply
-      if (dx * dx + dz * dz >= flat2) continue;
-      const f = smoothstep(S.entranceFlatRadius, S.entranceFlatRadius * 0.55, Math.sqrt(dx * dx + dz * dz));
-      if (f > 0) h = lerp(h, e.y, f);
+    for (const e of townsNear(x, z)) {
+      const dx = Math.max(e.ox - x, 0, x - e.ox - e.size);
+      const dz = Math.max(e.oz - z, 0, z - e.oz - e.size);
+      if (dx >= skirt || dz >= skirt) continue;
+      // in a town the land keeps its shape but not its steepness, and stays out of the water;
+      // rivers and lakes stop at its edge
+      const town = Math.max(WATER_LEVEL + 0.6, e.y + S.townRelief * (rawHeightAt(x, z) - e.y));
+      if (dx === 0 && dz === 0) return town;
+      h = lerp(h, town, smoothstep(skirt, 0, Math.hypot(dx, dz)));
     }
     return h;
   };
@@ -236,5 +282,5 @@ export function createWilderness(seed: number): Wilderness {
     return (u + v - 1) * corner(ix + 1, iz + 1) + (1 - v) * east + (1 - u) * south;
   };
 
-  return { seed, climate, biomeAt, heightAt, rawHeightAt, entranceInCell, entrancesNear };
+  return { seed, climate, biomeAt, heightAt, rawHeightAt, entranceInCell, entrancesNear, townAt };
 }

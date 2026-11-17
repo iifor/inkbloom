@@ -18,7 +18,7 @@ import { TUNING } from '@/content/tuning';
 export const shared = {
   uCanopyBrush: { value: null as THREE.Texture | null },
   uLightDir: { value: new THREE.Vector3(0, 1, 0) },
-  /** xy = city position, z = progress (0..1), w unused. */
+  /** xy = town centre, z = progress (0..1), w = half the town's side. */
   uCities: { value: Array.from({ length: TUNING.drain.maxCities }, () => new THREE.Vector4()) },
   uCityCount: { value: 0 },
   uDrainInner: { value: TUNING.drain.innerRadius as number },
@@ -51,7 +51,8 @@ float derivedSat(vec3 wp) {
   for (int i = 0; i < ${TUNING.drain.maxCities}; i++) {
     if (i >= uCityCount) break;
     vec4 c = uCities[i];
-    float d = distance(wp.xz, c.xy);
+    // measured from the town's wall: inside it the drain is the town's own
+    float d = length(max(abs(wp.xz - c.xy) - c.w, 0.0));
     float f = 1.0 - smoothstep(uDrainInner, uDrainOuter, d);
     drain = max(drain, (1.0 - c.z) * f);
   }
@@ -66,6 +67,7 @@ uniform int uStateWidth;
 ${wildernessDrainGLSL}
 uniform mat4 uShadowMatrix;
 uniform float uTime;
+#include <skinning_pars_vertex>
 #ifdef WIND
 uniform vec2 uWind;
 uniform vec2 uWindDrift;
@@ -97,6 +99,11 @@ varying vec2 vPlantMark;
 void main() {
   vec3 transformed = position;
   vec3 objectNormal = normal;
+  // rigged models (imported characters) bend with their bones; three defines USE_SKINNING for
+  // a SkinnedMesh and binds the bone texture itself
+  #include <skinbase_vertex>
+  #include <skinnormal_vertex>
+  #include <skinning_vertex>
   #if defined(WIND) && defined(BLADES) && defined(USE_INSTANCING_COLOR)
     // Fixed at the planting site: adjacent tufts open differently even in still air.
     float habit = fract(3.13 * instanceColor.b + 4.37 * aBladePhase);

@@ -150,6 +150,30 @@ export class GeometryBuilder {
     }
   }
 
+  /** Append everything another builder holds, transformed, keeping its colours and surfaces
+   * (a house built in its own frame, turned and set down in a town). */
+  append(other: GeometryBuilder, matrix: THREE.Matrix4): void {
+    const normalMatrix = new THREE.Matrix3().getNormalMatrix(matrix);
+    const v = new THREE.Vector3();
+    const offset = this.vertexCount;
+    if (other.indices.length) this.indexLooseVertices();
+    for (let i = 0; i < other.vertexCount; i++) {
+      v.fromArray(other.pos, i * 3).applyMatrix4(matrix);
+      this.pos.push(v.x, v.y, v.z);
+      v.fromArray(other.nor, i * 3)
+        .applyMatrix3(normalMatrix)
+        .normalize();
+      this.nor.push(v.x, v.y, v.z);
+      this.col.push(other.col[i]!);
+      this.srf.push(other.srf[i]!);
+    }
+    if (other.indices.length) {
+      other.indexLooseVertices();
+      for (const k of other.indices) this.indices.push(offset + k);
+      this.indexedThrough = this.vertexCount;
+    }
+  }
+
   build(): THREE.BufferGeometry {
     const g = new THREE.BufferGeometry();
     if (this.indices.length) {

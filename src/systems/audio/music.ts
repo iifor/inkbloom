@@ -3,7 +3,7 @@
 // and a faster beat take over. Notes are scheduled half a second ahead on the audio clock.
 import { type Synth, midi } from '@/engine/audio/synth';
 import type { GameContext } from '@/game/types';
-import { saturationAt } from '@/world/wilderness/drain';
+import { influenceOf, saturationAt } from '@/world/wilderness/drain';
 
 const BPM = 76;
 const EIGHTH = 60 / BPM / 2;
@@ -47,9 +47,7 @@ export class Music {
     const ref = scenes.active.ref;
     if (ref.kind === 'city') return cities.progress(ref.id);
     const p = player.position;
-    const near = wilderness
-      .entrancesNear(p.x, p.z, 1)
-      .map((e) => ({ x: e.x, z: e.z, progress: cities.progress(e.cityId) }));
+    const near = wilderness.entrancesNear(p.x, p.z, 1).map((e) => influenceOf(e, cities.progress(e.cityId)));
     return saturationAt(p.x, p.z, near);
   }
 

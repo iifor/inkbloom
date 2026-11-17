@@ -1,6 +1,6 @@
 // The infinite wilderness. Streams chunks around the player (one build per frame so walking
-// never hitches), owns their colliders, registers each city entrance and pigment source as an
-// interactable, and hosts the monsters that roam drained land.
+// never hitches), owns their colliders (and, while they stand, the towns'), registers each
+// pigment source as an interactable, and hosts the monsters that roam drained land.
 import * as THREE from 'three';
 import { SEASONS } from '@/content/seasons';
 import { TUNING } from '@/content/tuning';
@@ -13,7 +13,6 @@ import { calendarAt, grassCoverAt, seasonBlend } from '@/world/climate/calendar'
 import { chunkKey, generateWildChunk } from '@/world/wilderness/chunk';
 import { buildTerrainSteps, addChunkColliders } from './build-chunk';
 import { WildTrees } from './wild-trees';
-import { buildLandmark } from './build-landmark';
 import { WildSources } from './pigment-sources';
 import { WildMonsterCamps } from './wild-monster-camps';
 import { WildRuins, buildRuin } from './ruins';
@@ -71,7 +70,7 @@ export class WildScene implements GameScene {
     const z = W.chunkSize * 0.5;
     this.ensureAt(x, z);
     const e = this.ctx.wilderness.entranceInCell(0, 0);
-    // face the first city
+    // face the first town
     const yaw = e ? Math.atan2(-(e.x - x), -(e.z - z)) : 0;
     return { pos: new THREE.Vector3(x, this.ctx.wilderness.heightAt(x, z) + 0.05, z), yaw };
   }
@@ -144,7 +143,9 @@ export class WildScene implements GameScene {
       .entrancesNear(p.x, p.z, 1)
       .sort((a, b) => Math.hypot(a.x - p.x, a.z - p.z) - Math.hypot(b.x - p.x, b.z - p.z))
       .slice(0, TUNING.drain.maxCities);
-    near.forEach((e, i) => shared.uCities.value[i]!.set(e.x, e.z, this.ctx.cities.progress(e.cityId), 0));
+    near.forEach((e, i) =>
+      shared.uCities.value[i]!.set(e.x, e.z, this.ctx.cities.progress(e.cityId), e.size / 2),
+    );
     shared.uCityCount.value = near.length;
     shared.uSceneSat.value = 1;
   }
@@ -171,25 +172,6 @@ export class WildScene implements GameScene {
     addChunkColliders(chunk, this.physics, group);
     const release: (() => void)[] = [];
     release.push(this.trees.add(chunk, this.ctx.player.position));
-    if (chunk.entrance) {
-      const e = chunk.entrance;
-      // Once the village house is in view, prepare the streets before anyone walks in.
-      this.ctx.cities.prefetch(e);
-      const lm = buildLandmark(e, g, this.physics, group);
-      // the name arrives with the layout from the city worker; never stall a frame for it
-      const cityName = (): string => this.ctx.cities.nameOf(e) ?? '这座城';
-      release.push(
-        this.ctx.interactions.add({
-          scene: 'wild',
-          pos: lm.doorPos,
-          radius: 4,
-          label: () =>
-            `E 进入 ${cityName()}${this.ctx.state.cities.get(e.cityId)?.completed ? '（已恢复）' : ''}`,
-          activate: () => this.ctx.scenes.enterCity(e),
-          alt: this.ctx.scenes.travelAction(e.cityId),
-        }),
-      );
-    }
     for (const r of chunk.ruins) buildRuin(r, g, this.physics, group);
     yield;
     release.push(this.ruins.add(chunk.ruins));
@@ -220,10 +202,6 @@ export class WildScene implements GameScene {
   activate(): void {
     this.ctx.renderer.setWildWater(true);
     this.updateDrain();
-  }
-
-  deactivate(): void {
-    this.ctx.renderer.setWildWater(false);
   }
 
   dispose(): void {

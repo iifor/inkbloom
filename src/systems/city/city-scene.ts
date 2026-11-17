@@ -1,17 +1,19 @@
-// A permanent city instance. Built from its deterministic layout; colour comes from the saved
-// per-surface states via a GPU state texture kept in sync with accepted patches.
+// A town standing in the wilderness. Built from its deterministic layout where the wilderness
+// put it; colour comes from the saved per-surface states via a GPU state texture kept in sync
+// with accepted patches. It shares the wilderness's physics world: the player walks in through
+// a gate and the scene manager makes it the active scene while they are inside.
 import * as THREE from 'three';
 import { TUNING } from '@/content/tuning';
 import { PhysicsWorld } from '@/engine/physics/world';
-import { SurfaceStateTexture, makeInkMaterial, shared } from '@/engine/render/ink-material';
+import { SurfaceStateTexture, makeInkMaterial } from '@/engine/render/ink-material';
 import { disposeTree } from '@/engine/resources';
 import type { GameContext, GameScene } from '@/game/types';
-import type { CityLayout } from '@/world/city/layout';
+import { type CityLayout, groundAt } from '@/world/city/layout';
 import { isColored } from '@/world/paint/surfaces';
 import { blockState, type BlockState } from '@/world/city/blocks';
 import { cityStates } from '@/world/state';
 import type { Entrance } from '@/world/wilderness/generator';
-import { buildCity } from './build-city';
+import { buildCity, cityGroup } from './build-city';
 import { Erosion } from './erosion';
 import { InkStains } from './ink-stains';
 import { InkTide } from './ink-tide';
@@ -23,7 +25,6 @@ export class CityScene implements GameScene {
   readonly ref: { readonly kind: 'city'; readonly id: string };
   readonly name: string;
   readonly root = new THREE.Group();
-  readonly physics = new PhysicsWorld(8);
   readonly states: Uint8Array;
   private readonly texture: SurfaceStateTexture;
   private readonly material: THREE.ShaderMaterial;
@@ -32,7 +33,6 @@ export class CityScene implements GameScene {
   private readonly colored: number[];
   private readonly totals: number[];
   private coloredAll = 0;
-  private exiting = false;
   /** True when the saved states belonged to an older layout and were discarded. */
   readonly wasReset: boolean;
   readonly stains: InkStains;
@@ -46,6 +46,8 @@ export class CityScene implements GameScene {
     private readonly ctx: GameContext,
     readonly entrance: Entrance,
     readonly layout: CityLayout,
+    /** The wilderness's physics: the town's walls and houses go in it while it stands. */
+    readonly physics: PhysicsWorld,
   ) {
     this.ref = { kind: 'city', id: layout.id };
     this.name = layout.name;
@@ -66,6 +68,10 @@ export class CityScene implements GameScene {
     });
     this.texture = new SurfaceStateTexture(this.states);
     this.material = makeInkMaterial({ state: this.texture });
+    // the town's ground lies on the land's own triangles: draw it in front of them
+    this.material.polygonOffset = true;
+    this.material.polygonOffsetFactor = -1;
+    this.material.polygonOffsetUnits = -2;
     // geometry and colliders worked out ahead of time in the city worker, when they are ready
     const built = ctx.cities.takeBuilt(layout.id);
     let geometry: THREE.BufferGeometry;
@@ -95,29 +101,32 @@ export class CityScene implements GameScene {
           // a fallen monster or a granted wish frees the colour around it; bloom each surface
           for (let i = 0; i < this.states.length; i++) gained = this.sync(i, true) || gained;
         else return;
-        this.updateSceneSat();
         if (gained) this.checkComplete();
       }),
     );
+    // a restored town's gates are stops on the travel ring
     for (const gate of layout.gates) {
-      const pos = new THREE.Vector3((gate.ix + 0.5) * layout.cell, 0, (gate.iz + 0.5) * layout.cell);
-      this.release.push(
-        ctx.interactions.add({
-          scene: `city:${layout.id}`,
-          pos,
-          radius: 8,
-          label: () => 'E 回到野外',
-          activate: () => ctx.scenes.enterWild(),
-          alt: ctx.scenes.travelAction(layout.id),
-        }),
+      const pos = new THREE.Vector3(
+        layout.ox + (gate.ix + 0.5) * layout.cell,
+        groundAt(
+          layout,
+          layout.ox + (gate.ix + 0.5) * layout.cell,
+          layout.oz + (gate.iz + 0.5) * layout.cell,
+        ),
+        layout.oz + (gate.iz + 0.5) * layout.cell,
       );
+      const travel = ctx.scenes.travelAction(layout.id, 'E');
+      this.release.push(ctx.interactions.add({ scene: `city:${layout.id}`, pos, radius: 8, ...travel }));
     }
-    this.updateSceneSat();
   }
 
   spawn(): { pos: THREE.Vector3; yaw: number } {
     return {
-      pos: new THREE.Vector3(this.layout.spawn.x, 0.05, this.layout.spawn.z),
+      pos: new THREE.Vector3(
+        this.layout.spawn.x,
+        groundAt(this.layout, this.layout.spawn.x, this.layout.spawn.z) + 0.05,
+        this.layout.spawn.z,
+      ),
       yaw: this.layout.spawn.yaw,
     };
   }
@@ -145,9 +154,10 @@ export class CityScene implements GameScene {
       this.colored[s.chunk]! += d;
       this.coloredAll += d;
     }
-    if (before && !after) this.ctx.events.emit('paint:drained', { at: { x: s.x, y: 2, z: s.z } });
+    const y = groundAt(this.layout, s.x, s.z) + 2;
+    if (before && !after) this.ctx.events.emit('paint:drained', { at: { x: s.x, y, z: s.z } });
     if (bloom && !before && after)
-      this.ctx.events.emit('paint:bloom', { at: { x: s.x, y: 2, z: s.z }, color: s.color });
+      this.ctx.events.emit('paint:bloom', { at: { x: s.x, y, z: s.z }, color: s.color });
     if (this.texture.get(i) !== this.states[i]) this.texture.set(i, this.states[i]!);
     return !before && after;
   }
@@ -183,37 +193,27 @@ export class CityScene implements GameScene {
   chunkAt(pos: THREE.Vector3): number {
     const side = this.layout.chunks;
     const per = this.layout.size / side;
-    const cx = Math.min(side - 1, Math.max(0, Math.floor(pos.x / per)));
-    const cz = Math.min(side - 1, Math.max(0, Math.floor(pos.z / per)));
+    const cx = Math.min(side - 1, Math.max(0, Math.floor((pos.x - this.layout.ox) / per)));
+    const cz = Math.min(side - 1, Math.max(0, Math.floor((pos.z - this.layout.oz) / per)));
     return cz * side + cx;
   }
 
-  private updateSceneSat(): void {
-    shared.uSceneSat.value = 0.25 + 0.75 * this.progress();
-  }
-
-  activate(): void {
-    shared.uCityCount.value = 0;
-    this.updateSceneSat();
-  }
-
-  /** Walking out through a gate leaves the city, same as pressing E there. */
   brushStop(eye: THREE.Vector3, forward: THREE.Vector3): number | null {
     return this.tide.curtainDistance(eye, forward);
   }
 
+  /** While the player is inside. */
   update(dt: number): void {
-    if (this.exiting) return;
     this.stains.update();
     this.erosion.update(dt);
     this.monsters.update(dt);
     this.tide.update(dt);
-    const p = this.ctx.player.position;
-    const s = this.layout.size;
-    if (p.x < 0 || p.z < 0 || p.x > s || p.z > s) {
-      this.exiting = true;
-      this.ctx.scenes.enterWild();
-    }
+  }
+
+  /** While the player is just outside the wall: the guards stay awake; everything else (the
+   * tide's timers, erosion) waits for them to come in. */
+  updateOutside(dt: number): void {
+    this.monsters.update(dt);
   }
 
   dispose(): void {
@@ -223,6 +223,7 @@ export class CityScene implements GameScene {
     this.monsters.dispose();
     this.residents.dispose();
     for (const r of this.release) r();
+    this.physics.removeGroup(cityGroup(this.layout.id));
     this.texture.dispose();
     this.material.dispose();
     disposeTree(this.root);

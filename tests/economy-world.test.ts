@@ -65,8 +65,9 @@ describe('city ink stains and studios', () => {
       chunks.add(st.chunk);
       const b = city.buildings[st.building]!;
       expect(city.surfaces[b.roof]!.chunk).toBe(st.chunk);
-      // the door point is on open ground, not inside a building
-      expect(city.buildingOf[Math.floor(st.door.z / cell) * n + Math.floor(st.door.x / cell)]).toBe(0);
+      // the door point is out in front of the house, not inside it
+      const lz = (st.door.x - b.x) * Math.sin(b.angle) + (st.door.z - b.z) * Math.cos(b.angle);
+      expect(lz).toBeGreaterThan(b.hd);
     }
     expect(city.homeStudio).toBeGreaterThanOrEqual(0);
     const drained = new Uint8Array(city.surfaces.length);

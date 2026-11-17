@@ -37,6 +37,81 @@ export interface ColliderData {
   /** Not hit by brush or line-of-sight rays. */
   readonly seeThrough?: boolean;
   readonly tag?: string;
+  /** This box is one of several standing in for a box turned about +y (see turnedBox): faces
+   * and decals belong to that box, and a hit is placed on them in its own frame. */
+  readonly turned?: TurnedFrame;
+}
+
+/** A box turned about +y, as the boxes standing in for it remember it. */
+export interface TurnedFrame {
+  /** Centre; y is where its own heights start (decals are measured from it). */
+  readonly x: number;
+  readonly y: number;
+  readonly z: number;
+  /** Its own +z faces (sin angle, cos angle). */
+  readonly angle: number;
+  /** Half its size along its own x and z. */
+  readonly hx: number;
+  readonly hz: number;
+  /** Surface ids per face, in its own frame. */
+  readonly faces?: Partial<Record<'px' | 'nx' | 'py' | 'ny' | 'pz' | 'nz', number>>;
+  /** Sub-rectangles of its faces with another surface, in its own frame. */
+  readonly decals?: readonly Decal[];
+}
+
+/**
+ * Axis-aligned boxes standing in for a box turned about +y, from y0 to y1: slices across it no
+ * wider than `slice`, each only as long as the turned box is all along the slice, so none
+ * pokes out of it. A box turned by a whole quarter is one box.
+ */
+export function turnedBox(
+  t: TurnedFrame,
+  y0: number,
+  y1: number,
+  add: (min: Vec3Like, max: Vec3Like, data: ColliderData) => void,
+  slice = 0.8,
+): void {
+  const c = Math.cos(t.angle);
+  const s = Math.sin(t.angle);
+  const corners = [
+    [-1, -1],
+    [1, -1],
+    [1, 1],
+    [-1, 1],
+  ].map(([u, v]) => ({ x: t.x + c * u! * t.hx + s * v! * t.hz, z: t.z - s * u! * t.hx + c * v! * t.hz }));
+  const data: ColliderData = { turned: t };
+  const xs = corners.map((p) => p.x);
+  const zs = corners.map((p) => p.z);
+  const x0 = Math.min(...xs);
+  const x1 = Math.max(...xs);
+  if (Math.abs(s) < 0.03 || Math.abs(c) < 0.03) {
+    add({ x: x0, y: y0, z: Math.min(...zs) }, { x: x1, y: y1, z: Math.max(...zs) }, data);
+    return;
+  }
+  /** Where the outline crosses x: its lowest and highest z there. */
+  const across = (x: number): [number, number] => {
+    let lo = Infinity;
+    let hi = -Infinity;
+    for (let i = 0; i < 4; i++) {
+      const a = corners[i]!;
+      const b = corners[(i + 1) % 4]!;
+      if ((x < a.x && x < b.x) || (x > a.x && x > b.x) || a.x === b.x) continue;
+      const z = a.z + ((x - a.x) / (b.x - a.x)) * (b.z - a.z);
+      lo = Math.min(lo, z);
+      hi = Math.max(hi, z);
+    }
+    return [lo, hi];
+  };
+  const count = Math.ceil((x1 - x0) / slice);
+  for (let k = 0; k < count; k++) {
+    const xa = x0 + ((x1 - x0) * k) / count;
+    const xb = x0 + ((x1 - x0) * (k + 1)) / count;
+    const [loA, hiA] = across(xa);
+    const [loB, hiB] = across(xb);
+    const lo = Math.max(loA, loB);
+    const hi = Math.min(hiA, hiB);
+    if (hi - lo > 0.05) add({ x: xa, y: y0, z: lo }, { x: xb, y: y1, z: hi }, data);
+  }
 }
 
 export interface Decal {
@@ -518,6 +593,7 @@ export class PhysicsWorld {
 /** Which surface a ray hit on a paintable box, or null. */
 export function surfaceAt(hit: RayHit): number | null {
   const { box, normal, point } = hit;
+  if (box.data.turned) return turnedSurfaceAt(box.data.turned, normal, point);
   const face =
     normal.x > 0.5
       ? 'px'
@@ -544,4 +620,35 @@ export function surfaceAt(hit: RayHit): number | null {
       return d.surface;
   }
   return box.data.faces?.[face] ?? null;
+}
+
+/** Which face of a turned box a hit is on, and its surface, worked out in the box's own frame. */
+function turnedSurfaceAt(t: TurnedFrame, normal: Vec3Like, point: Vec3Like): number | null {
+  const c = Math.cos(t.angle);
+  const s = Math.sin(t.angle);
+  const dx = point.x - t.x;
+  const dz = point.z - t.z;
+  const lx = dx * c - dz * s;
+  const lz = dx * s + dz * c;
+  const ly = point.y - t.y;
+  const face =
+    normal.y > 0.5
+      ? 'py'
+      : normal.y < -0.5
+        ? 'ny'
+        : Math.abs(lx) - t.hx > Math.abs(lz) - t.hz
+          ? lx > 0
+            ? 'px'
+            : 'nx'
+          : lz > 0
+            ? 'pz'
+            : 'nz';
+  for (const d of t.decals ?? []) {
+    if (d.face !== face) continue;
+    // the stand-in boxes sit a little inside the turned one: only check along the face
+    const u = face === 'pz' || face === 'nz' ? lx : lz;
+    const [u0, u1] = face === 'pz' || face === 'nz' ? [d.min.x, d.max.x] : [d.min.z, d.max.z];
+    if (u >= u0 - 0.05 && u <= u1 + 0.05 && ly >= d.min.y - 0.05 && ly <= d.max.y + 0.05) return d.surface;
+  }
+  return t.faces?.[face] ?? null;
 }

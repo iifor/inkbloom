@@ -126,11 +126,7 @@ export class PlayerSystem implements System, PlayerApi {
     if (this.wish.lengthSq() > 1) this.wish.normalize();
 
     const p = this.position;
-    const wet =
-      this.ctx.scenes.active.ref.kind === 'wild' &&
-      !this.flying &&
-      this.ctx.combat.alive &&
-      p.y < WATER_LEVEL - 0.03;
+    const wet = !this.flying && this.ctx.combat.alive && p.y < WATER_LEVEL - 0.03;
     const depth = wet ? WATER_LEVEL - this.ctx.wilderness.heightAt(p.x, p.z) : 0;
     const wasSwimming = this.waterMode === 'swimming';
     const ground = this.ctx.wilderness.heightAt;

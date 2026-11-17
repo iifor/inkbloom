@@ -646,11 +646,13 @@ body {
 
 /* ---- the quiet HUD: parts fade in when they have something to say, then away again ---- */
 .hud-place,
-.hud-hp {
+.hud-hp,
+.hud-tool {
   transition: opacity 0.6s ease;
 }
 .hud-place.quiet,
-.hud-hp.quiet {
+.hud-hp.quiet,
+.hud-tool.quiet {
   opacity: 0;
 }
 /* lines inside a card take no room while they are hidden */

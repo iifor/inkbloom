@@ -8,6 +8,7 @@ import { CityScene } from '@/systems/city/city-scene';
 import type { SceneManager } from '@/systems/scenes/scene-manager';
 import { studioOpen } from '@/world/city/features';
 import { bearing, objective, type Point, type Situation } from '@/world/objectives';
+import { type Entrance, townDistance } from '@/world/wilderness/generator';
 import { lesson } from './hints';
 
 /** How many times each lesson is added to the objective before the player is trusted with it. */
@@ -97,7 +98,7 @@ export class ObjectiveSystem implements System {
           completed: scene.completed,
           coloredBlocks: blocks.filter((b) => b === 'colored' || b === 'thriving').length,
           blocks: blocks.length,
-          gate: { x: (gate.ix + 0.5) * l.cell, z: (gate.iz + 0.5) * l.cell },
+          gate: { x: l.ox + (gate.ix + 0.5) * l.cell, z: l.oz + (gate.iz + 0.5) * l.cell },
           studio: near(l.studios.filter((_, i) => studioOpen(l, states, i)).map((s) => s.door)),
           stain: near(l.stains.filter((_, i) => !scene.stains.isCollected(i))),
           guards: scene.monsters.standing(scene.chunkAt(p)),
@@ -110,10 +111,20 @@ export class ObjectiveSystem implements System {
     const entrances = wilderness
       .entrancesNear(p.x, p.z, 2)
       .filter((e) => !state.cities.get(e.cityId)?.completed)
-      .sort((a, b) => Math.hypot(a.x - p.x, a.z - p.z) - Math.hypot(b.x - p.x, b.z - p.z));
+      .sort((a, b) => townDistance(a, p.x, p.z) - townDistance(b, p.x, p.z));
     const e = entrances[0];
-    // the name comes with the city's layout, worked out in the background; until then, generic
+    // the name and the gate come with the city's layout, worked out in the background; until
+    // then, a generic name and the middle of the wall the main gate is in
     const name = e ? (cities.nameOf(e) ?? '一座城') : '';
-    return { ...base, scene: 'wild', nextCity: e ? { x: e.x, z: e.z, name } : null };
+    return { ...base, scene: 'wild', nextCity: e ? { ...this.mainGate(e), name } : null };
+  }
+
+  private mainGate(e: Entrance): { x: number; z: number } {
+    const l = this.ctx.cities.byId(e.cityId);
+    const g = l?.gates[0];
+    if (l && g) return { x: l.ox + (g.ix + 0.5) * l.cell, z: l.oz + (g.iz + 0.5) * l.cell };
+    const h = e.size / 2;
+    const [dx, dz] = { px: [h, 0], nx: [-h, 0], pz: [0, h], nz: [0, -h] }[e.gate];
+    return { x: e.x + dx!, z: e.z + dz! };
   }
 }

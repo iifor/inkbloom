@@ -183,6 +183,8 @@ export class GrassField {
           z = (k + r(1) * 0.9) * grid.step;
         const y = w.heightAt(x, z);
         if (y <= WATER_LEVEL) continue;
+        // towns have paving and yards of their own
+        if (w.townAt(x, z, 1)) continue;
         const climate = w.climate(x, z);
         const biome = climateBiome(climate);
         const cover = COVER[biome === 'water' ? 'grassland' : biome];

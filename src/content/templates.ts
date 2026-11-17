@@ -53,37 +53,6 @@ export const BUILDINGS = [
   },
 ] as const satisfies readonly BuildingTemplate[];
 
-/** Styles of the roadside house where the player enters each settlement. */
-export const LANDMARKS = [
-  {
-    style: 'cottage',
-    width: 13,
-    depth: 12,
-    height: 4.2,
-    plaster: color('limewash'),
-    tile: color('clayTile'),
-    door: color('teal'),
-  },
-  {
-    style: 'barn',
-    width: 12,
-    depth: 13,
-    height: 4.6,
-    plaster: color('cream'),
-    tile: color('slateTile'),
-    door: color('brown'),
-  },
-  {
-    style: 'shop',
-    width: 15,
-    depth: 12,
-    height: 4.0,
-    plaster: color('limewash'),
-    tile: color('clayTile'),
-    door: color('blue'),
-  },
-] as const;
-
 /** Wilderness ruins. Each guards a crayon: reaching it unlocks a colour. */
 export interface RuinTemplate {
   readonly key: string;

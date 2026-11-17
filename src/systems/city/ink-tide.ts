@@ -10,7 +10,7 @@ import * as THREE from 'three';
 import { TUNING } from '@/content/tuning';
 import type { GameContext } from '@/game/types';
 import { blockBounds, depthFrom, tideTargets, type BlockState } from '@/world/city/blocks';
-import type { CityLayout } from '@/world/city/layout';
+import { type CityLayout, groundAt } from '@/world/city/layout';
 import { isColored } from '@/world/paint/surfaces';
 import { stats } from '@/world/progression';
 import type { TideSave, TideWaveSave } from '@/world/state';
@@ -251,7 +251,7 @@ export class InkTide {
     if (Math.abs(d) < 1e-4) return null;
     const t = (plane - o) / d;
     if (t < 0) return null;
-    const hitY = eye.y + forward.y * t;
+    const hitY = eye.y + forward.y * t - this.footOf(w.chunk);
     const hitAcross = alongX ? eye.z + forward.z * t : eye.x + forward.x * t;
     const [lo, hi] = alongX ? [b.z0, b.z1] : [b.x0, b.x1];
     return hitY >= -1 && hitY <= HEIGHT && hitAcross >= lo && hitAcross <= hi ? t : null;
@@ -274,7 +274,7 @@ export class InkTide {
     this.dripT = 0.05;
     const b = blockBounds(w.chunk, this.layout);
     const along = Math.random();
-    const y = 4 + Math.random() * (CURTAIN_HEIGHT - 5);
+    const y = this.footOf(w.chunk) + 4 + Math.random() * (CURTAIN_HEIGHT - 5);
     const at =
       w.from === 0 || w.from === 2
         ? { x: w.from === 0 ? b.x1 - w.front : b.x0 + w.front, y, z: b.z0 + along * (b.z1 - b.z0) }
@@ -289,19 +289,19 @@ export class InkTide {
     // the wave travels, anchored at the corner where its local x starts
     switch (w.from) {
       case 0: // from the east, travelling west
-        c.position.set(b.x1 - w.front, 0, b.z1);
+        c.position.set(b.x1 - w.front, this.footOf(w.chunk), b.z1);
         c.rotation.set(0, Math.PI / 2, 0);
         break;
       case 1: // from the south, travelling north
-        c.position.set(b.x0, 0, b.z1 - w.front);
+        c.position.set(b.x0, this.footOf(w.chunk), b.z1 - w.front);
         c.rotation.set(0, 0, 0);
         break;
       case 2: // from the west, travelling east
-        c.position.set(b.x0 + w.front, 0, b.z0);
+        c.position.set(b.x0 + w.front, this.footOf(w.chunk), b.z0);
         c.rotation.set(0, -Math.PI / 2, 0);
         break;
       default: // from the north, travelling south
-        c.position.set(b.x1, 0, b.z0 + w.front);
+        c.position.set(b.x1, this.footOf(w.chunk), b.z0 + w.front);
         c.rotation.set(0, Math.PI, 0);
     }
     this.curtain.update(w.front, now);
@@ -309,7 +309,25 @@ export class InkTide {
 
   private blockCentre(chunk: number): { x: number; y: number; z: number } {
     const b = blockBounds(chunk, this.layout);
-    return { x: (b.x0 + b.x1) / 2, y: 2, z: (b.z0 + b.z1) / 2 };
+    const x = (b.x0 + b.x1) / 2;
+    const z = (b.z0 + b.z1) / 2;
+    return { x, y: groundAt(this.layout, x, z) + 2, z };
+  }
+
+  private readonly feet = new Map<number, number>();
+
+  /** The lowest ground in a block: the curtain stands there, so it never floats on a slope. */
+  private footOf(chunk: number): number {
+    let foot = this.feet.get(chunk);
+    if (foot !== undefined) return foot;
+    const { n, cell, ox, oz, heights } = this.layout;
+    const b = blockBounds(chunk, this.layout);
+    foot = Infinity;
+    for (let kz = Math.round((b.z0 - oz) / cell); kz <= Math.round((b.z1 - oz) / cell); kz++)
+      for (let kx = Math.round((b.x0 - ox) / cell); kx <= Math.round((b.x1 - ox) / cell); kx++)
+        foot = Math.min(foot, heights[Math.min(n, kz) * (n + 1) + Math.min(n, kx)]!);
+    this.feet.set(chunk, foot);
+    return foot;
   }
 
   private finish(w: Wave, repelled: boolean): void {

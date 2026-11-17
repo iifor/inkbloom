@@ -2,7 +2,7 @@
 import { BIOMES } from '@/content/biomes';
 import { TUNING } from '@/content/tuning';
 import { hashAt, unit } from '../math/hash';
-import { type Entrance, type Wilderness, WATER_LEVEL } from './generator';
+import { type Wilderness, WATER_LEVEL } from './generator';
 import { type PigmentSource, sourcesInChunk } from './sources';
 import { type Ruin, ruinsInChunk } from './ruins';
 
@@ -30,7 +30,6 @@ export interface WildChunk {
   readonly biomes: Uint8Array;
   readonly trees: readonly Tree[];
   readonly hasWater: boolean;
-  readonly entrance: Entrance | null;
   readonly sources: readonly PigmentSource[];
   readonly ruins: readonly Ruin[];
 }
@@ -56,10 +55,6 @@ export function generateWildChunk(w: Wilderness, cx: number, cz: number): WildCh
       if (h < WATER_LEVEL) hasWater = true;
     }
 
-  const entrances = w.entrancesNear(x0 + size / 2, z0 + size / 2, 1);
-  const entrance = entrances.find((e) => e.chunk[0] === cx && e.chunk[1] === cz) ?? null;
-  const clear = TUNING.structures.entranceFlatRadius;
-
   const trees: Tree[] = [];
   const at = (ix: number, iz: number): number =>
     ix >= 0 && iz >= 0 && ix < n && iz < n
@@ -82,7 +77,7 @@ export function generateWildChunk(w: Wilderness, cx: number, cz: number): WildCh
       const x = x0 + (ix + 0.2 + 0.6 * unit(h >>> 3)) * cell;
       const z = z0 + (iz + 0.2 + 0.6 * unit(h >>> 11)) * cell;
       if (Math.hypot(x, z) < 14) continue;
-      if (entrances.some((e) => Math.hypot(x - e.x, z - e.z) < clear)) continue;
+      if (w.townAt(x, z, TUNING.structures.townClearance)) continue;
       trees.push({
         x,
         z,
@@ -102,5 +97,5 @@ export function generateWildChunk(w: Wilderness, cx: number, cz: number): WildCh
       !sources.some((src) => Math.hypot(t.x - src.x, t.z - src.z) < 4) &&
       !ruins.some((r) => Math.hypot(t.x - r.x, t.z - r.z) < 14),
   );
-  return { cx, cz, x0, z0, n, cell, heights, biomes, trees: clearTrees, hasWater, entrance, sources, ruins };
+  return { cx, cz, x0, z0, n, cell, heights, biomes, trees: clearTrees, hasWater, sources, ruins };
 }

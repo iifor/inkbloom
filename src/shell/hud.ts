@@ -3,8 +3,9 @@
 //
 // A quiet HUD: most of the time only the crosshair is on screen. Things appear when they have
 // something to say and fade again: the objective when it changes (or on J), resources when
-// they change, block progress while painting, tool names after switching, health when hurt,
-// a title card on arriving somewhere. Lessons (toast `once`) show the first time only.
+// they change, block progress when it moves, what the tool in hand is doing when that changes
+// (or while aiming it at something), health when hurt, a title card on arriving somewhere.
+// Lessons (toast `once`) show the first time only.
 import { PALETTE } from '@/content/palette';
 import { TUNING } from '@/content/tuning';
 import type { GameContext, System } from '@/game/types';
@@ -13,13 +14,21 @@ import type { SceneManager } from '@/systems/scenes/scene-manager';
 import type { ToolBelt } from '@/systems/tools/tool';
 import type { ObjectiveSystem } from './objectives';
 import { SIDE_NAMES, type TideStatus } from '@/systems/city/ink-tide';
-import { BLOCK_NAMES, blockState } from '@/world/city/blocks';
 import { levelProgress } from '@/world/progression';
 import { WEAPONS } from '@/content/weapons';
 import { lesson } from './hints';
 
 /** Seconds things stay up after they change. */
-const SHOW = { goal: 8, recall: 6, res: 3, slots: 2.5, title: 3.5, fullHealth: 2 } as const;
+const SHOW = {
+  goal: 8,
+  recall: 6,
+  res: 3,
+  progress: 4,
+  slots: 2.5,
+  tool: 3,
+  title: 3.5,
+  fullHealth: 2,
+} as const;
 /** Most messages on screen at once; the oldest goes first. */
 const MAX_TOASTS = 3;
 
@@ -70,11 +79,16 @@ export class Hud implements System {
   private goalUntil = 0;
   private recallUntil = 0;
   private resUntil = 0;
+  private progressUntil = 0;
   private slotsUntil = 0;
+  private toolUntil = 0;
   private fullSince = 0;
   private goalSeenAt = -Infinity;
-  private lastRes = '';
+  private lastParts: { level: string; ink: string; generic: string } | null = null;
+  private resNews = '';
+  private lastProgress = '';
   private lastTool = -1;
+  private lastToolLine = '';
 
   constructor(
     private readonly ctx: GameContext,
@@ -215,34 +229,44 @@ export class Hud implements System {
     }
     const goalOn = recall || t < this.goalUntil;
     this.set('place', this.el.place, scene.name);
+    let progress = '';
     if (scene instanceof CityScene) {
       const chunk = scene.chunkAt(this.ctx.player.position);
-      const here = scene.progress(chunk);
-      const stains = scene.stains.remaining(chunk);
-      this.set(
-        'progress',
-        this.el.progress,
-        ` 街区${BLOCK_NAMES[blockState(here)]} ${Math.round(here * 100)}% · 全城 ${Math.round(scene.progress() * 100)}% · 本街区墨渍 ${stains}`,
-      );
+      progress = `街区 ${Math.round(scene.progress(chunk) * 100)}% · 全城 ${Math.round(scene.progress() * 100)}%`;
       this.set('tide', this.el.tide, tideLine(scene.tide.status(), chunk));
-    } else {
-      this.set('progress', this.el.progress, '');
-      this.set('tide', this.el.tide, '');
+    } else this.set('tide', this.el.tide, '');
+    // block progress is news when it moves (a surface painted, another district walked into)
+    if (progress !== this.lastProgress) {
+      if (progress) this.progressUntil = t + SHOW.progress;
+      this.lastProgress = progress;
     }
-    // block progress is for painting: only while the brush is out in a city (or on J)
-    const progressOn = scene instanceof CityScene && (brush || recall);
+    this.set('progress', this.el.progress, progress);
+    const progressOn = scene instanceof CityScene && (recall || (brush && t < this.progressUntil));
     this.shown('progress', this.el.progress, progressOn);
     const inv = this.ctx.state.inventory;
     const g = this.ctx.state.growth;
     const lp = levelProgress(g.xp);
-    const lv = `Lv ${lp.level}${lp.need ? ` (${lp.into}/${lp.need})` : ''}${g.points ? ` · ${g.points} 属性点（Tab）` : ''}`;
-    const res = `${lv} · 墨 ${inv.ink} · 通用颜料 ${inv.generic}`;
-    if (res !== this.lastRes) {
-      // the very first value is not news
-      if (this.lastRes) this.resUntil = t + SHOW.res;
-      this.lastRes = res;
+    const points = g.points ? ` · ${g.points} 属性点（Tab）` : '';
+    const parts = {
+      level: `Lv ${lp.level}${points}`,
+      ink: `墨 ${inv.ink}`,
+      generic: `通用颜料 ${inv.generic}`,
+    };
+    // news is only what changed: a new level or points, ink, pigment (unless the brush's own
+    // line is already counting it). Experience ticking up is not; the first values are not
+    if (this.lastParts) {
+      const changed = (Object.keys(parts) as (keyof typeof parts)[]).filter(
+        (k) => parts[k] !== this.lastParts![k] && !(k === 'generic' && brush),
+      );
+      if (changed.length) {
+        this.resNews = changed.map((k) => parts[k]).join(' · ');
+        this.resUntil = t + SHOW.res;
+      }
     }
-    this.set('res', this.el.res, res);
+    this.lastParts = parts;
+    // J shows the lot
+    const all = `Lv ${lp.level}${lp.need ? ` (${lp.into}/${lp.need})` : ''}${points} · ${parts.ink} · ${parts.generic}`;
+    this.set('res', this.el.res, recall ? all : this.resNews);
     const resOn = recall || t < this.resUntil;
     this.shown('res', this.el.res, resOn);
     this.set('goal', this.el.goal, this.objectives.text);
@@ -277,8 +301,22 @@ export class Hud implements System {
     }
     this.shown('slots', this.el.slots, recall || t < this.slotsUntil);
     const hud = this.ctx.player.waterMode === 'swimming' ? undefined : this.belt.active?.hud();
-    const glide = this.ctx.player.gliding ? '\n纸飞机滑翔中' : '';
-    this.set('lines', this.el.lines, (hud?.lines.join('\n') ?? '') + glide);
+    // the tool's own line (mode and pigment, weapon and ammo) is news when it changes; the rest
+    // (what the brush is aimed at, a skill cooling down) shows for as long as it is there
+    const [own = '', ...rest] = hud?.lines ?? [];
+    if (own !== this.lastToolLine) {
+      if (this.lastToolLine) this.toolUntil = t + SHOW.tool;
+      this.lastToolLine = own;
+    }
+    const busy = hud?.progress !== null && hud?.progress !== undefined;
+    const ownOn = recall || busy || t < this.toolUntil || t < this.slotsUntil;
+    const lines = [
+      ...(ownOn && own ? [own] : []),
+      ...rest,
+      ...(this.ctx.player.gliding ? ['纸飞机滑翔中'] : []),
+    ];
+    this.set('lines', this.el.lines, lines.join('\n'));
+    this.shown('tool', this.el.tool, lines.length > 0 || recall || t < this.slotsUntil);
     const sw = hud?.swatch ?? null;
     const swKey = String(sw);
     if (this.cache.get('swatch') !== swKey) {

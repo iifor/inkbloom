@@ -8,8 +8,8 @@ import { TUNING } from '@/content/tuning';
 import { BRUSH_TIERS } from '@/content/brush-tiers';
 import { ALWAYS_COLOR, GeometryBuilder } from '@/engine/render/geometry-builder';
 import type { GameContext } from '@/game/types';
-import type { CityLayout } from '@/world/city/layout';
-import { doorFront, studioOpen } from '@/world/city/features';
+import { type CityLayout, groundAt } from '@/world/city/layout';
+import { studioOpen } from '@/world/city/features';
 
 export class Studios {
   private readonly mesh: THREE.Mesh;
@@ -28,38 +28,23 @@ export class Studios {
     const pole = color('brown');
     const solid = (c: number) => ({ px: c, nx: c, pz: c, nz: c, py: c, ny: c });
     const always = solid(ALWAYS_COLOR);
-    // a box centred on (x, z) spanning `along` metres parallel to the door face and `across` out of it
-    const slab = (
-      x: number,
-      z: number,
-      y0: number,
-      y1: number,
-      along: number,
-      across: number,
-      c: number,
-      alongX: boolean,
-    ): void => {
-      const [hx, hz] = alongX ? [along / 2, across / 2] : [across / 2, along / 2];
-      g.box({ x: x - hx, y: y0, z: z - hz }, { x: x + hx, y: y1, z: z + hz }, solid(c), always);
-    };
     for (const s of layout.studios) {
       const b = layout.buildings[s.building]!;
-      const alongX = b.doorFace === 'pz' || b.doorFace === 'nz';
+      // built in the house's own frame (front +z, floor at 0), then turned with it
+      const h = new GeometryBuilder();
+      const slab = (x: number, z: number, y0: number, y1: number, along: number, across: number, c: number) =>
+        h.box(
+          { x: x - along / 2, y: y0, z: z - across / 2 },
+          { x: x + along / 2, y: y1, z: z + across / 2 },
+          solid(c),
+          always,
+        );
       // sign board over the door, readable from the street
-      const sign = doorFront(b, 0.2);
-      slab(sign.x, sign.z, 2.7, 3.6, 3.4, 0.4, flag, alongX);
+      slab(0, b.hd + 0.2, 2.7, 3.6, 3.4, 0.4, flag);
       // pole and flag on the front edge of the roof, so the roof never hides them
-      const top = doorFront(b, -0.4);
-      g.box(
-        { x: top.x - 0.15, y: b.height, z: top.z - 0.15 },
-        { x: top.x + 0.15, y: b.height + 7, z: top.z + 0.15 },
-        solid(pole),
-        always,
-      );
-      const off = 1.8;
-      const fx = alongX ? top.x + off : top.x;
-      const fz = alongX ? top.z : top.z + off;
-      slab(fx, fz, b.height + 4.6, b.height + 6.8, 3.4, 0.12, flag, alongX);
+      slab(0, b.hd - 0.4, b.height, b.height + 7, 0.3, 0.3, pole);
+      slab(1.8, b.hd - 0.4, b.height + 4.6, b.height + 6.8, 3.4, 0.12, flag);
+      g.append(h, new THREE.Matrix4().makeRotationY(b.angle).setPosition(b.x, b.base, b.z));
     }
     this.mesh = new THREE.Mesh(g.build(), material);
     root.add(this.mesh);
@@ -69,7 +54,7 @@ export class Studios {
       this.release.push(
         ctx.interactions.add({
           scene,
-          pos: new THREE.Vector3(s.door.x, 0, s.door.z),
+          pos: new THREE.Vector3(s.door.x, groundAt(layout, s.door.x, s.door.z), s.door.z),
           radius: 3,
           label: () => this.label(i),
           activate: () => this.refine(i),

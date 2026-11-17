@@ -33,7 +33,7 @@ export class InteractionSystem implements System, InteractionApi {
       if (it.scene !== here) continue;
       const d = it.pos.distanceTo(player.position);
       if (d > Math.max(it.radius, TUNING.interaction.radius)) continue;
-      if (d < bestD) {
+      if (d < bestD && it.label() !== null) {
         bestD = d;
         best = it;
       }

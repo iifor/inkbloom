@@ -8,7 +8,7 @@ import type { GameContext } from '@/game/types';
 import { MonsterGroup } from '@/systems/combat/monsters';
 import { blockBounds, depthFrom } from '@/world/city/blocks';
 import { standingMonsters } from '@/world/city/features';
-import { ROAD_NONE, type CityLayout } from '@/world/city/layout';
+import { ROAD_NONE, type CityLayout, groundAt } from '@/world/city/layout';
 import { cityNav } from '@/world/nav/grids';
 import { stolenColors } from '@/world/paint/stolen';
 
@@ -28,7 +28,7 @@ export class CityMonsters {
     this.group.nav = cityNav(layout);
     layout.monsters.forEach((m, i) => {
       if (defeated[i]) return;
-      this.group.spawn(m.type, new THREE.Vector3(m.x, 0.05, m.z), {
+      this.group.spawn(m.type, new THREE.Vector3(m.x, groundAt(layout, m.x, m.z) + 0.05, m.z), {
         tag: 'stronghold',
         onDefeat: () => this.defeat(i),
         colors: this.colorsOf(m.chunk),
@@ -64,17 +64,17 @@ export class CityMonsters {
 
   /** Monsters that come in with a tide, on road cells near the edge it enters through. */
   spawnTide(chunk: number, from: number, onDefeat: () => void): void {
-    const { n, cell, roads } = this.layout;
+    const { n, cell, roads, ox, oz } = this.layout;
     const bounds = blockBounds(chunk, this.layout);
     const spots: THREE.Vector3[] = [];
     for (let iz = 0; iz < n; iz++)
       for (let ix = 0; ix < n; ix++) {
         if (roads[iz * n + ix] === ROAD_NONE) continue;
-        const x = (ix + 0.5) * cell;
-        const z = (iz + 0.5) * cell;
+        const x = ox + (ix + 0.5) * cell;
+        const z = oz + (iz + 0.5) * cell;
         if (x < bounds.x0 || x >= bounds.x1 || z < bounds.z0 || z >= bounds.z1) continue;
         const depth = depthFrom({ kind: 'ground', chunk, color: 0, area: 0, x, z }, from, bounds);
-        if (depth < 18) spots.push(new THREE.Vector3(x, 0.05, z));
+        if (depth < 18) spots.push(new THREE.Vector3(x, groundAt(this.layout, x, z) + 0.05, z));
       }
     const [lo, hi] = TUNING.combat.tideMonsters;
     const count = lo + Math.floor(Math.random() * (hi - lo + 1));

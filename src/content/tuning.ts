@@ -16,12 +16,21 @@ export const TUNING = {
     spawnCalmRadius: 220,
   },
   structures: {
-    /** City entrances: one per grid cell of this many chunks (design: one per 6–8 chunks). */
+    /** Towns: one per grid cell of this many chunks (design: one per 6–8 chunks). Each stands
+     * in the middle of its cell, so neighbouring towns are always a few hundred metres apart. */
     cityGrid: 7,
-    /** The first city is forced here so it is visible from spawn. */
+    /** The first town's id comes from this chunk (ids are kept stable for saves). */
     firstCityChunk: [2, 1] as const,
-    /** Radius in metres flattened around an entrance landmark. */
-    entranceFlatRadius: 40,
+    /** The first town's north-west corner, just across the river east of spawn. */
+    firstTownOrigin: [260, 60] as const,
+    /** A town stands this far (metres, either way) from the middle of its grid cell. */
+    townJitter: 60,
+    /** Share of the land's rise and fall a town keeps: its hills, gentler. */
+    townRelief: 0.5,
+    /** Metres over which the land eases from a town's gentler hills back to the wild ones. */
+    townSkirt: 60,
+    /** Trees, pigment sources, ruins and wild monsters keep this far outside a town's wall. */
+    townClearance: 12,
     /** Ruins: one chance per grid cell of this many chunks. design: every 4×4 chunks, 60% */
     ruinGrid: 4,
     ruinChance: 0.6,
@@ -31,11 +40,12 @@ export const TUNING = {
     ruinPigment: 8,
   },
   drain: {
-    /** Wilderness within this distance of an unrestored city is fully drained. Cities are
-     * ~900 m apart, so keep outerRadius well under half that or nothing is ever coloured. */
-    innerRadius: 90,
-    /** Drain fades out completely by this distance. */
-    outerRadius: 260,
+    /** Wilderness within this distance of an unrestored town's wall is fully drained. Town
+     * walls are as little as ~140 m apart, so keep outerRadius near that or nothing between
+     * two grey towns ever has colour. */
+    innerRadius: 40,
+    /** Drain fades out completely by this distance from the wall. */
+    outerRadius: 170,
     /** Shader uniform capacity for nearby cities. */
     maxCities: 8,
   },
@@ -48,26 +58,36 @@ export const TUNING = {
     completeReward: { generic: 60, ink: 40 },
     /** Raster cell for road growth and lots, metres. */
     cell: 4,
-    roads: {
-      mainWidth: 3, // cells
-      sideWidth: 2,
-      alleyWidth: 1,
-      /** Probability per cell that a growing road turns 90°. */
-      turnChance: { main: 0.02, side: 0.06, alley: 0.1 },
-      /** Probability per cell of spawning a branch. */
-      branchChance: { main: 0.07, side: 0.06, alley: 0 },
-      maxLength: { main: 200, side: 30, alley: 14 },
-      minSegment: 4,
-      /** Cells a main road runs straight from its gate before it may turn. */
-      mainStraight: 10,
-    },
-    lots: {
-      minSize: 3, // cells
-      maxSize: 5,
-      minFloors: 1,
-      maxFloors: 6,
+    /** Street widths, metres. */
+    streets: { main: 7, side: 5, lane: 3.5 },
+    /** How much more a street costs per cell for each unit of (rise / run)²: streets bend
+     * round hills instead of climbing them. */
+    climbCost: 60,
+    /** Street cost added by a slow noise field, 0..this: streets wander a little. */
+    wander: 0.8,
+    /** Cost of running along an existing street, against 1 for open ground: lanes join the
+     * nearest street and follow it, so they branch like a tree. */
+    reuse: 0.35,
+    /** Lanes reach out to points about this far apart (metres). */
+    reachSpacing: 36,
+    /** The town square's radius, metres. */
+    square: 9,
+    houses: {
+      /** Width along the street and depth, metres, for a cottage; barns and shops scale it. */
+      width: [7.5, 11],
+      depth: [6.5, 9],
+      /** Front garden between the street's edge and the house. */
+      setback: [1.6, 3.4],
+      /** Space between neighbouring houses along a street. */
+      gap: [2.5, 7],
+      /** Most the ground may rise across a house's footprint; its pad makes up the rest. */
+      maxRise: 2.2,
+      /** Chance of a house where there is room, from the square (first) to the wall. */
+      density: [0.95, 0.4],
       floorHeight: 3.2,
     },
+    /** Yards are cut into paintable patches of at most this many cells per side. */
+    yardPatch: 6,
   },
   player: {
     eyeHeight: 1.65,

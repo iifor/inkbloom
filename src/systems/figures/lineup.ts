@@ -52,7 +52,7 @@ export class FigureLineup {
   }
 
   private groundAt(x: number, z: number): number {
-    return this.ctx.scenes.active.ref.kind === 'wild' ? this.ctx.wilderness.heightAt(x, z) : 0;
+    return this.ctx.wilderness.townAt(x, z)?.y ?? this.ctx.wilderness.heightAt(x, z);
   }
 
   update(dt: number): void {

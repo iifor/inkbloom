@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { TUNING } from '@/content/tuning';
-import { createWilderness } from '@/world/wilderness/generator';
+import { createWilderness, townDistance } from '@/world/wilderness/generator';
 import { chunkSaturation, wildMonsterById, wildMonstersInChunk } from '@/world/wilderness/wild-monsters';
 
 const SEED = 20261102;
@@ -29,7 +29,7 @@ describe('wilderness monsters', () => {
     expect(new Set(list.map((m) => m.id)).size).toBe(list.length);
   });
 
-  it('keep away from spawn, water and city towers', () => {
+  it('keep away from spawn, water and towns', () => {
     const w = createWilderness(SEED);
     for (let cx = -3; cx <= 3; cx++)
       for (let cz = -3; cz <= 3; cz++)
@@ -37,16 +37,16 @@ describe('wilderness monsters', () => {
           expect(Math.hypot(m.x, m.z)).toBeGreaterThanOrEqual(60);
           expect(m.y).toBeGreaterThan(-0.75);
           for (const e of w.entrancesNear(m.x, m.z, 1))
-            expect(Math.hypot(m.x - e.x, m.z - e.z)).toBeGreaterThanOrEqual(
-              TUNING.structures.entranceFlatRadius,
-            );
+            expect(townDistance(e, m.x, m.z)).toBeGreaterThanOrEqual(TUNING.structures.townClearance);
         }
   });
 
-  it('thin out as the nearby city is restored', () => {
+  it('thin out as the nearby town is restored', () => {
     const w = createWilderness(SEED);
     const e = w.entranceInCell(0, 0)!;
-    const [cx, cz] = e.chunk;
+    // the chunk just outside the town's east wall
+    const cx = Math.floor((e.ox + e.size) / TUNING.world.chunkSize);
+    const cz = Math.floor(e.z / TUNING.world.chunkSize);
     const grey = chunkSaturation(w, cx + 1, cz, () => 0);
     const bright = chunkSaturation(w, cx + 1, cz, () => 1);
     expect(grey).toBeLessThan(W.drainedBelow);

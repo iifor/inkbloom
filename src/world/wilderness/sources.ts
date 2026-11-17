@@ -38,7 +38,6 @@ export function sourcesInChunk(w: Wilderness, cx: number, cz: number): PigmentSo
   const cell = TUNING.world.cellSize;
   const n = size / cell;
   const out: PigmentSource[] = [];
-  const entrances = w.entrancesNear((cx + 0.5) * size, (cz + 0.5) * size, 1);
   PIGMENT_SOURCES.forEach((def, kind) => {
     const roll = hashAt(w.seed, 'source', cx, cz, kind);
     const starterShells = def.key === 'shells' && cx === 0 && cz === 0;
@@ -55,8 +54,7 @@ export function sourcesInChunk(w: Wilderness, cx: number, cz: number): PigmentSo
       const y = w.heightAt(x, z);
       if (!fits(def.placement, y)) continue;
       if (Math.hypot(x, z) < 12) continue;
-      if (entrances.some((e) => Math.hypot(x - e.x, z - e.z) < TUNING.structures.entranceFlatRadius))
-        continue;
+      if (w.townAt(x, z, TUNING.structures.townClearance)) continue;
       out.push({
         id: `${cx},${cz}:${kind}`,
         kind,

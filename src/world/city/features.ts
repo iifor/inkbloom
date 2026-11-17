@@ -13,7 +13,7 @@ import { Rng } from '../math/rng';
 import { GRAFFITI_BASE, coloredRatio, type SurfaceInfo } from '../paint/surfaces';
 
 export interface Stain {
-  /** Metres, city-local, on a road. */
+  /** Metres, on a road. */
   readonly x: number;
   readonly z: number;
   readonly chunk: number;
@@ -56,6 +56,10 @@ export interface Studio {
 export interface CitySkeleton {
   /** Blocks per side. */
   readonly chunks: number;
+  /** Where the city stands (see CityLayout). Saved flags are matched in the city's own metres,
+   * so moving a city keeps its progress. */
+  readonly ox?: number;
+  readonly oz?: number;
   readonly surfaces: readonly SurfaceInfo[];
   readonly stains: readonly Stain[];
   readonly studios: readonly Studio[];
@@ -77,12 +81,10 @@ interface FeatureInput {
   readonly surfaces: readonly SurfaceInfo[];
   readonly buildings: readonly {
     readonly id: number;
-    readonly x0: number;
-    readonly z0: number;
-    readonly x1: number;
-    readonly z1: number;
-    readonly doorFace: 'px' | 'nx' | 'pz' | 'nz';
-    readonly doorAt: number;
+    readonly x: number;
+    readonly z: number;
+    readonly hd: number;
+    readonly angle: number;
     readonly roof: number;
     readonly walls: Readonly<Record<'px' | 'nx' | 'pz' | 'nz', number>>;
   }[];
@@ -209,21 +211,13 @@ export function placeFeatures(c: FeatureInput): Omit<CitySkeleton, 'surfaces' | 
   return { stains, studios, homeStudio, monsters: monsters.filter((m) => m.chunk !== spawnChunk), requests };
 }
 
-/** A point `out` metres in front of a building's door. */
+/** A point `out` metres in front of a building's door (the middle of its front, which faces
+ * (sin angle, cos angle)). */
 export function doorFront(
-  b: { x0: number; z0: number; x1: number; z1: number; doorFace: 'px' | 'nx' | 'pz' | 'nz'; doorAt: number },
+  b: { readonly x: number; readonly z: number; readonly hd: number; readonly angle: number },
   out: number,
 ): { x: number; z: number } {
-  switch (b.doorFace) {
-    case 'px':
-      return { x: b.x1 + out, z: b.doorAt };
-    case 'nx':
-      return { x: b.x0 - out, z: b.doorAt };
-    case 'pz':
-      return { x: b.doorAt, z: b.z1 + out };
-    case 'nz':
-      return { x: b.doorAt, z: b.z0 - out };
-  }
+  return { x: b.x + Math.sin(b.angle) * (b.hd + out), z: b.z + Math.cos(b.angle) * (b.hd + out) };
 }
 
 /** Whether a studio can be used: the home studio always, others once their chunk has colour. */
@@ -235,16 +229,16 @@ export function studioOpen(skel: CitySkeleton, states: Uint8Array, index: number
 }
 
 /** Identifies a stain list so saved stain flags are dropped when the stains move. */
-export function stainFingerprint(stains: readonly Stain[]): number {
+export function stainFingerprint(stains: readonly Stain[], ox = 0, oz = 0): number {
   let f = hashInts(0x57a1, stains.length);
-  for (const s of stains) f = hashInts(f, Math.round(s.x * 10), Math.round(s.z * 10));
+  for (const s of stains) f = hashInts(f, Math.round((s.x - ox) * 10), Math.round((s.z - oz) * 10));
   return f;
 }
 
 /** Identifies a monster list so saved defeat flags are dropped when strongholds move. */
-export function monsterFingerprint(monsters: readonly StrongholdMonster[]): number {
+export function monsterFingerprint(monsters: readonly StrongholdMonster[], ox = 0, oz = 0): number {
   let f = hashInts(0xe11e, monsters.length);
-  for (const m of monsters) f = hashInts(f, m.type, Math.round(m.x * 10), Math.round(m.z * 10));
+  for (const m of monsters) f = hashInts(f, m.type, Math.round((m.x - ox) * 10), Math.round((m.z - oz) * 10));
   return f;
 }
 
