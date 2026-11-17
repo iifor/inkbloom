@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { PAINTABLE, color } from '@/content/palette';
 import { TUNING } from '@/content/tuning';
 import { ALWAYS_COLOR, GeometryBuilder } from '@/engine/render/geometry-builder';
+import { dropGeometry } from '@/engine/render/soft-shapes';
 import { makeInkMaterial } from '@/engine/render/ink-material';
 import type { Point3 } from '@/game/events';
 import type { GameContext, System } from '@/game/types';
@@ -50,7 +51,7 @@ export class EffectsSystem implements System {
 
   constructor(private readonly ctx: GameContext) {
     const g = new GeometryBuilder();
-    g.mesh(new THREE.IcosahedronGeometry(1, 0), new THREE.Matrix4(), 0, ALWAYS_COLOR);
+    g.meshSmooth(dropGeometry(), new THREE.Matrix4(), 0, ALWAYS_COLOR);
     this.mesh = new THREE.InstancedMesh(g.build(), makeInkMaterial(), MAX);
     this.mesh.frustumCulled = false;
     for (let i = 0; i < MAX; i++) {

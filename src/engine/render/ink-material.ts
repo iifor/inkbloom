@@ -91,6 +91,9 @@ varying float vGust;
 varying vec3 vTreePosition;
 varying vec3 vTreeView;
 #endif
+#ifdef CLOTH
+varying vec3 vCloth;
+#endif
 #ifdef FIELD
 uniform vec3 uField;
 uniform vec2 uFieldFade;
@@ -156,6 +159,11 @@ void main() {
   #ifdef TREE
     vTreePosition = world.xyz;
     vTreeView = (viewMatrix * world).xyz;
+  #endif
+  #if defined(CLOTH) && defined(USE_INSTANCING)
+    // where on its part this point is, in metres, turning with the part: the strokes are
+    // painted on the cloth and move with it rather than sliding over it
+    vCloth = mat3(instanceMatrix) * position;
   #endif
   #ifdef WATERWEED
     float current = 1.12 * uTime + world.x * 0.42 + world.z * 0.32 - 2.65 * position.y;
@@ -255,10 +263,15 @@ varying vec4 vShadow;
 varying vec2 vCardUv;
 varying float vTip;
 varying float vGust;
-#ifdef TREE
+#if defined(TREE) || defined(CLOTH)
 uniform sampler2D uCanopyBrush;
+#endif
+#ifdef TREE
 varying vec3 vTreePosition;
 varying vec3 vTreeView;
+#endif
+#ifdef CLOTH
+varying vec3 vCloth;
 #endif
 
 /**
@@ -340,6 +353,17 @@ void main() {
       shade += (texture2D(uCanopyBrush, grainUv).b - 0.48) * 0.23;
     }
   #endif
+  #ifdef CLOTH
+    // Cloth is painted like the rest of the world: long soft strokes down the folds, and
+    // light that breaks unevenly across them. Skin stays almost smooth.
+    vec2 foldUv = vec2(vCloth.x + 0.6 * vCloth.z, vCloth.y * 0.35) * 3.2;
+    vec2 dabUv = vec2(vCloth.z - 0.45 * vCloth.x, vCloth.y + 0.55 * vCloth.x) * 4.1;
+    float folds = texture2D(uCanopyBrush, foldUv).b - 0.48;
+    float dabs = texture2D(uCanopyBrush, dabUv).r - 0.45;
+    float code = floor(vCode);
+    bool skin = code == ${color('skinLight')}.0 || code == ${color('skinWarm')}.0 || code == ${color('skinDeep')}.0;
+    shade += (folds * 0.26 + dabs * 0.12) * (skin ? 0.3 : 1.0);
+  #endif
   // in the shadow of something: as dark as a face turned away from the sun
   if (uShadowOn > 0.5) shade = mix(min(shade, 0.4), shade, sunlight());
   #ifdef WIND
@@ -356,6 +380,10 @@ void main() {
     gl_FragColor = vec4(shade, pigment.g, -2.0 - pigment.r, pigment.b);
   #elif defined(BLADES)
     gl_FragColor = vec4(shade, vCode, 2.0, coverage);
+  #elif defined(CLOTH)
+    // the normal's x lifted out of range marks a figure for the paint pass (renderer.ts),
+    // which keeps building treatments (painted walls, paving) off people
+    gl_FragColor = vec4(shade, vCode, n.x + 4.0, n.y);
   #else
     gl_FragColor = vec4(shade, vCode, n.x, n.y);
   #endif
@@ -386,6 +414,8 @@ export interface InkMaterialOptions {
   blades?: boolean;
   /** A world-anchored field with a bounded drawing radius and seasonal density. */
   field?: FieldUniforms;
+  /** Instanced figures in cloth (player characters): brush strokes painted on each part. */
+  cloth?: boolean;
 }
 
 /** Shared, live uniforms for a field of plants (the owner updates the values each frame). */
@@ -433,6 +463,7 @@ export function makeInkMaterial(opts: InkMaterialOptions = {}): THREE.ShaderMate
       ...(opts.reeds ? { REEDS: '' } : {}),
       ...(opts.blades ? { BLADES: '' } : {}),
       ...(opts.field ? { FIELD: '' } : {}),
+      ...(opts.cloth ? { CLOTH: '' } : {}),
     },
     side: opts.side ?? THREE.FrontSide,
   });

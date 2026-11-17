@@ -40,7 +40,7 @@ export const CHARACTERS = [
     key: 'courier',
     name: '信使',
     blurb: '贝雷帽、长围巾、斜挎邮包，背后折着一架纸飞机',
-    colors: { coat: 'cream', trousers: 'charcoal', boots: 'brown', bag: 'brown', plane: 'cream' },
+    colors: { coat: 'limewash', trousers: 'charcoal', boots: 'brown', bag: 'brown', plane: 'cream' },
     defaults: { skin: 0, hair: 1, accent: 'red' },
   },
   {
@@ -48,7 +48,7 @@ export const CHARACTERS = [
     name: '石匠',
     blurb: '宽肩圆肚，背带工装，粗手套，带矿灯的安全帽',
     colors: {
-      coat: 'cream',
+      coat: 'limewash',
       overalls: 'sky',
       trousers: 'sky',
       boots: 'brown',
@@ -62,7 +62,7 @@ export const CHARACTERS = [
     name: '学徒',
     blurb: '尖兜帽、及膝长袍，背后一支大画笔',
     colors: {
-      coat: 'cream',
+      coat: 'limewash',
       trousers: 'charcoal',
       boots: 'brown',
       belt: 'brown',
@@ -83,7 +83,7 @@ export const CHARACTERS = [
     name: '船夫',
     blurb: '宽宽的斗笠、短雨衣，肩上一卷缆绳，腰间挂着布巾',
     colors: {
-      coat: 'cream',
+      coat: 'limewash',
       trousers: 'charcoal',
       boots: 'brown',
       hat: 'sand',
@@ -96,7 +96,14 @@ export const CHARACTERS = [
     key: 'gardener',
     name: '园丁',
     blurb: '插着花的大草帽、长围裙、一条垂在肩上的辫子',
-    colors: { coat: 'cream', trousers: 'brown', boots: 'brown', hat: 'sand', petal: 'pink', bud: 'yellow' },
+    colors: {
+      coat: 'limewash',
+      trousers: 'brown',
+      boots: 'brown',
+      hat: 'sand',
+      petal: 'pink',
+      bud: 'yellow',
+    },
     defaults: { skin: 0, hair: 1, accent: 'green' },
   },
 ] as const satisfies readonly CharacterDef[];

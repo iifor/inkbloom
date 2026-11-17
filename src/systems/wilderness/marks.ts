@@ -3,7 +3,9 @@
 import * as THREE from 'three';
 import { color } from '@/content/palette';
 import { ALWAYS_COLOR, GeometryBuilder } from '@/engine/render/geometry-builder';
+import { splatGeometry } from '@/engine/render/soft-shapes';
 import type { GameContext } from '@/game/types';
+import { hashString } from '@/world/math/hash';
 
 export class WildMarks {
   private mesh: THREE.Mesh | null = null;
@@ -28,15 +30,15 @@ export class WildMarks {
     const g = new GeometryBuilder();
     const m = new THREE.Matrix4();
     for (const k of marks) {
-      g.mesh(
-        new THREE.CylinderGeometry(0.25, 0.6, 5, 7),
+      g.meshSmooth(
+        new THREE.CylinderGeometry(0.25, 0.6, 5, 16),
         m.makeTranslation(k.x, k.y + 2.5, k.z),
         color('purple'),
         ALWAYS_COLOR,
       );
-      g.mesh(
-        new THREE.CylinderGeometry(1.4, 1.4, 0.05, 9),
-        m.makeTranslation(k.x, k.y + 0.03, k.z),
+      g.meshSmooth(
+        splatGeometry(hashString(k.id), 0.05),
+        m.makeScale(1.4, 1, 1.4).setPosition(k.x, k.y + 0.03, k.z),
         color('charcoal'),
         ALWAYS_COLOR,
       );

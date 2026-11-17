@@ -104,6 +104,8 @@ function body(b: RigBuilder, o: BodyOpts) {
   const leg = (sx: number): [THREE.Object3D, THREE.Object3D] => {
     const t = b.limb(hips, sx * 0.09, -0.02, 0, 0.44, o.leg, 'trousers');
     const s = b.limb(t.joint, 0, t.end, 0, 0.42, o.leg * 0.88, o.shin);
+    // a round knee, so a bent leg stays one form instead of two links pinched together
+    b.blob(s.joint, 0, 0, 0, o.leg * 0.92, o.leg * 0.92, o.leg * 0.92, o.shin);
     b.blob(s.joint, 0, s.end + 0.035, -0.045, o.leg * 1.05, 0.06, 0.13, 'boots');
     return [t.joint, s.joint];
   };
@@ -118,6 +120,7 @@ function body(b: RigBuilder, o: BodyOpts) {
     b.blob(torso, sx * o.shoulder, 0.44, 0, o.arm * 1.3, o.arm * 1.2, o.arm * 1.3, o.sleeve);
     const up = b.limb(torso, sx * o.shoulder, 0.46, 0, 0.29, o.arm, o.sleeve);
     const fore = b.limb(up.joint, 0, up.end, 0, 0.27, o.arm * 0.88, o.forearm);
+    b.blob(fore.joint, 0, 0, 0, o.arm * 0.9, o.arm * 0.9, o.arm * 0.9, o.forearm);
     // a mitten of a hand with a thumb on the inside
     b.blob(fore.joint, 0, fore.end - 0.03, 0, o.hand * 0.85, o.hand * 1.2, o.hand * 0.7, o.handPaint);
     b.blob(

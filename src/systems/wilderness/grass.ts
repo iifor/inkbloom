@@ -16,6 +16,8 @@ const RADIUS = 48;
 const ROCKY = 0.95;
 const FLOWER_LIFT = 0.5;
 const DRIFT = 22;
+/** Metres across a clump of thicker, taller grass. */
+const CLUMP = 6;
 const COVER = {
   grassland: { tuft: 0.97, flower: 0.1, blades: ['grass', 'grass', 'sprout'] },
   forest: { tuft: 0.85, flower: 0.03, blades: ['grass', 'sprout', 'forest'] },
@@ -179,8 +181,9 @@ export class GrassField {
     for (let i = pi * grid.cells; i < (pi + 1) * grid.cells; i++) {
       for (let k = pk * grid.cells; k < (pk + 1) * grid.cells; k++) {
         const r = (n: number) => unit(hashInts(seed, i, k, n));
-        const x = (i + r(0) * 0.9) * grid.step,
-          z = (k + r(1) * 0.9) * grid.step;
+        // tufts stray past their own cell, so the meadow never lines up into planted rows
+        const x = (i - 0.25 + r(0) * 1.5) * grid.step,
+          z = (k - 0.25 + r(1) * 1.5) * grid.step;
         const y = w.heightAt(x, z);
         if (y <= WATER_LEVEL) continue;
         // towns have paving and yards of their own
@@ -189,11 +192,13 @@ export class GrassField {
         const biome = climateBiome(climate);
         const cover = COVER[biome === 'water' ? 'grassland' : biome];
         const meadow = riverbedMeadow(climate) * smoothstep(0, BANK_HEIGHT, y - WATER_LEVEL);
-        if (r(2) >= cover.tuft * meadow) continue;
+        // grass grows in clumps, thinner between them
+        const clump = THREE.MathUtils.smoothstep(this.drifts(x / CLUMP + 41, z / CLUMP + 17), 0.2, 0.75);
+        if (r(2) >= cover.tuft * meadow * (grid.kind === 'grass' ? 0.72 + 0.28 * clump : 1)) continue;
         const dx = (w.heightAt(x + 0.4, z) - y) / 0.4,
           dz = (w.heightAt(x, z + 0.4) - y) / 0.4;
         if (Math.max(Math.abs(dx), Math.abs(dz)) > ROCKY) continue;
-        const size = (0.7 + 0.5 * r(3)) * (0.45 + 0.55 * meadow);
+        const size = (0.7 + 0.5 * r(3)) * (0.45 + 0.55 * meadow) * (0.85 + 0.25 * clump);
         const angle = r(4) * Math.PI * 2;
         if (grid.kind === 'flower') {
           const drift = THREE.MathUtils.smoothstep(this.drifts(x / DRIFT, z / DRIFT), 0.25, 0.6);

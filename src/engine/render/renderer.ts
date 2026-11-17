@@ -29,6 +29,8 @@ const RIVER_SAMPLES = 129;
 /** A river's current mid-channel, metres a second, and the seconds of one flow phase. */
 const FLOW_SPEED = 1.3;
 const FLOW_CYCLE = 2;
+/** The brush's colours come first in the palette; walls and doors are painted in them. */
+const PAINTABLE_COUNT = PALETTE.findIndex((c) => !c.paintable);
 
 /** The value-noise lattice: a random value per cell, read with bilinear filtering and wrapped,
  * so one texture read is one octave of smooth noise. Seeded, so every run paints alike. */
@@ -213,6 +215,12 @@ float satOf(float code) { return clamp(fract(code + 0.0005) / 0.9, 0.0, 1.0); }
 vec3 greyOf(vec3 c) { return vec3(dot(c, vec3(0.3, 0.59, 0.11))) * vec3(0.97, 0.98, 1.0); }
 /** A drained colour: a pale grey wash of it, lighter than its plain luminance. */
 vec3 drainedOf(vec3 c) { return greyOf(c) * 0.72 + vec3(0.2); }
+/** Drained, as the light allows: by day the pale wash; by night the grey stays dark and takes
+ * the moonlight's blue, instead of lifting into a flat, muddy grey. */
+vec3 drainedAt(vec3 c) {
+  vec3 night = greyOf(c) * vec3(0.8, 0.92, 1.25) + vec3(0.012, 0.02, 0.05);
+  return mix(drainedOf(c), night, uNight);
+}
 
 /** Sky colour near the horizon, which is also the colour of distant haze. */
 vec3 horizonOf(vec3 rd) {
@@ -241,12 +249,14 @@ vec3 skyPaint(vec3 rd) {
   float above = smoothstep(-0.01, 0.1, e);
   // the weather's cloud cover fills the gaps until the sky is one grey deck
   float thr = mix(0.6, 0.52, smoothstep(0.05, 0.55, e)) - uCloud * 0.34;
-  float body = smoothstep(thr, thr + 0.03 + uCloud * 0.05, n) * above;
+  // soft edges, like a cloud painted wet into wet
+  float body = smoothstep(thr - 0.01, thr + 0.06 + uCloud * 0.06, n) * above;
   // lit where the cloud thins towards the sun, shadowed underneath
   float n2 = fbm(cuv + uSun.xz * 0.09);
-  float lit = clamp((n - n2) * 8.0 + 0.55, 0.0, 1.0);
+  float lit = smoothstep(0.0, 1.0, clamp((n - n2) * 5.0 + 0.55, 0.0, 1.0));
   lit = mix(lit, 1.0, smoothstep(0.05, 0.0, n - thr) * 0.5);
-  vec3 cloudLit = mix(vec3(1.0, 0.99, 0.96), clamp(uSunColor, 0.0, 1.0), 0.35) * mix(1.0, 0.32, uNight);
+  // moonlit clouds are a cool blue-grey, not a dimmed white
+  vec3 cloudLit = mix(mix(vec3(1.0, 0.99, 0.96), clamp(uSunColor, 0.0, 1.0), 0.35), vec3(0.2, 0.24, 0.36), uNight);
   vec3 cloudShade = mix(uShade, uZenith, 0.3) * 1.15;
   // rain clouds are heavy and grey, darker underneath
   vec3 rainGrey = vec3(0.6, 0.62, 0.67) * mix(1.0, 0.3, uNight);
@@ -326,9 +336,12 @@ void main() {
     vec4 ranges = farRanges(rd);
     painted = mix(painted, ranges.rgb, ranges.w * (1.0 - uNight * 0.5));
     // drained: an overcast grey version of the same sky
-    col = mix(drainedOf(painted), painted, skySat);
+    col = mix(drainedAt(painted), painted, skySat);
   } else {
     vec3 wpos = (uInvView * vec4(vpos, 1.0)).xyz;
+    // people in cloth carry their normal's x lifted out of range (ink-material.ts CLOTH)
+    bool figure = s.b > 3.0;
+    if (figure) s.b -= 4.0;
     bool fish = s.b < -1.5;
     vec3 fishPaint = vec3(-2.0 - s.b, s.g, s.a);
     if (fish) {
@@ -381,6 +394,41 @@ void main() {
     float big = fbm(bp * 0.18);
     float leaf = fbm(bp * 1.3 + 7.0);
     float stroke = vnoise(vec2(bp.x * 2.5, bp.y * 0.6));
+    // A coloured wall is a wash over plaster, not a flat block: long strokes run down it,
+    // the plaster shows through where the wash is thin, and the colour is a little softer.
+    // Far off it settles into one colour again.
+    if (!figure && !petal && !ground && !grassBlade && pigment < ${PAINTABLE_COUNT} && an.y < 0.6) {
+      float across = an.x > an.z ? wpos.z : wpos.x;
+      float streak = vnoise(vec2(across * 4.5, wpos.y * 0.6)) * 0.6 + vnoise(vec2(across * 11.0, wpos.y * 1.4)) * 0.4;
+      float wallNear = near * (1.0 - smoothstep(45.0, 130.0, d));
+      float thin = smoothstep(0.5, 0.78, big + (leaf - 0.5) * 0.4 + (streak - 0.5) * 0.25);
+      base = mix(base, paletteColor(${color('limewash')}.0), 0.42 * thin * wallNear);
+      base *= 1.0 + (streak - 0.5) * 0.28 * wallNear;
+      base = mix(vec3(dot(base, vec3(0.3, 0.59, 0.11))), base, 0.8);
+    }
+    // Bark in long broken strokes up the trunk, cooler and a little mossy in the furrows
+    if (!figure && pigment == ${color('bark')} && an.y < 0.7) {
+      float across = an.x > an.z ? wpos.z : wpos.x;
+      float furrow = vnoise(vec2(across * 9.0, wpos.y * 0.9)) * 0.65 + vnoise(vec2(across * 23.0, wpos.y * 2.1)) * 0.35;
+      base *= 1.0 + (furrow - 0.5) * 0.4 * near;
+      base = mix(base, base * vec3(0.82, 0.98, 0.86), smoothstep(0.55, 0.3, furrow) * 0.6 * near);
+    }
+    // Paved streets and squares: hand-laid stones in staggered rows, showing in patches and
+    // worn smooth between them, gone into one wash where they would be under a pixel.
+    if (!figure && !petal && pigment == ${color('stone')} && wn.y > 0.8) {
+      // rows of different depths, stones of different lengths in each
+      vec2 q = wpos.xz * vec2(1.05, 1.45);
+      float row = floor(q.y);
+      q.x = q.x * (0.75 + 0.5 * hash21(vec2(row, 3.1))) + hash21(vec2(row, 7.7)) * 4.0;
+      q.y += 0.08 * sin(q.x * 1.7);
+      vec2 footprint = fwidth(q);
+      float paving = (1.0 - smoothstep(0.1, 0.4, max(footprint.x, footprint.y)))
+        * smoothstep(0.42, 0.72, big + (leaf - 0.5) * 0.7);
+      vec2 f = fract(q);
+      vec2 joints = 1.0 - smoothstep(vec2(0.02), vec2(0.13) + footprint, min(f, 1.0 - f));
+      float stoneWash = hash21(floor(q)) - 0.5;
+      base *= 1.0 + paving * (0.1 * stoneWash - 0.09 * max(joints.x, joints.y));
+    }
     // where meadow ground gets steep, bare rock shows through, with a ragged painted edge
     if (grassBlade) {
       // Keep the base of a leaf in the shade and let its lit edge separate from the soil
@@ -504,7 +552,7 @@ void main() {
     // looking towards the sun, light shines through leaves, brightest at a crown's edges
     float edgeOn = 1.0 - abs(dot(wn, -rd));
     painted += tex * pow(max(0.0, dot(rd, uSun)), 3.0) * (0.4 + 0.6 * edgeOn) * vec3(0.2, 0.24, 0.05) * (1.0 - uNight) * near;
-    col = mix(drainedOf(painted), painted, sat);
+    col = mix(drainedAt(painted), painted, sat);
     if (puddle > 0.0) col = mix(col, skyPaint(reflect(rd, vec3(0.0, 1.0, 0.0))) * 0.85, puddle * 0.6);
     // the ink: no paint, a wet sheen where the light catches it
     float solid = solidOf(s.g) * sat;
@@ -556,7 +604,7 @@ void main() {
         opacity = submerged ? smoothstep(0.0, 0.22, waterDepth) * mix(0.38, 0.8, smoothstep(0.2, 3.0, waterDepth)) : 1.0;
       }
       if (submerged && (!fish || eye.y > ${WATER_LEVEL})) water += wakeLight(rp, distance(rp, eye.xz)) * mix(0.4, 1.0, lit);
-      col = mix(col, mix(drainedOf(water), water, sat), opacity);
+      col = mix(col, mix(drainedAt(water), water, sat), opacity);
       // broken lines of foam along the shore, where the water thins out over the bank
       if (submerged && !fish) {
         float shore = 1.0 - smoothstep(0.03, 0.32, waterDepth);
@@ -564,12 +612,12 @@ void main() {
         float laced = mix(vnoise((rp - drift0) * 1.6 + sway), vnoise((rp - drift1) * 1.6 + sway), swap);
         float lace = smoothstep(0.5, 0.78, mix(vnoise(rp * 1.6 + sway), laced, flow.z));
         vec3 foam = vec3(0.95, 0.97, 0.98) * mix(light, vec3(1.0), 0.4);
-        col = mix(col, mix(drainedOf(foam), foam, sat), shore * lace * 0.55 * (1.0 - 0.6 * uNight));
+        col = mix(col, mix(drainedAt(foam), foam, sat), shore * lace * 0.55 * (1.0 - 0.6 * uNight));
       }
     }
     // aerial perspective: far things melt into blue-white haze
     vec3 haze = horizonOf(rd);
-    haze = mix(drainedOf(haze), haze, skySat);
+    haze = mix(drainedAt(haze), haze, skySat);
     // mist and rain thicken it and pull it close
     col = mix(col, haze, (1.0 - exp(-d * (0.0042 + uFog * 0.035))) * mix(0.85, 0.97, uFog));
   }
@@ -718,11 +766,17 @@ void main() {
       lum(texture2D(tSrc, vUv + vec2(e.x, 0.0)).rgb) - lum(texture2D(tSrc, vUv - vec2(e.x, 0.0)).rgb),
       lum(texture2D(tSrc, vUv + vec2(0.0, e.y)).rgb) - lum(texture2D(tSrc, vUv - vec2(0.0, e.y)).rgb));
     float edge = smoothstep(0.01, 0.08, length(grad));
-    vec2 across = mix(normalize(vec2(0.6, 0.8)), normalize(grad + 1e-6), edge);
-    vec2 along = vec2(-across.y, across.x);
     vec2 pp0 = gl_FragCoord.xy / max(uSpread, 1.0);
+    // where it is flat the strokes turn this way and that in patches and cross over each
+    // other; one fixed direction over a whole clear sky read as rain on the lens
+    float turn = vnoise(pp0 * 0.006 + 31.0) * 6.2832;
+    vec2 flat_ = vec2(cos(turn), sin(turn));
+    vec2 across = mix(flat_, normalize(grad + 1e-6), edge);
+    vec2 along = vec2(-across.y, across.x);
     float streak = vnoise(vec2(dot(pp0, along) * 0.07, dot(pp0, across) * 0.9));
-    col *= 1.0 + (streak - 0.5) * mix(0.025, 0.12, edge);
+    float hatch = vnoise(vec2(dot(pp0, across) * 0.07, dot(pp0, along) * 0.9) + 57.0);
+    streak = mix(0.5 * (streak + hatch), streak, edge);
+    col *= 1.0 + (streak - 0.5) * mix(0.03, 0.12, edge);
   }
 
   // grade like a painting: warm lift, gentle S-curve, a little more colour

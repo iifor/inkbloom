@@ -4,6 +4,7 @@
 import * as THREE from 'three';
 import { PIGMENT_SOURCES } from '@/content/pigment-sources';
 import { ALWAYS_COLOR, GeometryBuilder } from '@/engine/render/geometry-builder';
+import { dropGeometry, lumpGeometry } from '@/engine/render/soft-shapes';
 import { Rng } from '@/world/math/rng';
 import { hashString } from '@/world/math/hash';
 import type { PigmentSource } from '@/world/wilderness/sources';
@@ -13,8 +14,8 @@ import { addPigmentFlowers } from './pigment-flowers';
 import { addPigmentBerries } from './pigment-berries';
 import { buildPigmentReeds } from './pigment-reeds';
 
-const ico = new THREE.IcosahedronGeometry(1, 0);
-const cube = new THREE.BoxGeometry(1, 1, 1);
+// a drop stood on end makes a rounded crystal
+const crystal = dropGeometry();
 
 export function buildSource(src: PigmentSource, ground: Wilderness['heightAt']): THREE.BufferGeometry {
   const def = PIGMENT_SOURCES[src.kind]!;
@@ -36,12 +37,17 @@ export function buildSource(src: PigmentSource, ground: Wilderness['heightAt']):
       addPigmentBerries(g, src, ground, rng);
       break;
     case 'ore':
-      g.mesh(ico, at(0, 0.6, 0, 1.5, 1.1, 1.3, rng.next()), def.base, ALWAYS_COLOR);
+      g.meshSmooth(
+        lumpGeometry(hashString(src.id)),
+        at(0, 0.6, 0, 1.5, 1.1, 1.3, rng.next()),
+        def.base,
+        ALWAYS_COLOR,
+      );
       for (let i = 0; i < 4; i++) {
         const a = rng.range(0, Math.PI * 2);
-        g.mesh(
-          cube,
-          at(Math.cos(a) * 0.9, 1 + rng.range(0, 0.6), Math.sin(a) * 0.9, 0.3, 0.9, 0.3, a),
+        g.meshSmooth(
+          crystal,
+          at(Math.cos(a) * 0.9, 1 + rng.range(0, 0.6), Math.sin(a) * 0.9, 0.36, 0.9, 0.36, a),
           src.color,
           ALWAYS_COLOR,
         );
@@ -74,7 +80,7 @@ export function buildSource(src: PigmentSource, ground: Wilderness['heightAt']):
       }
       break;
     default:
-      g.mesh(ico, at(0, 0.6, 0, 1, 1, 1), src.color, ALWAYS_COLOR);
+      g.meshSmooth(lumpGeometry(hashString(src.id)), at(0, 0.6, 0, 1, 1, 1), src.color, ALWAYS_COLOR);
   }
   return g.build();
 }

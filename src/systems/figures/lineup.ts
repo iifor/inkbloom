@@ -29,7 +29,8 @@ interface Slot {
 export class FigureLineup {
   private readonly group = new THREE.Group();
   private readonly material = makeInkMaterial();
-  private readonly players = new PlayerFigures(this.group, this.material);
+  private readonly cloth = makeInkMaterial({ cloth: true });
+  private readonly players = new PlayerFigures(this.group, this.cloth);
   private readonly monsters = new MonsterFigures(this.group, this.material);
   private slots: Slot[] = [];
   private t = 0;
@@ -117,5 +118,6 @@ export class FigureLineup {
     this.monsters.dispose();
     this.group.removeFromParent();
     this.material.dispose();
+    this.cloth.dispose();
   }
 }

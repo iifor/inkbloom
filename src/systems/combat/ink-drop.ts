@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { color } from '@/content/palette';
 import { TUNING } from '@/content/tuning';
 import { ALWAYS_COLOR, GeometryBuilder } from '@/engine/render/geometry-builder';
+import { splatGeometry } from '@/engine/render/soft-shapes';
 import { makeInkMaterial } from '@/engine/render/ink-material';
 import { type GameContext, type System, sceneKey } from '@/game/types';
 
@@ -22,9 +23,9 @@ export class InkDropSystem implements System {
       py: ALWAYS_COLOR,
     };
     const solid = (c: number) => ({ px: c, nx: c, pz: c, nz: c, py: c });
-    g.mesh(
-      new THREE.CylinderGeometry(1.4, 1.4, 0.05, 10),
-      new THREE.Matrix4().makeTranslation(0, 0.03, 0),
+    g.meshSmooth(
+      splatGeometry(7, 0.05),
+      new THREE.Matrix4().makeScale(1.4, 1, 1.4).setPosition(0, 0.03, 0),
       color('charcoal'),
       ALWAYS_COLOR,
     );

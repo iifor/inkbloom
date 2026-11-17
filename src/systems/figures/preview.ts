@@ -15,7 +15,7 @@ const HOP = 0.4;
 
 export class CharacterPreview {
   private readonly group = new THREE.Group();
-  private readonly material = makeInkMaterial();
+  private readonly material = makeInkMaterial({ cloth: true });
   private readonly figures = new PlayerFigures(this.group, this.material);
   private look: Look | null = null;
   private readonly at = new THREE.Vector3();

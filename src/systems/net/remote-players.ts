@@ -55,7 +55,7 @@ export class RemotePlayers implements System {
   readonly id = 'remote-players';
   private readonly players = new Map<number, Remote>();
   private readonly group = new THREE.Group();
-  private readonly material = makeInkMaterial();
+  private readonly material = makeInkMaterial({ cloth: true });
   private readonly figures = new PlayerFigures(this.group, this.material);
   private readonly tags: NameTags;
   private readonly head = new THREE.Vector3();

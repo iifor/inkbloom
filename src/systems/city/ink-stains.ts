@@ -4,7 +4,9 @@ import * as THREE from 'three';
 import { color } from '@/content/palette';
 import { TUNING } from '@/content/tuning';
 import { ALWAYS_COLOR, GeometryBuilder } from '@/engine/render/geometry-builder';
+import { splatGeometry } from '@/engine/render/soft-shapes';
 import type { GameContext } from '@/game/types';
+import { hashString } from '@/world/math/hash';
 import { type CityLayout, groundAt } from '@/world/city/layout';
 
 /** A stain lies on the slope under it, just over the street's paving. */
@@ -38,7 +40,8 @@ export class InkStains {
     root: THREE.Object3D,
   ) {
     const g = new GeometryBuilder();
-    g.mesh(new THREE.CylinderGeometry(1, 1, 0.04, 9), new THREE.Matrix4(), color('charcoal'), ALWAYS_COLOR);
+    // one splash per town, turned differently for each stain
+    g.meshSmooth(splatGeometry(hashString(layout.id)), new THREE.Matrix4(), color('charcoal'), ALWAYS_COLOR);
     this.mesh = new THREE.InstancedMesh(g.build(), material, layout.stains.length);
     const m = new THREE.Matrix4();
     layout.stains.forEach((s, i) => {
