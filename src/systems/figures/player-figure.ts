@@ -29,6 +29,8 @@ export interface PlayerPose {
   readonly stride: number;
   readonly air: boolean;
   readonly glide: boolean;
+  /** Swimming in deep water: lying along the surface, arms stroking, legs kicking. */
+  readonly swim?: boolean;
   /** 0..1 flinch from a hit, or 0. */
   readonly hurt: number;
   /** 0..1 through being swallowed by ink, or -1 while alive. */
@@ -381,7 +383,22 @@ function pose(r: Rig, p: PlayerPose): void {
   r.head.rotation.x = p.pitch * 0.45 + Math.sin(p.t * 0.7 + p.z) * 0.03;
 
   let lift = 0;
-  if (p.glide) {
+  if (p.swim) {
+    // lying along the water with the head up out of it: a crawl stroke and a flutter kick,
+    // the whole body sunk so the head rides at the surface
+    const s = Math.sin(p.walk);
+    r.hips.position.y = r.hipsY - 0.78;
+    r.hips.rotation.x = -1.25;
+    r.head.rotation.x = 1.05 + p.pitch * 0.3;
+    r.armL.rotation.set(1.6 + s * 1.4, 0, -0.2);
+    r.armR.rotation.set(1.6 - s * 1.4, 0, 0.2);
+    r.foreL.rotation.x = r.foreR.rotation.x = 0.3;
+    r.legL.rotation.x = Math.sin(p.walk * 2) * 0.35;
+    r.legR.rotation.x = -Math.sin(p.walk * 2) * 0.35;
+    r.shinL.rotation.x = r.shinR.rotation.x = -0.2;
+    r.torso.rotation.x = 0;
+    lift = 0.4;
+  } else if (p.glide) {
     // the paper plane held overhead, legs trailing
     r.armL.rotation.set(2.9, 0, -0.25);
     r.armR.rotation.set(2.9, 0, 0.25);

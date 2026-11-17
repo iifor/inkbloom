@@ -14,6 +14,7 @@ import { stolenColors } from '@/world/paint/stolen';
 
 export class CityMonsters {
   readonly group: MonsterGroup;
+  private readonly release: () => void;
   private readonly palettes = new Map<number, number[]>();
 
   constructor(
@@ -26,10 +27,16 @@ export class CityMonsters {
   ) {
     this.group = new MonsterGroup(ctx, physics, root, material);
     this.group.nav = cityNav(layout);
+    // a guard another player defeated (in a server world) leaves here too
+    this.release = ctx.events.on('patch:applied', ({ patch }) => {
+      if (patch.kind === 'defeat' && patch.city === layout.id)
+        this.group.dismiss(`stronghold:${patch.monster}`);
+    });
     layout.monsters.forEach((m, i) => {
       if (defeated[i]) return;
       this.group.spawn(m.type, new THREE.Vector3(m.x, groundAt(layout, m.x, m.z) + 0.05, m.z), {
         tag: 'stronghold',
+        key: `stronghold:${i}`,
         onDefeat: () => this.defeat(i),
         colors: this.colorsOf(m.chunk),
       });
@@ -98,6 +105,7 @@ export class CityMonsters {
   }
 
   dispose(): void {
+    this.release();
     this.group.dispose();
   }
 }

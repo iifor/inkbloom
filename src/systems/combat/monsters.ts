@@ -65,6 +65,7 @@ interface Monster {
   /** -1 while alive; 0..1 while melting after defeat. */
   melt: number;
   readonly tag: string;
+  readonly key: string | undefined;
   readonly onDefeat: (() => void) | undefined;
   hp: number;
   aggro: boolean;
@@ -114,6 +115,9 @@ export interface SpawnOptions {
   readonly onDefeat?: () => void;
   /** The colours it stole from where it lives; see world/paint/stolen.ts. */
   readonly colors?: readonly number[];
+  /** Its saved identity (a stronghold slot, a wild monster id), so a defeat elsewhere (another
+   * player's, in a server world) can take it away here too. */
+  readonly key?: string;
 }
 
 export class MonsterGroup implements TargetSource {
@@ -148,6 +152,7 @@ export class MonsterGroup implements TargetSource {
       act: null,
       melt: -1,
       tag: opts.tag,
+      key: opts.key,
       onDefeat: opts.onDefeat,
       hp: def.hp,
       aggro: false,
@@ -176,6 +181,11 @@ export class MonsterGroup implements TargetSource {
   /** Remove every monster with this tag (no rewards): a tide's monsters dissolve with it. */
   clear(tag: string): void {
     for (const m of this.monsters) if (m.tag === tag && !m.dead) this.remove(m);
+  }
+
+  /** Take away the monster with this key, without rewards: someone else defeated it. */
+  dismiss(key: string): void {
+    for (const m of this.monsters) if (m.key === key && !m.dead) this.remove(m);
   }
 
   raycast(o: THREE.Vector3, d: THREE.Vector3, max: number): TargetHit | null {

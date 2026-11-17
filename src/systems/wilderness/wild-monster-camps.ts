@@ -16,6 +16,7 @@ import { chunkSaturation, wildMonstersInChunk } from '@/world/wilderness/wild-mo
 
 export class WildMonsterCamps {
   readonly group: MonsterGroup;
+  private readonly release: () => void;
   private readonly chunks = new Map<string, WildChunk>();
   private readonly blocked = new Set<string>();
 
@@ -26,6 +27,10 @@ export class WildMonsterCamps {
     material: THREE.Material,
   ) {
     this.group = new MonsterGroup(ctx, physics, root, material);
+    // a monster another player hunted (in a server world) is gone here too
+    this.release = ctx.events.on('patch:applied', ({ patch }) => {
+      if (patch.kind === 'hunt') this.group.dismiss(patch.monster);
+    });
     const n = TUNING.world.chunkSize / TUNING.world.cellSize;
     const height = (ix: number, iz: number): number => {
       const c = this.chunks.get(chunkKey(Math.floor(ix / n), Math.floor(iz / n)));
@@ -76,6 +81,7 @@ export class WildMonsterCamps {
       if (!wildMonsterBack(this.ctx.state, m.id)) continue;
       this.group.spawn(m.type, new THREE.Vector3(m.x, m.y + 0.05, m.z), {
         tag: key,
+        key: m.id,
         colors,
         onDefeat: () => {
           // the ink count on the HUD ticks up: no message
@@ -95,6 +101,7 @@ export class WildMonsterCamps {
   }
 
   dispose(): void {
+    this.release();
     this.group.dispose();
   }
 }

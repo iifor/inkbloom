@@ -1,15 +1,19 @@
 // Page entry: load or create the world save, start the open world, and drive the menus and
-// pointer lock. URL options: ?world=<id> picks a save slot, ?seed=<n> seeds a new world.
+// pointer lock. URL options: ?world=<id> picks a save slot, ?seed=<n> seeds a new world,
+// ?server=<host:port> joins a world server instead (multiplayer; see server/main.ts).
+import { defaultLook } from './content/characters';
 import { PALETTE } from './content/palette';
 import { startOpenWorld, type OpenWorld } from './modes/open-world';
 import { Menu } from './shell/menu';
 import { installDevTools } from './shell/dev-tools';
 import { CharacterPreview } from './systems/figures/preview';
+import { type Connection, NetStore, connect, playerToken } from './systems/net/connection';
 import { hashString } from './world/math/hash';
-import { loadProfile, saveProfile } from './world/profile';
+import { deserializeSlice, putSlice } from './world/net/slices';
+import { DEFAULT_NAME, loadProfile, saveProfile } from './world/profile';
 import { loadSettings, saveSettings, type Settings } from './world/settings';
-import { SaveError, createWorldState, type WorldState } from './world/state';
-import { KeyValueStore, browserKeyValue } from './world/store';
+import { SaveError, createWorldState, deserializeWorld, type WorldState } from './world/state';
+import { KeyValueStore, type WorldStore, browserKeyValue } from './world/store';
 
 const canvas = document.querySelector<HTMLCanvasElement>('#view')!;
 const hudRoot = document.querySelector<HTMLElement>('#hud')!;
@@ -30,26 +34,64 @@ function openWorld(id: string): void {
   const url = new URL(location.href);
   url.searchParams.set('world', id);
   url.searchParams.delete('seed');
+  url.searchParams.delete('server');
   location.href = url.toString();
+}
+
+/** Reload into a server world, or (null) back to playing alone. */
+function openServer(address: string | null): void {
+  const url = new URL(location.href);
+  if (address) url.searchParams.set('server', address);
+  else url.searchParams.delete('server');
+  location.href = url.toString();
+}
+
+/** Could not join: say why, offer to try again or play alone. */
+function showJoinFailed(address: string, e: unknown): void {
+  overlay.hidden = false;
+  overlay.querySelector('.menu-body')!.innerHTML = `<h2>没能加入联机</h2><p></p>
+    <button class="primary" id="retry">再试一次</button><button id="alone">单人游戏</button>`;
+  overlay.querySelector('.menu-body p')!.textContent =
+    `${address}：${e instanceof Error ? e.message : String(e)}`;
+  overlay.querySelector<HTMLButtonElement>('#retry')!.onclick = () => location.reload();
+  overlay.querySelector<HTMLButtonElement>('#alone')!.onclick = () => openServer(null);
 }
 
 async function boot(): Promise<void> {
   const params = new URLSearchParams(location.search);
   const { kv, persistent } = browserKeyValue();
-  const store = new KeyValueStore(kv);
+  const local = new KeyValueStore(kv);
+  let store: WorldStore = local;
   const notices: string[] = [];
   if (!persistent) notices.push('浏览器不允许本地存储：这次的进度不会保存');
   // with no ?world=, continue the most recently used world
   const worldId = params.get('world') ?? kv.getItem('inkbloom:last') ?? 'default';
-  kv.setItem('inkbloom:last', worldId);
 
   let state: WorldState | null = null;
-  try {
-    state = await store.load(worldId);
-  } catch (e) {
-    if (!(e instanceof SaveError)) throw e;
-    const backup = await store.quarantine(worldId);
-    notices.push(`存档损坏（${e.message}），已备份到 ${backup} 并新建世界`);
+  // a server world: the server sends the world and this player's own things
+  const address = params.get('server');
+  let net: Connection | undefined;
+  if (address) {
+    const p = loadProfile(kv) ?? { name: DEFAULT_NAME, look: defaultLook('courier') };
+    try {
+      net = await connect(address, { token: playerToken(kv), name: p.name, look: p.look });
+    } catch (e) {
+      showJoinFailed(address, e);
+      return;
+    }
+    kv.setItem('inkbloom:server', address);
+    state = deserializeWorld(net.welcome.world);
+    putSlice(state, deserializeSlice(net.welcome.you));
+    store = new NetStore();
+  } else {
+    kv.setItem('inkbloom:last', worldId);
+    try {
+      state = await store.load(worldId);
+    } catch (e) {
+      if (!(e instanceof SaveError)) throw e;
+      const backup = await store.quarantine(worldId);
+      notices.push(`存档损坏（${e.message}），已备份到 ${backup} 并新建世界`);
+    }
   }
   if (!state) {
     const seedParam = params.get('seed');
@@ -66,7 +108,7 @@ async function boot(): Promise<void> {
     }
   }
 
-  const game: OpenWorld = startOpenWorld({ canvas, hudRoot, state, store, kv, onError: showFatal });
+  const game: OpenWorld = startOpenWorld({ canvas, hudRoot, state, store, kv, net, onError: showFatal });
   installDevTools(game);
   for (const text of notices) game.ctx.events.emit('toast', { text, seconds: 8 });
 
@@ -106,7 +148,7 @@ async function boot(): Promise<void> {
     openWorld(id) {
       void game.save.flush().then(() => openWorld(id));
     },
-    listWorlds: () => store.list(),
+    listWorlds: () => local.list(),
     settings: () => settings,
     applySettings: apply,
     exportReport() {
@@ -125,6 +167,19 @@ async function boot(): Promise<void> {
     },
     preview: (look) => preview.show(look),
     accents: () => world.unlocked.filter((c) => PALETTE[c]?.paintable),
+    online() {
+      const n = game.net;
+      if (!n) return null;
+      return { address: address ?? '', max: n.max, others: n.players.map((p) => p.name), down: n.down };
+    },
+    lastServer: () => kv.getItem('inkbloom:server') ?? `${location.hostname || '127.0.0.1'}`,
+    joinServer(addr) {
+      void game.save.flush().then(() => openServer(addr));
+    },
+    leaveServer() {
+      game.net?.leave();
+      openServer(null);
+    },
   });
   menu.show('main');
   input.onLockChange = (locked) => {

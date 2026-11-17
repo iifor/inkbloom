@@ -29,14 +29,16 @@ import { CombatSystem } from '@/systems/combat/combat';
 import { InkDropSystem } from '@/systems/combat/ink-drop';
 import { ToolBelt } from '@/systems/tools/tool';
 import { WildScene } from '@/systems/wilderness/wild-scene';
-import { applyPatch } from '@/world/patch';
+import type { Connection } from '@/systems/net/connection';
+import { NetSystem } from '@/systems/net/net-system';
+import { RemotePlayers } from '@/systems/net/remote-players';
+import { worldPatchContext } from '@/world/net/patch-context';
+import { standInSlice, withSlice } from '@/world/net/slices';
+import { type Patch, applyPatch } from '@/world/patch';
 import { levelOf } from '@/world/progression';
 import type { WorldState } from '@/world/state';
 import type { KeyValue, WorldStore } from '@/world/store';
 import { createWilderness } from '@/world/wilderness/generator';
-import { sourceById } from '@/world/wilderness/sources';
-import { chunkSaturation, wildMonsterById } from '@/world/wilderness/wild-monsters';
-import { ruinById } from '@/world/wilderness/ruins';
 
 type Mutable<T> = { -readonly [K in keyof T]: T[K] };
 
@@ -48,6 +50,8 @@ export interface OpenWorld {
   readonly loop: Loop;
   readonly audio: AudioSystem;
   readonly playtest: PlaytestSystem;
+  /** The server world this client is in; null when playing alone. */
+  readonly net: NetSystem | null;
   dispose(): void;
 }
 
@@ -58,6 +62,8 @@ export function startOpenWorld(opts: {
   store: WorldStore;
   /** Where the playtest log is kept; null keeps it in memory only. */
   kv?: KeyValue | null;
+  /** Joined to a world server (multiplayer); absent when playing alone. */
+  net?: Connection;
   onError: (e: unknown) => void;
 }): OpenWorld {
   const lifetime = new AbortController();
@@ -69,24 +75,25 @@ export function startOpenWorld(opts: {
   ctx.wilderness = createWilderness(opts.state.seed);
   const cities = new CityRegistry(ctx);
   ctx.cities = cities;
+  // a town nobody here has walked to yet still has a layout: work it out when a patch needs it
+  const patchContext = worldPatchContext(
+    ctx.wilderness,
+    (id) => {
+      const known = ctx.cities.byId(id);
+      if (known) return known;
+      const e = ctx.cities.entranceOf(id);
+      return e ? ctx.cities.layout(e) : null;
+    },
+    (id) => ctx.cities.progress(id),
+  );
   ctx.apply = (patch) => {
     const levelBefore = levelOf(ctx.state.growth.xp);
     const pointsBefore = ctx.state.growth.points;
     const weaponsBefore = ctx.state.inventory.weapons.length;
-    const result = applyPatch(ctx.state, patch, {
-      cityOf: (id) => ctx.cities.byId(id) ?? null,
-      sourceOf: (id) => sourceById(ctx.wilderness, id),
-      ruinOf: (id) => ruinById(ctx.wilderness, id),
-      wildMonsterOf: (id) => {
-        const m = /^(-?\d+),(-?\d+):/.exec(id);
-        if (!m) return null;
-        const sat = chunkSaturation(ctx.wilderness, Number(m[1]), Number(m[2]), (c) =>
-          ctx.cities.progress(c),
-        );
-        return wildMonsterById(ctx.wilderness, id, sat);
-      },
-    });
+    const result = applyPatch(ctx.state, patch, patchContext);
     if (result.ok) {
+      // in a server world the server judges it too, and tells the others
+      ctx.net?.sendPatch(patch);
       ctx.events.emit('patch:applied', { patch });
       const g = ctx.state.growth;
       const level = levelOf(g.xp);
@@ -127,14 +134,31 @@ export function startOpenWorld(opts: {
   const overlay = new CombatOverlay(ctx, opts.hudRoot);
   const playtest = new PlaytestSystem(ctx, opts.kv ?? null);
   const debug = new DebugPanel(ctx, opts.hudRoot.parentElement ?? opts.hudRoot);
+  // a server world: other players, and the line to the server
+  let net: NetSystem | null = null;
+  let remote: RemotePlayers | null = null;
+  if (opts.net) {
+    remote = new RemotePlayers(ctx, opts.hudRoot);
+    // another player's patch, already judged by the server: only its effect on the shared world
+    // lands here; what it pays goes to a stand-in and is thrown away
+    const standIn = standInSlice();
+    const applyRemote = (patch: Patch): void => {
+      const r = withSlice(ctx.state, standIn, () => applyPatch(ctx.state, patch, patchContext));
+      if (r.ok) ctx.events.emit('patch:applied', { patch });
+    };
+    net = new NetSystem(ctx, opts.net, remote, applyRemote);
+    ctx.net = net;
+  }
 
   // Order matters: movement, then the scene streams around the new position, then
   // interaction/tools read the settled camera, then HUD and save observe the result.
   const systems: System[] = [
     clock,
+    ...(net ? [net] : []),
     player,
     combat,
     scenes,
+    ...(remote ? [remote] : []),
     interactions,
     panel,
     belt,
@@ -175,7 +199,9 @@ export function startOpenWorld(opts: {
     playtest,
     loop,
     audio,
+    net,
     dispose() {
+      net?.leave();
       loop.stop();
       void save.flush();
       lifetime.abort();

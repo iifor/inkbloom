@@ -18,7 +18,17 @@ import { levelOf } from '@/world/progression';
 import { DEFAULT_SETTINGS, SETTING_LIMITS, type Settings } from '@/world/settings';
 import type { WorldState } from '@/world/state';
 
-export type Screen = 'main' | 'pause' | 'character' | 'settings' | 'worlds' | 'controls';
+export type Screen = 'main' | 'pause' | 'character' | 'join' | 'settings' | 'worlds' | 'controls';
+
+/** The server world this game is in, for the menu. */
+export interface Online {
+  readonly address: string;
+  readonly max: number;
+  /** Everyone else's names. */
+  readonly others: readonly string[];
+  /** Why the connection went down, if it has. */
+  readonly down: string | null;
+}
 
 export interface MenuActions {
   play(): void;
@@ -36,6 +46,12 @@ export interface MenuActions {
   preview(look: Look | null): void;
   /** Colours offered as the accent: the crayons found in this world. */
   accents(): readonly number[];
+  /** The server world this game is in, or null when playing alone. */
+  online(): Online | null;
+  /** The address used last time, to fill in the join screen. */
+  lastServer(): string;
+  joinServer(address: string): void;
+  leaveServer(): void;
 }
 
 const CONTROLS = [
@@ -105,25 +121,47 @@ export class Menu {
     const summary = `${w.name} · Lv ${levelOf(w.growth.xp)} · 已恢复 ${restored} 座城`;
     const profile = this.actions.profile();
     const who = profile ? `角色：${esc(profile.name)} · ${characterDef(profile.look.character).name}` : '';
+    const online = this.actions.online();
+    // in a server world: where, who else is here, and a way out
+    const net = online
+      ? `<p class="online">${
+          online.down
+            ? esc(online.down)
+            : `联机 ${esc(online.address)} · 在线 ${online.others.length + 1} / ${online.max}${
+                online.others.length ? `：${online.others.map(esc).join('、')}` : ''
+              }`
+        }</p>`
+      : '';
     let body = '';
     switch (this.screen) {
       case 'main':
         body = `<h1>重彩</h1><p>世界本来是彩色的。墨潮抽走了颜色。</p>
           <button class="primary" data-a="play">${profile ? `开始：${esc(summary)}` : '开始：先选一个角色'}</button>
           ${profile ? `<button data-a="character">${who}</button>` : ''}
+          ${net}
+          ${online ? '<button data-a="leave">离开联机</button>' : '<button data-a="join">联机</button>'}
           <button data-a="new">新世界</button>
           <button data-a="worlds">世界列表</button>
           <button data-a="settings">设置</button>
           <button data-a="controls">操作说明</button>`;
         break;
       case 'pause':
-        body = `<h2>暂停</h2><p>${esc(summary)}</p>
+        body = `<h2>暂停</h2><p>${esc(summary)}</p>${net}
           <button class="primary" data-a="play">继续游戏</button>
           <button data-a="character">${who || '选择角色'}</button>
+          ${online ? '<button data-a="leave">离开联机</button>' : ''}
           <button data-a="settings">设置</button>
           <button data-a="controls">操作说明</button>
           <button data-a="report">导出试玩报告</button>
           <button data-a="main">回到主菜单</button>`;
+        break;
+      case 'join':
+        body = `<h2>联机</h2>
+          <p>和朋友进同一个世界，最多 10 人。开服的人在项目里运行 <b>npm run server</b>，把那台电脑的地址发给大家。</p>
+          <label>地址 <input type="text" data-server placeholder="例如 192.168.1.20:5195" value="${esc(this.actions.lastServer())}"></label>
+          <button class="primary" data-a="join-go">加入</button>
+          <p class="hint">联机时用的是服务器上的世界，你在单人世界里的进度不受影响。</p>
+          <button data-a="back">返回</button>`;
         break;
       case 'settings': {
         const s = this.actions.settings();
@@ -258,7 +296,16 @@ export class Menu {
       case 'worlds':
       case 'settings':
       case 'controls':
+      case 'join':
         this.show(a);
+        break;
+      case 'join-go': {
+        const addr = this.root.querySelector<HTMLInputElement>('input[data-server]')?.value.trim();
+        if (addr) this.actions.joinServer(addr);
+        break;
+      }
+      case 'leave':
+        this.actions.leaveServer();
         break;
       case 'main':
         this.show('main');

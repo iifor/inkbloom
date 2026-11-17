@@ -6,6 +6,7 @@
 import * as THREE from 'three';
 import type { Point3 } from '@/game/events';
 import type { GameContext, System } from '@/game/types';
+import { projectToScreen } from './project';
 
 const NUMBER_LIFE = 0.9;
 const BAR_LIFE = 3;
@@ -43,7 +44,6 @@ export class CombatOverlay implements System {
   private readonly bars = new Map<number, Bar>();
   private readonly arrows: Arrow[] = [];
   private readonly release: (() => void)[] = [];
-  private readonly v = new THREE.Vector3();
   private readonly top = new THREE.Vector3();
 
   constructor(
@@ -125,14 +125,8 @@ export class CombatOverlay implements System {
     this.arrows.push({ el, from, t: 0 });
   }
 
-  /** World point to CSS pixels, or null when behind the camera or too far away. */
   private project(p: THREE.Vector3): { x: number; y: number } | null {
-    const cam = this.ctx.renderer.camera;
-    if (p.distanceTo(cam.position) > MAX_DIST) return null;
-    this.v.copy(p).project(cam);
-    if (this.v.z > 1 || this.v.z < -1) return null;
-    const el = this.ctx.renderer.renderer.domElement;
-    return { x: ((this.v.x + 1) / 2) * el.clientWidth, y: ((1 - this.v.y) / 2) * el.clientHeight };
+    return projectToScreen(this.ctx.renderer, p, MAX_DIST);
   }
 
   update(dt: number): void {

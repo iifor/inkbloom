@@ -30,7 +30,7 @@ tests/             world/ 和 physics 的单元测试；墨潮、墨怪、战斗
 
 **1. 世界是种子的函数。** 地形、群系、树、城市入口、城市骨架都由 `(seed, 坐标/ID)` 算出来，任何顺序生成结果都一样。所以只存档玩家造成的改变，不存生成内容。`world/` 里禁止 `Math.random`，用 `Rng` 或 `hashAt`。
 
-**2. 改存档只走补丁。** `world/patch.ts` 的 `applyPatch` 是唯一写 `WorldState` 的地方；系统调 `ctx.apply(patch)`，成功会广播 `patch:applied`。以后联机：访客发补丁、房主校验后广播，同一套。
+**2. 改存档只走补丁。** `world/patch.ts` 的 `applyPatch` 是唯一写 `WorldState` 的地方；系统调 `ctx.apply(patch)`，成功会广播 `patch:applied`。联机时（`server/`）：客户端本地先生效并把补丁发给世界服务器，服务器把发送者自己的那份存档换进来再跑同一个 `applyPatch` 校验（`world/net/slices.ts`），改到共享世界的补丁再广播给其他人；没有房主。
 
 **3. 颜色是一字节。** 每个表面在城市骨架里有原色；存档只存当前状态：`0` 抽色、`1` 原色、`2+n` 涂鸦第 n 色。渲染器从状态纹理读同一个字节，所以存档、补丁、画面永远一致。
 

@@ -27,16 +27,20 @@ export function loadProfile(kv: KeyValue): Profile | null {
   } catch {
     return null;
   }
-  const l = raw?.look;
+  const look = validLook(raw?.look);
+  return look ? { name: cleanName(raw?.name), look } : null;
+}
+
+/** A look that names a real character and colours the game has, or null. The world server
+ * uses it too, on what clients send. */
+export function validLook(v: unknown): Look | null {
+  const l = v as Record<string, unknown> | null | undefined;
   if (!l || !CHARACTER_KEYS.includes(l.character as CharacterKey)) return null;
   const skin = index(l.skin, SKIN_TONES.length);
   const hair = index(l.hair, HAIR_COLORS.length);
   const accent = index(l.accent, PALETTE.length);
   if (skin === null || hair === null || accent === null || !PALETTE[accent]!.paintable) return null;
-  return {
-    name: cleanName(raw?.name),
-    look: { character: l.character as CharacterKey, skin, hair, accent },
-  };
+  return { character: l.character as CharacterKey, skin, hair, accent };
 }
 
 export function saveProfile(kv: KeyValue, p: Profile): void {

@@ -273,12 +273,15 @@ export class CityScene implements GameScene {
     for (const lod of this.detail) lod.update(camera);
   }
 
-  /** While the player is inside. */
+  /** While the player is inside. In a server world only the town's keeper runs its erosion and
+   * tide (everyone else sees their drains arrive as patches), so more players inside do not
+   * drain it faster. */
   update(dt: number): void {
     this.stains.update();
-    this.erosion.update(dt);
+    const keeper = !this.ctx.net || this.ctx.net.keeps(this.layout.id);
+    if (keeper) this.erosion.update(dt);
     this.monsters.update(dt);
-    this.tide.update(dt);
+    if (keeper) this.tide.update(dt);
   }
 
   /** While the player is just outside the wall: the guards stay awake; everything else (the

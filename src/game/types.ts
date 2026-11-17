@@ -5,6 +5,7 @@ import type { InkRenderer } from '@/engine/render/renderer';
 import type { Input } from '@/engine/input/input';
 import type { ColliderData, PhysicsWorld, Vec3Like } from '@/engine/physics/world';
 import type { CityLayout } from '@/world/city/layout';
+import type { PlayerInfo } from '@/world/net/protocol';
 import type { Patch, PatchResult } from '@/world/patch';
 import type { SceneRef, WorldState } from '@/world/state';
 import type { Entrance, Wilderness } from '@/world/wilderness/generator';
@@ -197,6 +198,22 @@ export interface GameContext {
   readonly combat: CombatApi;
   /** The single entry point for changing saved world state. */
   apply(patch: Patch): PatchResult;
+  /** Set in a server world (multiplayer); absent when playing alone. */
+  readonly net?: NetApi;
+}
+
+/** This client's part in a server world. */
+export interface NetApi {
+  /** Whether this client runs the town's ink tide and erosion (one player per town does). */
+  keeps(town: string): boolean;
+  /** Everyone else in the world. */
+  readonly players: readonly PlayerInfo[];
+  /** Most players the server takes. */
+  readonly max: number;
+  /** Why the connection went down, once it has; null while connected. */
+  readonly down: string | null;
+  sendPatch(patch: Patch): void;
+  leave(): void;
 }
 
 export const sceneKey = (ref: SceneRef): string => (ref.kind === 'wild' ? 'wild' : `city:${ref.id}`);

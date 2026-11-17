@@ -15,14 +15,17 @@
     "test:watch": "vitest",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "check": "npm run typecheck && npm run test && npm run format:check && vite build"
+    "check": "npm run typecheck && npm run test && npm run format:check && vite build",
+    "server": "vite-node server/main.ts --"
   },
   "dependencies": {
-    "three": "0.170.0"
+    "three": "0.170.0",
+    "ws": "8.18.0"
   },
   "devDependencies": {
     "@types/node": "22.15.30",
     "@types/three": "0.170.0",
+    "@types/ws": "8.5.13",
     "prettier": "3.9.6",
     "typescript": "5.7.3",
     "vite": "6.4.3",
