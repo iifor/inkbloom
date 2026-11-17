@@ -1,6 +1,7 @@
 // Player health, death and respawn, plus the registry of things that can be shot. Weapons call
 // shoot(); monster groups register a TargetSource; nothing else needs to know about either.
 import * as THREE from 'three';
+import { ARENA } from '@/content/arena';
 import { TUNING } from '@/content/tuning';
 import type { CombatApi, GameContext, ShotResult, System, TargetSource } from '@/game/types';
 import { afterArmor, stats } from '@/world/progression';
@@ -20,14 +21,57 @@ export class CombatSystem implements System, CombatApi {
   private readonly fellAt = new THREE.Vector3();
   shieldLeft = 0;
   private shieldT = 0;
+  /** In the arena: health is the server's (see serverHealth). */
+  private byServer = false;
 
   constructor(private readonly ctx: GameContext) {
     this.hp = this.maxHp;
   }
 
-  /** Grows with level and the health attribute. */
+  /** Grows with level and the health attribute; in the arena everyone has the same. */
   get maxHp(): number {
-    return stats(this.ctx.state.growth).maxHp;
+    return this.byServer ? ARENA.hp : stats(this.ctx.state.growth).maxHp;
+  }
+
+  serverHealth(on: boolean): void {
+    if (on === this.byServer) return;
+    this.byServer = on;
+    // in or out, full health and on their feet
+    this.hp = this.maxHp;
+    this.alive = true;
+    this.shieldLeft = 0;
+    this.sinceHurt = Infinity;
+  }
+
+  hit(amount: number, hp: number, from: THREE.Vector3 | null): void {
+    if (!this.byServer) return;
+    const before = this.hp;
+    this.hp = hp;
+    this.sinceHurt = 0;
+    // the feel of being hit: the server's numbers, this game's flinch
+    this.ctx.events.emit('player:hurt', {
+      amount: Math.max(0, before - hp),
+      absorbed: Math.max(0, amount - (before - hp)),
+      from: from ? { x: from.x, y: from.y, z: from.z } : null,
+      melee: false,
+    });
+  }
+
+  fall(): void {
+    if (!this.byServer || !this.alive) return;
+    this.alive = false;
+    this.hp = 0;
+    // nothing is lost in the arena
+    this.ctx.events.emit('player:died', { lostInk: 0 });
+  }
+
+  rise(pos: THREE.Vector3, yaw: number): void {
+    if (!this.byServer) return;
+    this.ctx.player.teleport(pos, yaw);
+    this.hp = this.maxHp;
+    this.alive = true;
+    this.grace = ARENA.grace;
+    this.sinceHurt = Infinity;
   }
 
   addTargets(source: TargetSource): () => void {
@@ -107,7 +151,8 @@ export class CombatSystem implements System, CombatApi {
   }
 
   damagePlayer(amount: number, from?: THREE.Vector3, opts: { readonly melee?: boolean } = {}): void {
-    if (!this.alive || this.grace > 0 || this.ctx.player.flying) return;
+    // in the arena only the server hurts the player
+    if (!this.alive || this.grace > 0 || this.ctx.player.flying || this.byServer) return;
     const melee = opts.melee === true;
     if (melee && from) {
       // a blow shoves the player away from it and checks their stride for a moment
@@ -162,11 +207,13 @@ export class CombatSystem implements System, CombatApi {
     this.shieldT -= dt;
     if (this.shieldT <= 0) this.shieldLeft = 0;
     if (!this.alive) {
+      // in the arena the server says when to get up (rise)
       this.deadFor += dt;
-      if (this.deadFor >= DEATH_PAUSE) this.respawn();
+      if (this.deadFor >= DEATH_PAUSE && !this.byServer) this.respawn();
       return;
     }
     this.sinceHurt += dt;
+    if (this.byServer) return;
     if (this.sinceHurt >= C.regenDelay && this.hp < this.maxHp)
       this.hp = Math.min(this.maxHp, this.hp + C.regenPerSecond * dt);
   }

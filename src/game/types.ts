@@ -5,7 +5,10 @@ import type { InkRenderer } from '@/engine/render/renderer';
 import type { Input } from '@/engine/input/input';
 import type { ColliderData, PhysicsWorld, Vec3Like } from '@/engine/physics/world';
 import type { CityLayout } from '@/world/city/layout';
-import type { PlayerInfo } from '@/world/net/protocol';
+import type { WeaponKey } from '@/content/weapons';
+import type { ArenaMode, ArenaState, Team } from '@/world/arena/match';
+import type { ArenaSite } from '@/world/arena/site';
+import type { ActKind, PlayerInfo } from '@/world/net/protocol';
 import type { Patch, PatchResult } from '@/world/patch';
 import type { SceneRef, WorldState } from '@/world/state';
 import type { Entrance, Wilderness } from '@/world/wilderness/generator';
@@ -183,6 +186,12 @@ export interface CombatApi {
   /** Absorbs damage before health for a while. */
   shield(amount: number, seconds: number): void;
   readonly shieldLeft: number;
+  /** In the arena the server keeps this player's health: no regeneration, no death patch, no
+   * respawn of its own. `hit`, `fall` and `rise` apply what the server says. */
+  serverHealth(on: boolean): void;
+  hit(amount: number, hp: number, from: THREE.Vector3 | null): void;
+  fall(): void;
+  rise(pos: THREE.Vector3, yaw: number): void;
 }
 
 export interface GameContext {
@@ -200,6 +209,26 @@ export interface GameContext {
   apply(patch: Patch): PatchResult;
   /** Set in a server world (multiplayer); absent when playing alone. */
   readonly net?: NetApi;
+  /** The arena (PvP); there is one only in a server world. */
+  readonly arena?: ArenaApi;
+}
+
+/** This player's view of the arena. */
+export interface ArenaApi {
+  readonly site: ArenaSite;
+  /** Whether this player is in the arena (fighting, or waiting for a round). */
+  readonly inside: boolean;
+  /** How it stands, as the server last said (null until anyone has been in). */
+  readonly state: ArenaState | null;
+  /** This player's id on the server. */
+  readonly me: number;
+  /** -1 in a free-for-all or when not in the arena. */
+  teamOf(id: number): Team;
+  join(): void;
+  leave(): void;
+  vote(mode: ArenaMode): void;
+  /** This player attacked or used a skill: the server decides what it hit. */
+  act(w: WeaponKey, k: ActKind, o: THREE.Vector3, d: THREE.Vector3): void;
 }
 
 /** This client's part in a server world. */

@@ -2,7 +2,14 @@
 // when a wall is in the way. design: docs/game-design.md section 11.6
 import * as THREE from 'three';
 import type { GameContext } from '@/game/types';
+import { PALETTE } from '@/content/palette';
 import { projectToScreen } from './project';
+
+/** A palette colour as CSS. */
+function rgbOf(index: number): string {
+  const c = PALETTE[index]?.rgb ?? [0, 0, 0];
+  return `rgb(${c.map((v) => Math.round(v * 255)).join(', ')})`;
+}
 
 const MAX_DIST = 40;
 
@@ -20,8 +27,9 @@ export class NameTags {
     parent.append(this.root);
   }
 
-  /** Place one player's tag at `head` (a point just above their head) this frame. */
-  place(id: number, name: string, head: THREE.Vector3): void {
+  /** Place one player's tag at `head` (a point just above their head) this frame, edged in
+   * `team` (a palette colour) in the arena. */
+  place(id: number, name: string, head: THREE.Vector3, team: number | null = null): void {
     let el = this.tags.get(id);
     if (!el) {
       el = document.createElement('div');
@@ -30,6 +38,8 @@ export class NameTags {
       this.tags.set(id, el);
     }
     if (el.textContent !== name) el.textContent = name;
+    const edge = team === null ? '' : rgbOf(team);
+    if (el.style.borderBottomColor !== edge) el.style.borderBottomColor = edge;
     const s = projectToScreen(this.ctx.renderer, head, MAX_DIST);
     const eye = this.ctx.renderer.camera.position;
     const dist = head.distanceTo(eye);

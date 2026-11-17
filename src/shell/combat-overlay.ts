@@ -37,6 +37,10 @@ interface Arrow {
   t: number;
 }
 
+/** Health bars of players sit apart from monsters' (keyed RIVAL - id), at a player's height. */
+const RIVAL = -1000;
+const PLAYER_HEIGHT = 1.8;
+
 export class CombatOverlay implements System {
   readonly id = 'combat-overlay';
   private readonly root: HTMLElement;
@@ -69,6 +73,15 @@ export class CombatOverlay implements System {
         if (e.amount > 0) this.selfNumber(`-${Math.round(e.amount)}`, 'hurt', -45);
         if (e.absorbed > 0) this.selfNumber(`-${Math.round(e.absorbed)} 护盾`, 'shield', 55);
         if (e.from) this.arrow(e.from);
+      }),
+      // other players in the arena (ids apart from monsters'): a head hit reads big
+      on('rival:hit', (e) => {
+        this.number(e.at, e.amount, e.head ? 'big' : '');
+        this.bar(RIVAL - e.id, e.anchor, PLAYER_HEIGHT, e.hp);
+      }),
+      on('rival:down', (e) => {
+        this.number(e.at, '击倒', 'kill');
+        this.dropBar(RIVAL - e.id);
       }),
       // a new scene has different monsters
       on('scene:entered', () => this.clear()),

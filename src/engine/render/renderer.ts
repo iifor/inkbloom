@@ -1017,6 +1017,7 @@ export class InkRenderer {
         uDrainInner: shared.uDrainInner,
         uDrainOuter: shared.uDrainOuter,
         uSceneSat: shared.uSceneSat,
+        uArena: shared.uArena,
         uRock: { value: color('rock') },
         uSnow: { value: color('snow') },
         uCedar: { value: color('cedar') },

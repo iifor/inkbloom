@@ -18,7 +18,20 @@ import { levelOf } from '@/world/progression';
 import { DEFAULT_SETTINGS, SETTING_LIMITS, type Settings } from '@/world/settings';
 import type { WorldState } from '@/world/state';
 
-export type Screen = 'main' | 'pause' | 'character' | 'join' | 'settings' | 'worlds' | 'controls';
+export type Screen = 'main' | 'pause' | 'character' | 'join' | 'settings' | 'worlds' | 'controls' | 'arena';
+
+/** The arena as the menu shows it. */
+export interface ArenaInfo {
+  readonly inside: boolean;
+  readonly phase: 'waiting' | 'countdown' | 'fighting' | 'results';
+  readonly mode: 'ffa' | 'teams';
+  /** Seconds left in this phase. */
+  readonly left: number;
+  readonly names: readonly string[];
+  readonly votes: { readonly ffa: number; readonly teams: number };
+  /** This player's vote, when inside. */
+  readonly mine: 'ffa' | 'teams' | null;
+}
 
 /** The server world this game is in, for the menu. */
 export interface Online {
@@ -52,7 +65,15 @@ export interface MenuActions {
   lastServer(): string;
   joinServer(address: string): void;
   leaveServer(): void;
+  /** The arena, or null when playing alone (there is one only on a server). */
+  arena(): ArenaInfo | null;
+  arenaJoin(): void;
+  arenaLeave(): void;
+  arenaVote(mode: 'ffa' | 'teams'): void;
 }
+
+const PHASES = { waiting: '等人', countdown: '马上开始', fighting: '对战中', results: '一局刚结束' } as const;
+const MODES = { ffa: '混战', teams: '组队' } as const;
 
 const CONTROLS = [
   ['WASD', '移动'],
@@ -132,6 +153,10 @@ export class Menu {
               }`
         }</p>`
       : '';
+    const arena = this.actions.arena();
+    const arenaButton = arena
+      ? `<button data-a="arena">竞技场${arena.inside ? '（在场上）' : arena.names.length ? `（${arena.names.length} 人）` : ''}</button>`
+      : '<button disabled title="联机时可用">竞技场（联机时可用）</button>';
     let body = '';
     switch (this.screen) {
       case 'main':
@@ -140,6 +165,7 @@ export class Menu {
           ${profile ? `<button data-a="character">${who}</button>` : ''}
           ${net}
           ${online ? '<button data-a="leave">离开联机</button>' : '<button data-a="join">联机</button>'}
+          ${arenaButton}
           <button data-a="new">新世界</button>
           <button data-a="worlds">世界列表</button>
           <button data-a="settings">设置</button>
@@ -149,6 +175,7 @@ export class Menu {
         body = `<h2>暂停</h2><p>${esc(summary)}</p>${net}
           <button class="primary" data-a="play">继续游戏</button>
           <button data-a="character">${who || '选择角色'}</button>
+          ${arenaButton}
           ${online ? '<button data-a="leave">离开联机</button>' : ''}
           <button data-a="settings">设置</button>
           <button data-a="controls">操作说明</button>
@@ -163,6 +190,31 @@ export class Menu {
           <p class="hint">联机时用的是服务器上的世界，你在单人世界里的进度不受影响。</p>
           <button data-a="back">返回</button>`;
         break;
+      case 'arena': {
+        if (!arena) {
+          body = `<h2>竞技场</h2><p>联机时可用。</p><button data-a="back">返回</button>`;
+          break;
+        }
+        const time =
+          arena.phase === 'waiting'
+            ? ''
+            : ` · ${Math.floor(arena.left / 60)}:${String(Math.floor(arena.left % 60)).padStart(2, '0')}`;
+        const who = arena.names.length ? `：${arena.names.map(esc).join('、')}` : '';
+        const vote = (m: 'ffa' | 'teams'): string =>
+          `<button data-a="vote-${m}"${arena.mine === m ? ' class="on"' : ''}>投${MODES[m]}（${arena.votes[m]}）</button>`;
+        body = `<h2>竞技场</h2>
+          <p>${PHASES[arena.phase]} · ${MODES[arena.mode]}${time} · ${arena.names.length} 人在场${who}</p>
+          <p class="hint">野外围起来的一片地方，玩家之间对打。5 把武器都能用，倒下不掉墨，不影响世界进度。混战先到 10 杀、组队先到 20 杀，每局 5 分钟。</p>
+          ${
+            arena.inside
+              ? `<p class="hint">下一局打什么：按投票多的来</p><div class="votes">${vote('ffa')}${vote('teams')}</div>
+                 <button class="primary" data-a="play">回到场上</button>
+                 <button data-a="arena-leave">离开竞技场</button>`
+              : '<button class="primary" data-a="arena-join">进入竞技场</button>'
+          }
+          <button data-a="back">返回</button>`;
+        break;
+      }
       case 'settings': {
         const s = this.actions.settings();
         const [smin, smax] = SETTING_LIMITS.sensitivity;
@@ -297,7 +349,22 @@ export class Menu {
       case 'settings':
       case 'controls':
       case 'join':
+      case 'arena':
         this.show(a);
+        break;
+      case 'arena-join':
+        this.actions.arenaJoin();
+        this.actions.play();
+        break;
+      case 'arena-leave':
+        this.actions.arenaLeave();
+        this.actions.play();
+        break;
+      case 'vote-ffa':
+      case 'vote-teams':
+        this.actions.arenaVote(a === 'vote-ffa' ? 'ffa' : 'teams');
+        // the server's answer comes back in a moment; show it then
+        setTimeout(() => this.screen === 'arena' && this.show('arena'), 150);
         break;
       case 'join-go': {
         const addr = this.root.querySelector<HTMLInputElement>('input[data-server]')?.value.trim();

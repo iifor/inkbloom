@@ -223,6 +223,27 @@ async function boot(): Promise<void> {
       game.net?.leave();
       openServer(null);
     },
+    arena() {
+      const a = game.arena;
+      if (!a) return null;
+      const s = a.state;
+      const members = s?.members ?? [];
+      return {
+        inside: a.inside,
+        phase: s?.phase ?? 'waiting',
+        mode: s?.mode ?? 'ffa',
+        left: a.secondsLeft(),
+        names: members.map((m) => a.nameOf(m.id)),
+        votes: {
+          ffa: members.filter((m) => m.vote === 'ffa').length,
+          teams: members.filter((m) => m.vote === 'teams').length,
+        },
+        mine: members.find((m) => m.id === a.me)?.vote ?? null,
+      };
+    },
+    arenaJoin: () => game.arena?.join(),
+    arenaLeave: () => game.arena?.leave(),
+    arenaVote: (mode) => game.arena?.vote(mode),
   });
   menu.show('main');
   input.onLockChange = (locked) => {

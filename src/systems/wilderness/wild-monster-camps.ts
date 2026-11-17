@@ -79,6 +79,9 @@ export class WildMonsterCamps {
     const sat = chunkSaturation(this.ctx.wilderness, chunk.cx, chunk.cz, (c) => this.ctx.cities.progress(c));
     for (const m of wildMonstersInChunk(this.ctx.wilderness, chunk.cx, chunk.cz, sat)) {
       if (!wildMonsterBack(this.ctx.state, m.id)) continue;
+      // none in or right by the arena: it is for players fighting each other
+      const arena = this.ctx.arena?.site;
+      if (arena && Math.hypot(m.x - arena.x, m.z - arena.z) < arena.radius + 25) continue;
       this.group.spawn(m.type, new THREE.Vector3(m.x, m.y + 0.05, m.z), {
         tag: key,
         key: m.id,

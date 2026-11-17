@@ -70,6 +70,19 @@ export interface GameEvents {
   /** A swimming stroke kicked: the hands shot forward through the water (where they broke it). */
   'player:stroke': { readonly hands: readonly Point3[]; readonly power: number };
   'player:died': { readonly lostInk: number };
+  /** In the arena, the server says another player was hit (by anyone): `hp` is what they have
+   * left, 0..1; `anchor` follows them each frame. */
+  'rival:hit': {
+    readonly at: Point3;
+    readonly id: number;
+    readonly amount: number;
+    readonly hp: number;
+    readonly head: boolean;
+    readonly anchor: Point3;
+  };
+  'rival:down': { readonly at: Point3; readonly id: number };
+  /** The arena changed: who is in, the round, the score (HUD and menu redraw). */
+  'arena:changed': Record<string, never>;
   /** The player's attack hit something. `heavy`: a blade or a shell's direct hit (hitstop). */
   'shot:hit': { readonly killed: boolean; readonly heavy: boolean };
   /** A bullet's streak reached the wall or ground it hit (a little after the instant hit). */

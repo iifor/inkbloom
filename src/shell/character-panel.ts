@@ -23,7 +23,9 @@ export class CharacterPanel implements System {
 
   update(): void {
     const { input } = this.ctx;
-    if (input.consume('character')) this.open = !this.open;
+    // in the arena Tab holds up the scoreboard instead (shell/arena-hud.ts)
+    if (this.ctx.arena?.inside) this.open = false;
+    else if (input.consume('character')) this.open = !this.open;
     this.el.hidden = !this.open;
     if (!this.open) return;
     SLOTS.forEach((slot, i) => {

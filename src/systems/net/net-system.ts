@@ -6,6 +6,7 @@ import type { GameContext, NetApi, System } from '@/game/types';
 import type { Fix } from '@/world/net/fix';
 import type { Patch } from '@/world/patch';
 import {
+  type ClientMessage,
   DASHING,
   GLIDING,
   GROUNDED,
@@ -49,8 +50,20 @@ export class NetSystem implements System, NetApi {
     this.last.copy(ctx.player.position);
   }
 
+  /** The arena's messages go here (systems/arena/arena-system.ts). */
+  onArena: ((m: ServerMessage) => void) | null = null;
+
   get max(): number {
     return this.conn.welcome.max;
+  }
+
+  /** This player's id on the server. */
+  get me(): number {
+    return this.conn.welcome.id;
+  }
+
+  send(m: ClientMessage): void {
+    this.conn.send(m);
   }
 
   get players(): readonly PlayerInfo[] {
@@ -123,6 +136,13 @@ export class NetSystem implements System, NetApi {
             text: `服务器没有接受：${String(m.reason).slice(0, 60)}`,
             seconds: 3,
           });
+        break;
+      case 'arena':
+      case 'act':
+      case 'hit':
+      case 'down':
+      case 'spawn':
+        this.onArena?.(m);
         break;
       default:
         break;

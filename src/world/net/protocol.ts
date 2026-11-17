@@ -2,6 +2,8 @@
 // both sides; everything a client sends is checked here before the server looks at it.
 // design: docs/game-design.md section 10
 import type { Look } from '@/content/characters';
+import { WEAPONS, type WeaponKey } from '@/content/weapons';
+import type { ArenaMode, ArenaState } from '../arena/match';
 import type { Patch } from '../patch';
 import { cleanName, validLook } from '../profile';
 import type { SceneRef } from '../state';
@@ -53,7 +55,29 @@ export type ClientMessage =
   /** Where the player is, 20 times a second; `town` is the town they are inside, if any. */
   | (Motion & { readonly t: 'move'; readonly scene: SceneRef; readonly town: string | null })
   /** A patch already applied locally, for the server to judge. */
-  | { readonly t: 'patch'; readonly seq: number; readonly patch: Patch };
+  | { readonly t: 'patch'; readonly seq: number; readonly patch: Patch }
+  /** Into or out of the arena, or a vote for the next round's mode. */
+  | { readonly t: 'arena'; readonly a: 'join' | 'leave' | 'vote'; readonly mode?: ArenaMode }
+  /** In the arena: an attack or a skill, from `o` along `d`, as the player saw the world at
+   * world clock `at`. The server works out what it hits. */
+  | {
+      readonly t: 'act';
+      readonly w: WeaponKey;
+      readonly k: ActKind;
+      readonly o: Vec3;
+      readonly d: Vec3;
+      readonly at: number;
+    };
+
+/** What a weapon can do: its attack and its skill. */
+export type ActKind = 'shot' | 'strike' | 'slash' | 'shell' | 'bigshell' | 'field' | 'shield' | 'focus';
+export const WEAPON_ACTS: Readonly<Record<WeaponKey, readonly [attack: ActKind, skill: ActKind]>> = {
+  rifle: ['shot', 'shield'],
+  katana: ['strike', 'slash'],
+  sniper: ['shot', 'focus'],
+  launcher: ['shell', 'bigshell'],
+  staff: ['shot', 'field'],
+};
 
 export type ServerMessage =
   | {
@@ -93,7 +117,29 @@ export type ServerMessage =
       readonly you: string;
       /** The true state of what it touched, to undo the early local change. */
       readonly fix: Fix | null;
-    };
+    }
+  /** The arena as it stands (to everyone: the menu shows it). */
+  | { readonly t: 'arena'; readonly state: ArenaState }
+  /** In the arena (to those in it): someone's attack, to draw; a hit; someone down; someone
+   * getting up at `p` (the one getting up moves there). */
+  | {
+      readonly t: 'act';
+      readonly from: number;
+      readonly w: WeaponKey;
+      readonly k: ActKind;
+      readonly o: Vec3;
+      readonly d: Vec3;
+    }
+  | {
+      readonly t: 'hit';
+      readonly from: number;
+      readonly to: number;
+      readonly amount: number;
+      readonly head: boolean;
+      readonly hp: number;
+    }
+  | { readonly t: 'down'; readonly who: number; readonly by: number; readonly w: string }
+  | { readonly t: 'spawn'; readonly who: number; readonly p: Vec3; readonly yaw: number };
 
 /** Patches that change the shared world, so other players need them. The rest only touch the
  * sender's own things. */
@@ -150,6 +196,22 @@ export function parseClientMessage(text: string): ClientMessage | null {
     case 'patch': {
       const patch = validPatch(m.patch);
       return finite(m.seq) && patch ? { t: 'patch', seq: m.seq, patch } : null;
+    }
+    case 'arena': {
+      if (m.a !== 'join' && m.a !== 'leave' && m.a !== 'vote') return null;
+      if (m.a !== 'vote') return { t: 'arena', a: m.a };
+      return m.mode === 'ffa' || m.mode === 'teams' ? { t: 'arena', a: 'vote', mode: m.mode } : null;
+    }
+    case 'act': {
+      const w = WEAPONS.find((x) => x.key === m.w)?.key;
+      const o = vec3(m.o, MAX_COORD);
+      const d = vec3(m.d, 2);
+      if (!w || !o || !d || !finite(m.at) || !WEAPON_ACTS[w].includes(m.k as ActKind)) return null;
+      // a direction, made exactly one long
+      const len = Math.hypot(d[0], d[1], d[2]);
+      if (len < 0.5) return null;
+      const unit: Vec3 = [d[0] / len, d[1] / len, d[2] / len];
+      return { t: 'act', w, k: m.k as ActKind, o, d: unit, at: m.at };
     }
     default:
       return null;

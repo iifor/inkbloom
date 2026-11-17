@@ -8,6 +8,7 @@
 import { timingSafeEqual } from 'node:crypto';
 import type { IncomingMessage } from 'node:http';
 import { type WebSocket, WebSocketServer } from 'ws';
+import type { Outgoing } from '@/world/net/arena-host';
 import type { WorldHost } from '@/world/net/host';
 import { PROTOCOL, SEND_HZ, type ServerMessage, parseClientMessage } from '@/world/net/protocol';
 
@@ -86,6 +87,20 @@ export function serve(host: WorldHost, opts: ServeOptions): Promise<Served> {
   const broadcast = (m: ServerMessage, except?: number): void => {
     for (const [id, ws] of sockets) if (id !== except) send(ws, m);
   };
+  /** Arena messages: to everyone, to those in the arena, or to one player. */
+  const deliver = (out: readonly Outgoing[]): void => {
+    if (!out.length) return;
+    const inArena = host.arena.members();
+    for (const { to, m } of out) {
+      if (to === 'all') broadcast(m);
+      else if (to === 'arena')
+        for (const id of inArena) {
+          const ws = sockets.get(id);
+          if (ws) send(ws, m);
+        }
+      else if (sockets.has(to)) send(sockets.get(to)!, m);
+    }
+  };
   const addressOf = (req: IncomingMessage): string => req.socket.remoteAddress ?? '?';
   const wss = new WebSocketServer({
     port: opts.port,
@@ -162,6 +177,8 @@ export function serve(host: WorldHost, opts: ServeOptions): Promise<Served> {
           players: host.everyone().filter((p) => p.id !== id),
         });
         broadcast({ t: 'joined', player: host.info(id)! }, id);
+        // how the arena stands, for the menu (once anyone has been in it)
+        if (host.arena.started) send(ws, host.arena.stateMessage());
         log(`+ ${m.name} (${address}) · ${host.count}/${host.max}`);
         return;
       }
@@ -181,6 +198,14 @@ export function serve(host: WorldHost, opts: ServeOptions): Promise<Served> {
           }
           break;
         }
+        case 'arena':
+          if (m.a === 'join') deliver(host.arena.join(id));
+          else if (m.a === 'leave') deliver(host.arena.leave(id));
+          else if (m.mode) deliver(host.arena.vote(id, m.mode));
+          break;
+        case 'act':
+          deliver(host.arena.act(id, m));
+          break;
         default:
           break;
       }
@@ -225,7 +250,7 @@ export function serve(host: WorldHost, opts: ServeOptions): Promise<Served> {
     const dt = Math.min(0.5, (now - last) / 1000);
     last = now;
     // the clock only runs while someone is playing, as it does in a single-player world
-    if (sockets.size) host.tick(dt);
+    if (sockets.size) deliver(host.tick(dt));
     const keepers = host.keepers();
     for (const [id, ws] of sockets)
       send(ws, {

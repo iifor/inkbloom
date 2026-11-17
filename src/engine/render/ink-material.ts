@@ -24,6 +24,9 @@ export const shared = {
   uDrainInner: { value: TUNING.drain.innerRadius as number },
   uDrainOuter: { value: TUNING.drain.outerRadius as number },
   uSceneSat: { value: 1 },
+  /** The arena (xy centre, z radius, w 1 when there is one): always in full colour, so a fight
+   * is never in the grey. */
+  uArena: { value: new THREE.Vector4() },
   /** Sun shadow map around the player; see InkRenderer. */
   uShadowMap: { value: null as THREE.Texture | null },
   uShadowMatrix: { value: new THREE.Matrix4() },
@@ -48,6 +51,7 @@ uniform int uCityCount;
 uniform float uDrainInner;
 uniform float uDrainOuter;
 uniform float uSceneSat;
+uniform vec4 uArena;
 float derivedSat(vec3 wp) {
   float drain = 0.0;
   for (int i = 0; i < ${TUNING.drain.maxCities}; i++) {
@@ -58,6 +62,7 @@ float derivedSat(vec3 wp) {
     float f = 1.0 - smoothstep(uDrainInner, uDrainOuter, d);
     drain = max(drain, (1.0 - c.z) * f);
   }
+  if (uArena.w > 0.0) drain *= smoothstep(uArena.z - 4.0, uArena.z + 2.0, length(wp.xz - uArena.xy));
   return 1.0 - drain;
 }`;
 
@@ -437,6 +442,7 @@ export function makeInkMaterial(opts: InkMaterialOptions = {}): THREE.ShaderMate
       uDrainInner: shared.uDrainInner,
       uDrainOuter: shared.uDrainOuter,
       uSceneSat: shared.uSceneSat,
+      uArena: shared.uArena,
       uShadowMap: shared.uShadowMap,
       uReversedDepth: shared.uReversedDepth,
       uShadowMatrix: shared.uShadowMatrix,

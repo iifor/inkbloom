@@ -228,7 +228,9 @@ export class Hud implements System {
       this.el.title.style.transform = `translate(-50%, ${((1 - Number(fade)) * 8).toFixed(1)}px)`;
     }
     const goalOn = recall || t < this.goalUntil;
-    this.set('place', this.el.place, scene.name);
+    // in the arena the quest can wait: the strip at the top says what matters
+    const arena = this.ctx.arena?.inside ?? false;
+    this.set('place', this.el.place, arena ? '竞技场' : scene.name);
     let progress = '';
     if (scene instanceof CityScene) {
       const chunk = scene.chunkAt(this.ctx.player.position);
@@ -270,7 +272,7 @@ export class Hud implements System {
     const resOn = recall || t < this.resUntil;
     this.shown('res', this.el.res, resOn);
     this.set('goal', this.el.goal, this.objectives.text);
-    this.shown('goal', this.el.goal, goalOn);
+    this.shown('goal', this.el.goal, goalOn && !arena);
     this.shown('place', this.el.place.parentElement!, goalOn || resOn || progressOn);
     const { hp, maxHp, alive } = this.ctx.combat;
     const pct = `${Math.round((hp / maxHp) * 100)}%`;

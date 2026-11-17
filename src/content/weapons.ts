@@ -55,6 +55,9 @@ export interface WeaponDef {
   /** Viewmodel: main and accent colours. */
   readonly look: readonly [number, number];
   readonly shot?: ShotLook;
+  /** Against other players (the arena), out of 100 health; `head` multiplies a head hit.
+   * Growth does not raise it, so a newcomer and a veteran hit as hard. design: 9.3 */
+  readonly pvp: { readonly damage: number; readonly head: number };
 }
 
 export const WEAPONS = [
@@ -71,6 +74,7 @@ export const WEAPONS = [
     area: 0,
     skill: { name: '战术闪避', cooldown: 7, help: '向移动方向闪避，得到 4 秒护盾' },
     unlock: { kind: 'start' },
+    pvp: { damage: 9, head: 1.5 },
     look: [color('charcoal'), color('brown')],
     shot: {
       muzzle: [0, 0.003, -0.63],
@@ -92,6 +96,7 @@ export const WEAPONS = [
     area: 0.9,
     skill: { name: '突进斩', cooldown: 6, help: '向前冲 9 米，斩过路上的墨怪' },
     unlock: { kind: 'milestone', id: 'first-block', text: '第一次让街区有色' },
+    pvp: { damage: 28, head: 1 },
     look: [color('cream'), color('red')],
   },
   {
@@ -107,6 +112,7 @@ export const WEAPONS = [
     area: 0,
     skill: { name: '专注射击', cooldown: 10, help: '4 秒内伤害 ×1.5，视野拉近' },
     unlock: { kind: 'level', level: 3, text: '升到 3 级' },
+    pvp: { damage: 55, head: 2 },
     look: [color('teal'), color('charcoal')],
     shot: {
       muzzle: [0, 0.004, -0.96],
@@ -128,6 +134,7 @@ export const WEAPONS = [
     area: 4.5,
     skill: { name: '蓄力炮击', cooldown: 10, help: '一发大炮弹，范围和伤害翻倍' },
     unlock: { kind: 'milestone', id: 'first-tide', text: '第一次守住墨潮' },
+    pvp: { damage: 40, head: 1 },
     look: [color('orange'), color('charcoal')],
     shot: { muzzle: [0, -0.01, -0.62], flash: 2.2, recoil: 2.2 },
   },
@@ -144,6 +151,7 @@ export const WEAPONS = [
     area: 0,
     skill: { name: '墨能法阵', cooldown: 8, help: '在准星处放一个 4 秒的法阵，持续伤害' },
     unlock: { kind: 'restored', count: 1, text: '恢复第一座城' },
+    pvp: { damage: 18, head: 1.5 },
     look: [color('purple'), color('yellow')],
     shot: {
       muzzle: [0, -0.27, -0.33],

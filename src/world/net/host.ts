@@ -22,6 +22,7 @@ import {
   serializeWorld,
 } from '../state';
 import { createWilderness } from '../wilderness/generator';
+import { ArenaHost, type Outgoing } from './arena-host';
 import { layoutCache, worldPatchContext } from './patch-context';
 import { DEFAULT_MAX_PLAYERS, type Motion, type PlayerInfo, SHARED_KINDS, VIEW_RANGE } from './protocol';
 import { type PlayerSlice, deserializeSlice, newSlice, serializeSlice, withSlice } from './slices';
@@ -93,6 +94,11 @@ export class WorldHost {
   private uptime = 0;
   /** Something worth saving changed since the last save. */
   dirty = false;
+  /** The arena (PvP), on the same clock. */
+  readonly arena: ArenaHost;
+  /** Arena messages from things that happened outside a message (someone dropping out), to go
+   * out with the next tick. */
+  private outbox: Outgoing[] = [];
 
   constructor(
     readonly state: WorldState,
@@ -104,6 +110,7 @@ export class WorldHost {
     this.patchContext = worldPatchContext(wilderness, layoutCache(wilderness), (id) =>
       savedProgress(this.state, id),
     );
+    this.arena = new ArenaHost(wilderness, () => this.state.clock);
   }
 
   get count(): number {
@@ -179,6 +186,7 @@ export class WorldHost {
     const saved = this.players.get(m.token);
     if (saved) saved.seen = this.state.clock;
     this.members.delete(id);
+    this.outbox.push(...this.arena.leave(id));
     this.dirty = true;
   }
 
@@ -193,6 +201,7 @@ export class WorldHost {
       m.townSince = this.uptime;
     }
     m.slice.player = { scene, x: motion.p[0], y: motion.p[1], z: motion.p[2], yaw: motion.yaw };
+    this.arena.track(id, motion.p);
     // where everyone stands is worth keeping too (saves still come at most every few seconds)
     this.dirty = true;
   }
@@ -312,10 +321,15 @@ export class WorldHost {
     return serializeWorld(this.state);
   }
 
-  tick(dt: number): void {
+  /** Time passes. Returns the arena's messages (rounds starting and ending, players getting up,
+   * ink circles biting). */
+  tick(dt: number): Outgoing[] {
     this.uptime += dt;
     this.state.clock += dt;
     for (const m of this.members.values()) m.drains = Math.min(DRAIN_BURST, m.drains + DRAIN_RATE * dt);
+    const out = [...this.outbox, ...this.arena.tick()];
+    this.outbox = [];
+    return out;
   }
 
   /** Town id -> the player who runs its tide and erosion: whoever has been inside longest. */

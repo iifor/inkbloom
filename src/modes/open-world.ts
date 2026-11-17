@@ -30,6 +30,8 @@ import { InkDropSystem } from '@/systems/combat/ink-drop';
 import { ToolBelt } from '@/systems/tools/tool';
 import { WildScene } from '@/systems/wilderness/wild-scene';
 import type { Connection } from '@/systems/net/connection';
+import { ArenaSystem } from '@/systems/arena/arena-system';
+import { ArenaHud } from '@/shell/arena-hud';
 import { NetSystem } from '@/systems/net/net-system';
 import { RemotePlayers } from '@/systems/net/remote-players';
 import { type Fix, applyFix } from '@/world/net/fix';
@@ -53,6 +55,8 @@ export interface OpenWorld {
   readonly playtest: PlaytestSystem;
   /** The server world this client is in; null when playing alone. */
   readonly net: NetSystem | null;
+  /** The arena of that server world; null when playing alone. */
+  readonly arena: ArenaSystem | null;
   dispose(): void;
 }
 
@@ -115,13 +119,15 @@ export function startOpenWorld(opts: {
   ctx.interactions = interactions;
   const player = new PlayerSystem(ctx);
   ctx.player = player;
+  const wild = new WildScene(ctx);
   const scenes = new SceneManager(
     ctx,
-    new WildScene(ctx),
+    wild,
     (entrance, layout, physics) => new CityScene(ctx, entrance, layout, physics),
   );
   ctx.scenes = scenes;
-  const belt = new ToolBelt(ctx, [new Brush(ctx), new WeaponSlot(ctx), new Marker(ctx)]);
+  const weapons = new WeaponSlot(ctx);
+  const belt = new ToolBelt(ctx, [new Brush(ctx), weapons, new Marker(ctx)]);
   const inkDrop = new InkDropSystem(ctx);
   const save = new SaveSystem(ctx, opts.store);
   const clock = new ClockSystem(ctx);
@@ -138,6 +144,8 @@ export function startOpenWorld(opts: {
   // a server world: other players, and the line to the server
   let net: NetSystem | null = null;
   let remote: RemotePlayers | null = null;
+  let arena: ArenaSystem | null = null;
+  let arenaHud: ArenaHud | null = null;
   if (opts.net) {
     remote = new RemotePlayers(ctx, opts.hudRoot);
     // another player's patch, already judged by the server: only its effect on the shared world
@@ -188,6 +196,9 @@ export function startOpenWorld(opts: {
     };
     net = new NetSystem(ctx, opts.net, remote, remotePatches);
     ctx.net = net;
+    arena = new ArenaSystem(ctx, net, remote, wild, weapons);
+    ctx.arena = arena;
+    arenaHud = new ArenaHud(ctx, arena, opts.hudRoot);
   }
 
   // Order matters: movement, then the scene streams around the new position, then
@@ -199,6 +210,7 @@ export function startOpenWorld(opts: {
     combat,
     scenes,
     ...(remote ? [remote] : []),
+    ...(arena ? [arena] : []),
     interactions,
     panel,
     belt,
@@ -209,6 +221,7 @@ export function startOpenWorld(opts: {
     effects,
     atmosphere,
     overlay,
+    ...(arenaHud ? [arenaHud] : []),
     playtest,
     save,
     debug,
@@ -240,6 +253,7 @@ export function startOpenWorld(opts: {
     loop,
     audio,
     net,
+    arena,
     dispose() {
       net?.leave();
       loop.stop();

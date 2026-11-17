@@ -5,10 +5,11 @@
 import * as THREE from 'three';
 import { color } from '@/content/palette';
 import { TUNING } from '@/content/tuning';
-import { WEAPONS, type WeaponDef } from '@/content/weapons';
+import { WEAPONS, type WeaponDef, type WeaponKey } from '@/content/weapons';
 import { ALWAYS_COLOR, GeometryBuilder } from '@/engine/render/geometry-builder';
 import { makeInkMaterial } from '@/engine/render/ink-material';
 import type { GameContext } from '@/game/types';
+import type { ActKind } from '@/world/net/protocol';
 import { stats } from '@/world/progression';
 import { ShotFx } from './shot-fx';
 import type { Tool, ToolHud } from './tool';
@@ -23,6 +24,8 @@ const FIELD = { radius: 4, seconds: 4, tick: 0.5, damage: 18 };
 const SHIELD = { amount: 40, seconds: 4 };
 const FOCUS = { seconds: 4, multiplier: 1.5 };
 const FEEL = TUNING.combat.feel;
+/** In the arena everyone has every weapon. */
+const ALL: readonly WeaponKey[] = WEAPONS.map((w) => w.key);
 /** Seconds the katana's slash arc shows. */
 const SLASH_TIME = 0.13;
 /** How far the weapon lags behind a turn of the view (per radian per second), and its limit. */
@@ -45,6 +48,8 @@ interface Shell {
   readonly damage: number;
   readonly mesh: THREE.Mesh;
   life: number;
+  /** Someone else's, in the arena: drawn only (the server works out its hits). */
+  readonly seen?: boolean;
 }
 
 interface Field {
@@ -53,6 +58,7 @@ interface Field {
   readonly damage: number;
   left: number;
   tickT: number;
+  readonly seen?: boolean;
 }
 
 interface Burst {
@@ -141,6 +147,8 @@ export class WeaponSlot implements Tool {
   private readonly burstGeo: THREE.BufferGeometry;
   private readonly fieldGeo: THREE.BufferGeometry;
   private readonly dir = new THREE.Vector3();
+  /** Whether the last frame was in the arena (going in or out rearms every weapon). */
+  private wasInArena = false;
 
   constructor(private readonly ctx: GameContext) {
     this.fx = new ShotFx(ctx, this.material, color('cream'), color('yellow'));
@@ -174,14 +182,19 @@ export class WeaponSlot implements Tool {
     return this.current?.def.name ?? '武器';
   }
 
+  /** The weapons in hand's reach: the player's own, or all of them in the arena. */
+  private get owned(): readonly string[] {
+    return this.ctx.arena?.inside ? ALL : this.ctx.state.inventory.weapons;
+  }
+
   private get current(): Held | undefined {
-    const keys = this.ctx.state.inventory.weapons;
+    const keys = this.owned;
     return this.held.get(keys[this.index % Math.max(1, keys.length)] ?? '');
   }
 
   /** Make sure every owned weapon has its state and viewmodel. */
   private sync(): void {
-    for (const key of this.ctx.state.inventory.weapons) {
+    for (const key of this.owned) {
       if (this.held.has(key)) continue;
       const def = WEAPONS.find((w) => w.key === key);
       if (!def) continue;
@@ -232,6 +245,15 @@ export class WeaponSlot implements Tool {
 
   /** Runs every frame whether or not the slot is in hand. */
   tick(dt: number): void {
+    const inArena = this.ctx.arena?.inside ?? false;
+    if (inArena !== this.wasInArena) {
+      this.wasInArena = inArena;
+      this.sync();
+      // a fair start: full magazines, every skill ready
+      for (const h of this.held.values())
+        Object.assign(h, { mag: h.def.magazine, reloading: 0, cooldown: 0, skillT: 0 });
+      this.show();
+    }
     this.sync();
     for (const h of this.held.values()) {
       h.cooldown -= dt;
@@ -255,7 +277,7 @@ export class WeaponSlot implements Tool {
 
   update(): void {
     const { input, combat } = this.ctx;
-    const owned = this.ctx.state.inventory.weapons.length;
+    const owned = this.owned.length;
     const wheel = input.takeWheel();
     if (owned > 1 && (input.pressed('nextColor') || wheel > 0)) this.switch(1);
     if (owned > 1 && (input.pressed('prevColor') || wheel < 0)) this.switch(-1);
@@ -290,7 +312,7 @@ export class WeaponSlot implements Tool {
   }
 
   private switch(step: number): void {
-    const n = this.ctx.state.inventory.weapons.length;
+    const n = this.owned.length;
     this.index = (((this.index + step) % n) + n) % n;
     this.show();
     const h = this.current;
@@ -301,6 +323,57 @@ export class WeaponSlot implements Tool {
         seconds: 5,
         once: `skill:${h.def.key}`,
       });
+  }
+
+  /** Another player's attack in the arena, drawn as if it were fired here: the streak of a
+   * shot, a shell's flight and burst, an ink circle. It hurts nothing (the server decides). */
+  seen(w: WeaponKey, k: ActKind, o: THREE.Vector3, d: THREE.Vector3): void {
+    const def: WeaponDef = WEAPONS.find((x) => x.key === w)!;
+    switch (k) {
+      case 'shot': {
+        const tracer = def.shot?.tracer;
+        if (!tracer) return;
+        const wall = this.ctx.scenes.active.physics.raycast(o, d, def.range);
+        const end = o.clone().addScaledVector(d, wall?.dist ?? def.range);
+        this.fx.streak(o, end, tracer, wall !== null);
+        break;
+      }
+      case 'shell':
+      case 'bigshell': {
+        const big = k === 'bigshell';
+        const vel = d.clone().multiplyScalar(SHELL_SPEED);
+        vel.y += 3;
+        const mesh = new THREE.Mesh(this.shellGeo, this.material);
+        mesh.position.copy(o);
+        mesh.scale.setScalar(big ? 1.8 : 1);
+        this.ctx.scenes.active.root.add(mesh);
+        this.shells.push({
+          pos: o.clone(),
+          vel,
+          radius: def.area * (big ? 2 : 1),
+          damage: 0,
+          mesh,
+          life: 3,
+          seen: true,
+        });
+        break;
+      }
+      case 'field': {
+        const mesh = new THREE.Mesh(this.fieldGeo, this.material);
+        mesh.position.set(o.x, o.y + 0.05, o.z);
+        mesh.scale.set(FIELD.radius, 1, FIELD.radius);
+        this.ctx.scenes.active.root.add(mesh);
+        this.fields.push({ pos: o.clone(), mesh, damage: 0, left: FIELD.seconds, tickT: 0, seen: true });
+        break;
+      }
+      default:
+        break;
+    }
+  }
+
+  /** In the arena: the server works out what this attack or skill hits. */
+  private tell(w: WeaponKey, k: ActKind, o: THREE.Vector3, d: THREE.Vector3): void {
+    if (this.ctx.arena?.inside) this.ctx.arena.act(w, k, o, d);
   }
 
   private power(): { weapon: number; skill: number } {
@@ -323,12 +396,13 @@ export class WeaponSlot implements Tool {
     }
     const dmg = def.damage * this.power().weapon;
     if (def.kind === 'melee') {
+      this.tell(def.key as WeaponKey, 'strike', player.eye, player.forward);
       combat.strike(player.eye, player.forward, def.range, def.area, dmg);
       this.slashT = SLASH_TIME;
       return;
     }
     if (def.kind === 'launcher') {
-      this.fireShell(def.area, dmg, h);
+      this.fireShell(def.area, dmg, h, 'shell');
       if (h.mag === 0) this.reload(h);
       return;
     }
@@ -339,6 +413,7 @@ export class WeaponSlot implements Tool {
     ).multiplyScalar(2 * def.spread);
     this.dir.copy(player.forward).add(spread).normalize();
     const focus = def.key === 'sniper' && this.focusT > 0 ? FOCUS.multiplier : 1;
+    this.tell(def.key as WeaponKey, 'shot', player.eye, this.dir);
     const shot = combat.shoot(player.eye, this.dir, def.range, dmg * focus);
     player.pitch = Math.min(1.5, player.pitch + (def.key === 'sniper' ? 0.03 : 0.006));
     if (look?.tracer) this.fx.streak(this.fx.muzzle(h.view, look), shot.point, look.tracer, shot.hitWorld);
@@ -367,19 +442,22 @@ export class WeaponSlot implements Tool {
         if (input.held('left')) dir.sub(right);
         if (dir.lengthSq() < 1e-6) dir.copy(flat).negate();
         player.dash(dir, 6, 0.22);
+        this.tell('rifle', 'shield', player.eye, player.forward);
         combat.shield(SHIELD.amount * k, SHIELD.seconds);
         break;
       }
       case 'katana':
+        this.tell('katana', 'slash', player.eye, flat);
         combat.strike(player.eye, flat, 9, 0.35, 45 * k);
         player.dash(flat, 9, 0.3);
         this.slashT = SLASH_TIME;
         break;
       case 'sniper':
+        this.tell('sniper', 'focus', player.eye, player.forward);
         this.focusT = FOCUS.seconds;
         break;
       case 'launcher':
-        this.fireShell(h.def.area * 2, h.def.damage * 2 * k, h);
+        this.fireShell(h.def.area * 2, h.def.damage * 2 * k, h, 'bigshell');
         if (h.def.shot) {
           this.kick = RECOIL_MAX;
           this.fx.flash(h.view, { ...h.def.shot, flash: h.def.shot.flash * 1.6 });
@@ -388,6 +466,7 @@ export class WeaponSlot implements Tool {
       case 'staff': {
         const hit = this.ctx.scenes.active.physics.raycast(player.eye, player.forward, 40);
         const at = hit ? hit.point : player.eye.clone().addScaledVector(player.forward, 30);
+        this.tell('staff', 'field', at, player.forward);
         const mesh = new THREE.Mesh(this.fieldGeo, this.material);
         mesh.position.set(at.x, at.y + 0.05, at.z);
         mesh.scale.set(FIELD.radius, 1, FIELD.radius);
@@ -400,11 +479,12 @@ export class WeaponSlot implements Tool {
     this.ctx.events.emit('weapon:skill', { key: h.def.key });
   }
 
-  private fireShell(radius: number, damage: number, h: Held): void {
+  private fireShell(radius: number, damage: number, h: Held, kind: 'shell' | 'bigshell'): void {
     const { player } = this.ctx;
     const from = h.def.shot
       ? this.fx.muzzle(h.view, h.def.shot)
       : this.ctx.renderer.camera.localToWorld(new THREE.Vector3(0.22, -0.2, -1.0));
+    this.tell('launcher', kind, from, player.forward);
     const vel = player.forward.clone().multiplyScalar(SHELL_SPEED);
     vel.y += 3;
     const mesh = new THREE.Mesh(this.shellGeo, this.material);
@@ -425,8 +505,8 @@ export class WeaponSlot implements Tool {
       const wall = physics.raycast(s.pos, this.dir, step);
       const next = wall ? wall.point : s.pos.clone().addScaledVector(s.vel, dt);
       // passing within a metre of a target counts as a hit too
-      if (wall || this.ctx.combat.probe(next, 1) || s.life <= 0) {
-        this.ctx.combat.blast(next, s.radius, s.damage, FEEL.knockBlast);
+      if (wall || (!s.seen && this.ctx.combat.probe(next, 1)) || s.life <= 0) {
+        if (!s.seen) this.ctx.combat.blast(next, s.radius, s.damage, FEEL.knockBlast);
         this.burst(next, s.radius);
         s.mesh.removeFromParent();
         this.shells.splice(i, 1);
@@ -444,7 +524,7 @@ export class WeaponSlot implements Tool {
       f.tickT -= dt;
       if (f.tickT <= 0) {
         f.tickT = FIELD.tick;
-        this.ctx.combat.blast(f.pos, FIELD.radius, f.damage);
+        if (!f.seen) this.ctx.combat.blast(f.pos, FIELD.radius, f.damage);
       }
       f.mesh.scale.set(FIELD.radius, 1 + 0.3 * Math.sin(f.left * 10), FIELD.radius);
       if (f.left <= 0) {
