@@ -45,6 +45,8 @@ export interface GameEvents {
   'monster:interrupted': { readonly at: Point3; readonly id: number };
   'monster:spit': { readonly at: Point3 };
   'monster:bite': { readonly at: Point3 };
+  /** A fleck of paint off the brush while it works on a surface (effects only). */
+  'paint:dab': { readonly at: Point3; readonly color: number };
   /** A surface the brush just coloured (bloom of its colour). */
   'paint:bloom': { readonly at: Point3; readonly color: number };
   /** A surface the ink took (tide or erosion). */

@@ -71,6 +71,9 @@ export class EffectsSystem implements System {
       on('paint:bloom', ({ at, color: c }) =>
         this.burst(at, { count: 14, color: c, speed: 2.5, up: 1.5, size: 0.1, lift: 2 }),
       ),
+      on('paint:dab', ({ at, color: c }) =>
+        this.burst(at, { count: 3, color: c, speed: 1.4, up: 0.8, size: 0.05, lift: -6, life: 0.35 }),
+      ),
       on('paint:drained', ({ at }) =>
         this.burst(at, { count: 8, color: ink, speed: 1.5, size: 0.08, lift: -6 }),
       ),

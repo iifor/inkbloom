@@ -22,6 +22,8 @@ import { findPath, type NavGrid, type Waypoint } from '@/world/nav/path';
 import { MonsterFigures, type Pose } from './monster-figure';
 
 const FEEL = TUNING.combat.feel;
+/** A hit's flinch lasts 0.12 s; the colour flash shows while more than this is left. */
+const FLASH_AFTER = 0.05;
 
 const GRAVITY = 22;
 const ACCEL = 18;
@@ -475,8 +477,10 @@ export class MonsterGroup implements TargetSource {
     for (const m of this.monsters) {
       const b = m.body;
       // a heavy hit holds the drawn pose still for a moment (the body still moves underneath)
+      // a hit flashes the body in the colour it stole for a blink (also through the hitstop)
+      const flash = !m.dead && m.hurtT > FLASH_AFTER;
       if (m.freezeT > 0 && m.pose && !m.dead) {
-        this.figures.draw(m.def, m.pose);
+        this.figures.draw(m.def, { ...m.pose, flash });
         continue;
       }
       // reeling from a broken attack: it rocks back and forth
@@ -494,6 +498,7 @@ export class MonsterGroup implements TargetSource {
         dying: m.dead ? m.melt : -1,
         t,
         colors: m.colors,
+        flash,
       };
       this.figures.draw(m.def, m.pose);
     }

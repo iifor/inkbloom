@@ -15,6 +15,8 @@ import type { Tool, ToolHud } from './tool';
 export type BrushMode = 'restore' | 'graffiti';
 
 const KIND_NAMES = { wall: '墙面', roof: '屋顶', door: '门', ground: '庭院' } as const;
+/** Seconds between flecks of paint while the brush works a surface. */
+const DAB_INTERVAL = 0.07;
 
 export class Brush implements Tool {
   readonly id = 'brush';
@@ -29,6 +31,8 @@ export class Brush implements Tool {
   /** The how-to lesson is offered on the first frame the brush is held. */
   private toldUse = false;
   private stroking = false;
+  /** Seconds to the next fleck of paint off the brush. */
+  private dabT = 0;
   private readonly hitPoint = { x: 0, y: 0, z: 0 };
   /** A stroke the save rejected; not retried until the target, mode or colour changes. */
   private blocked: { key: string; reason: string } | null = null;
@@ -148,6 +152,13 @@ export class Brush implements Tool {
     }
     this.setStroking(true);
     if (hit) Object.assign(this.hitPoint, { x: hit.point.x, y: hit.point.y, z: hit.point.z });
+    // flecks of the colour going on, so the stroke is seen where it lands, not only in the HUD
+    this.dabT -= dt;
+    if (hit && this.dabT <= 0) {
+      this.dabT = DAB_INTERVAL;
+      const c = this.mode === 'restore' ? info.color : this.color;
+      this.ctx.events.emit('paint:dab', { at: { ...this.hitPoint }, color: c });
+    }
     this.progress += (dt * stats(this.ctx.state.growth).skill) / 100 / tier.secondsPerSurface;
     if (this.progress < 1) return;
     this.progress = 0;

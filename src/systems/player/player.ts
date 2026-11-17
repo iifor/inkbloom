@@ -6,6 +6,7 @@ import { type Body, makeBody } from '@/engine/physics/world';
 import type { GameContext, PlayerApi, System } from '@/game/types';
 
 import { WATER_LEVEL } from '@/world/wilderness/generator';
+import { JumpWindow } from './jump-window';
 import { SwimArms } from './swim-arms';
 
 const P = TUNING.player;
@@ -36,6 +37,12 @@ export class PlayerSystem implements System, PlayerApi {
   /** View tipped up by a blow, easing back; added on top of pitch, never into it. */
   private punchAmt = 0;
   private airJumps = 0;
+  private readonly jump = new JumpWindow(P.coyoteTime, P.jumpBuffer);
+  /** Head bob: step phase and how much of it shows (eases in and out with walking). */
+  private bobPhase = 0;
+  private bobAmt = 0;
+  /** How far the camera has dipped from a landing, springing back. */
+  private dip = 0;
   private readonly wish = new THREE.Vector3();
 
   constructor(private readonly ctx: GameContext) {
@@ -148,6 +155,7 @@ export class PlayerSystem implements System, PlayerApi {
       this.gliding = false;
       this.fly(dt);
     } else if (this.ctx.combat.alive) this.walk(dt);
+    this.stepFeel(dt);
     const kicked = this.arms.update(dt, this.swimBlend, this.body.vel, this.yaw, this.pitch);
     this.syncCamera();
     if (kicked && this.waterMode === 'swimming') {
@@ -183,15 +191,15 @@ export class PlayerSystem implements System, PlayerApi {
       return;
     }
     if (b.onGround) this.airJumps = P.airJumps;
-    if (input.pressed('jump')) {
-      if (b.onGround) {
-        b.vel.y = P.jumpSpeed;
-        this.ctx.events.emit('player:jump', { air: false });
-      } else if (this.airJumps > 0) {
-        this.airJumps--;
-        b.vel.y = P.jumpSpeed * 0.9;
-        this.ctx.events.emit('player:jump', { air: true });
-      }
+    const pressed = input.pressed('jump');
+    if (this.jump.update(dt, b.onGround, pressed)) {
+      b.vel.y = P.jumpSpeed;
+      this.ctx.events.emit('player:jump', { air: false });
+    } else if (pressed && this.jump.airborne && this.airJumps > 0) {
+      this.jump.consume();
+      this.airJumps--;
+      b.vel.y = P.jumpSpeed * 0.9;
+      this.ctx.events.emit('player:jump', { air: true });
     }
     if (this.dashT > 0) {
       this.dashT -= dt;
@@ -210,7 +218,11 @@ export class PlayerSystem implements System, PlayerApi {
       b.vel.z += THREE.MathUtils.clamp(fz - b.vel.z, -P.accelAir * 2 * dt, P.accelAir * 2 * dt);
     }
     this.ctx.scenes.active.physics.moveBody(b, dt);
-    if (b.landVel < -4) this.ctx.events.emit('player:land', { impact: Math.min(1, -b.landVel / 20) });
+    if (b.landVel < -4) {
+      const impact = Math.min(1, -b.landVel / 20);
+      this.dip = Math.max(this.dip, impact * P.landDip);
+      this.ctx.events.emit('player:land', { impact });
+    }
     if (b.pos.y < -80) {
       const s = this.ctx.scenes.active.spawn();
       this.teleport(s.pos, s.yaw);
@@ -231,16 +243,34 @@ export class PlayerSystem implements System, PlayerApi {
     b.vel.set(0, 0, 0);
   }
 
+  /** Head bob from walking and the spring back from a landing dip (presentation only). */
+  private stepFeel(dt: number): void {
+    const walking = this.body.onGround && !this.flying && this.waterMode !== 'swimming';
+    const pace = walking ? Math.min(1.6, this.speed / P.walkSpeed) : 0;
+    this.bobAmt = THREE.MathUtils.damp(this.bobAmt, pace, 10, dt);
+    // about two steps a second at a walk, quicker at a run
+    this.bobPhase += dt * (5.5 + 3 * Math.max(0, pace - 1)) * Math.min(1, pace * 2);
+    this.dip *= Math.exp(-dt * 9);
+  }
+
   private syncCamera(): void {
     const cam = this.ctx.renderer.camera;
     const head = this.arms.head;
     this.eye.set(this.body.pos.x, this.body.pos.y + P.eyeHeight - this.swimBlend * 0.74, this.body.pos.z);
     // the stroke rocks the head: up to breathe, on with the kick (presentation only, like shake)
     const surge = this.speed > 0.3 ? (head.surge * this.swimBlend) / this.speed : 0;
+    // walking: the head rises and falls with each step and sways a little; a landing dips it.
+    // Only the camera moves; the eye that aims and paints stays put.
+    const bob = this.bobAmt * P.bob;
+    const sway = Math.cos(this.bobPhase) * bob * 0.5;
     cam.position.set(
-      this.eye.x + this.body.vel.x * surge,
-      this.eye.y + head.lift * this.swimBlend,
-      this.eye.z + this.body.vel.z * surge,
+      this.eye.x + this.body.vel.x * surge + Math.cos(this.yaw) * sway,
+      this.eye.y +
+        head.lift * this.swimBlend +
+        Math.abs(Math.sin(this.bobPhase)) * bob -
+        bob * 0.5 -
+        this.dip,
+      this.eye.z + this.body.vel.z * surge - Math.sin(this.yaw) * sway,
     );
     // a little shake decays quickly; it never touches the aim the player sees in yaw/pitch
     this.shakeAmt = Math.max(0, this.shakeAmt - 1 / 30);

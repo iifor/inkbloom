@@ -32,6 +32,8 @@ export interface Pose {
   readonly t: number;
   /** Stolen colours, palette indices (one or two). */
   readonly colors: readonly number[];
+  /** Just hit: for a blink the whole body shows the colour it stole. */
+  readonly flash?: boolean;
 }
 
 /** ink = the body; a = first stolen colour; b = second (or the first again). */
@@ -345,7 +347,7 @@ export class MonsterFigures {
     const b = p.colors[1] ?? a;
     this.figures.add(r.parts, (part) => {
       const paint = part.paint as Paint;
-      return paint === 'ink' ? INK : paint === 'a' ? a : b;
+      return paint === 'ink' ? (p.flash ? a : INK) : paint === 'a' ? a : b;
     });
   }
 

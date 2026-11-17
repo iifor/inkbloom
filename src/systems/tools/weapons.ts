@@ -23,6 +23,11 @@ const FIELD = { radius: 4, seconds: 4, tick: 0.5, damage: 18 };
 const SHIELD = { amount: 40, seconds: 4 };
 const FOCUS = { seconds: 4, multiplier: 1.5 };
 const FEEL = TUNING.combat.feel;
+/** Seconds the katana's slash arc shows. */
+const SLASH_TIME = 0.13;
+/** How far the weapon lags behind a turn of the view (per radian per second), and its limit. */
+const SWAY = 0.012;
+const SWAY_MAX = 0.05;
 
 interface Held {
   readonly def: WeaponDef;
@@ -119,6 +124,16 @@ export class WeaponSlot implements Tool {
   private focusT = 0;
   /** Hitstop: the held weapon holds its pose for a moment after a heavy hit. */
   private stopT = 0;
+  /** Weight in hand: the weapon bobs with the player's steps and lags behind turns of the view. */
+  private bobPhase = 0;
+  private bobAmt = 0;
+  private swayX = 0;
+  private swayY = 0;
+  private lastYaw = 0;
+  private lastPitch = 0;
+  /** The katana's slash: a pale arc sweeping across the view for a moment. */
+  private readonly slashMesh: THREE.Mesh;
+  private slashT = 0;
   private readonly shells: Shell[] = [];
   private readonly fields: Field[] = [];
   private readonly bursts: Burst[] = [];
@@ -141,6 +156,18 @@ export class WeaponSlot implements Tool {
     ctx.events.on('shot:hit', ({ heavy }) => {
       if (heavy) this.stopT = FEEL.hitstop;
     });
+    const a = new GeometryBuilder();
+    a.meshSmooth(
+      new THREE.RingGeometry(0.36, 0.4, 24, 1, Math.PI * 0.2, Math.PI * 0.6),
+      new THREE.Matrix4(),
+      color('cream'),
+      ALWAYS_COLOR,
+    );
+    this.slashMesh = new THREE.Mesh(a.build(), this.material);
+    this.slashMesh.position.set(0.08, -0.12, -0.9);
+    this.slashMesh.visible = false;
+    this.slashMesh.frustumCulled = false;
+    ctx.renderer.camera.add(this.slashMesh);
   }
 
   get name(): string {
@@ -216,6 +243,7 @@ export class WeaponSlot implements Tool {
     }
     this.focusT = Math.max(0, this.focusT - dt);
     this.stopT -= dt;
+    this.feel(dt);
     const settle = Math.exp(-RECOIL_RETURN * dt);
     this.kick *= settle;
     this.kickSide *= settle;
@@ -294,6 +322,7 @@ export class WeaponSlot implements Tool {
     const dmg = def.damage * this.power().weapon;
     if (def.kind === 'melee') {
       combat.strike(player.eye, player.forward, def.range, def.area, dmg);
+      this.slashT = SLASH_TIME;
       return;
     }
     if (def.kind === 'launcher') {
@@ -342,6 +371,7 @@ export class WeaponSlot implements Tool {
       case 'katana':
         combat.strike(player.eye, flat, 9, 0.35, 45 * k);
         player.dash(flat, 9, 0.3);
+        this.slashT = SLASH_TIME;
         break;
       case 'sniper':
         this.focusT = FOCUS.seconds;
@@ -447,9 +477,12 @@ export class WeaponSlot implements Tool {
     const r =
       h.reloading > 0 && h.def.reload ? Math.sin((1 - h.reloading / h.def.reload) * Math.PI) * 0.18 : 0;
     if (h.def.kind === 'melee') {
-      const swing = h.cooldown > 0 ? Math.sin((h.cooldown / h.def.interval) * Math.PI) : 0;
-      h.view.position.set(0.3, -0.25, -0.35);
-      h.view.rotation.set(-0.4 - swing * 0.8, 0.3 - swing * 1.2, -0.2);
+      // a swing snaps across in the first moment, then the blade eases back to rest
+      const t = h.cooldown > 0 ? 1 - h.cooldown / h.def.interval : 1;
+      const swing = t < 0.15 ? t / 0.15 : Math.max(0, 1 - (t - 0.15) / 0.6) ** 2;
+      h.view.position.set(0.3 - swing * 0.12, -0.25 + swing * 0.03, -0.35 - swing * 0.08);
+      h.view.rotation.set(-0.4 - swing * 1.1, 0.3 - swing * 1.5, -0.2 - swing * 0.5);
+      this.weigh(h);
       return;
     }
     // recoil pushes the gun back into the shoulder and tips the muzzle up, with a little sway
@@ -460,6 +493,42 @@ export class WeaponSlot implements Tool {
       this.kickSide * 0.02,
       -this.kickSide * 0.03,
     );
+    this.weigh(h);
+  }
+
+  /** Step bob and look sway on top of the weapon's pose. */
+  private weigh(h: Held): void {
+    const b = this.bobAmt;
+    h.view.position.x += this.swayX + Math.cos(this.bobPhase) * 0.008 * b;
+    h.view.position.y += this.swayY - Math.abs(Math.sin(this.bobPhase)) * 0.012 * b;
+    h.view.rotation.z += this.swayX * 0.6;
+  }
+
+  /** Track steps and turns for the weapon's bob and sway; play out the slash arc. */
+  private feel(dt: number): void {
+    const { player } = this.ctx;
+    const pace = player.grounded ? Math.min(1.6, player.speed / 6) : 0;
+    this.bobAmt = THREE.MathUtils.damp(this.bobAmt, pace, 10, dt);
+    this.bobPhase += dt * (5.5 + 3 * Math.max(0, pace - 1)) * Math.min(1, pace * 2);
+    if (dt > 0) {
+      const turn = Math.atan2(Math.sin(player.yaw - this.lastYaw), Math.cos(player.yaw - this.lastYaw)) / dt;
+      const tilt = (player.pitch - this.lastPitch) / dt;
+      const clamp = (v: number): number => THREE.MathUtils.clamp(v, -SWAY_MAX, SWAY_MAX);
+      // the weapon trails the turn: turning right leaves it a little to the left
+      this.swayX = THREE.MathUtils.damp(this.swayX, clamp(turn * SWAY), 14, dt);
+      this.swayY = THREE.MathUtils.damp(this.swayY, clamp(-tilt * SWAY), 14, dt);
+    }
+    this.lastYaw = player.yaw;
+    this.lastPitch = player.pitch;
+    this.slashT -= dt;
+    const on = this.slashT > 0 && this.equipped;
+    this.slashMesh.visible = on;
+    if (on) {
+      // the arc sweeps from upper right to lower left and widens as it goes
+      const k = 1 - this.slashT / SLASH_TIME;
+      this.slashMesh.rotation.set(0, 0, 0.9 - k * 1.5);
+      this.slashMesh.scale.setScalar(0.9 + k * 0.25);
+    }
   }
 
   hud(): ToolHud {

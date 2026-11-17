@@ -103,6 +103,14 @@ export const TUNING = {
     jumpSpeed: 7.6,
     gravity: 22,
     airJumps: 1,
+    /** Forgiving jumps (systems/player/jump-window.ts): seconds after leaving the ground a jump
+     * still counts as from the ground, and seconds a press is remembered before landing. */
+    coyoteTime: 0.1,
+    jumpBuffer: 0.12,
+    /** Head bob at walking pace, metres (presentation only; the aim does not move). */
+    bob: 0.035,
+    /** Deepest camera dip on a hard landing, metres. */
+    landDip: 0.22,
     /** Paper plane: hold jump while falling. design: glide ratio about 1:4 */
     glideFall: 2.6,
     glideSpeed: 11,

@@ -87,3 +87,22 @@ describe('monster figures', () => {
     expect(drawn).toBe(ENEMIES.reduce((n, d) => n + monsterRig(d).parts.length, 0));
   });
 });
+
+describe('monster hit flash', () => {
+  it('draws the whole ink body in the stolen colour for a blink', () => {
+    const colours = (flash: boolean): number[] => {
+      const parent = new THREE.Group();
+      const figures = new MonsterFigures(parent, new THREE.MeshBasicMaterial());
+      figures.begin();
+      figures.draw(ENEMIES[0]!, { ...rest, colors: [color('red')], flash });
+      figures.end();
+      return parent.children.flatMap((m) => {
+        const mesh = m as THREE.InstancedMesh;
+        return Array.from({ length: mesh.count }, (_, i) => mesh.instanceColor!.getX(i));
+      });
+    };
+    expect(colours(false)).toContain(color('ink'));
+    expect(colours(true)).not.toContain(color('ink'));
+    expect(new Set(colours(true))).toEqual(new Set([color('red')]));
+  });
+});
