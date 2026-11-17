@@ -4,11 +4,14 @@
 // year, and the weather where the player is (eased, so it never pops), with lightning. A
 // listener like audio and effects: gameplay never reads it.
 import { SEASONS } from '@/content/seasons';
+import { dayHours } from '@/engine/render/daylight';
 import type { GameContext, System } from '@/game/types';
 import { calendarAt, seasonBlend } from '@/world/climate/calendar';
 import { meanTemperature, snowCover } from '@/world/climate/temperature';
 import { type WeatherAt, boltsAt, createWeather } from '@/world/climate/weather';
+import { smoothstep } from '@/world/math/noise';
 import { influenceOf, saturationAt } from '@/world/wilderness/drain';
+import { WATER_LEVEL } from '@/world/wilderness/generator';
 
 /** Gloom while a tide is announced, and while it rolls. */
 const WARNING_GLOOM = 0.35;
@@ -168,6 +171,32 @@ export class AtmosphereSystem implements System {
     Object.assign(a.weather, now);
     a.weather.flash = this.flash;
     a.weather.litterSeason = this.litterSeason;
+    this.critters(dt, cal.hour, cal.declination, cal.yearPhase, now);
+  }
+
+  /** Fireflies on warm nights, butterflies on fair days; both only in coloured wild land. */
+  private critters(dt: number, hour: number, declination: number, year: number, w: WeatherLook): void {
+    const { player, scenes, wilderness, renderer } = this.ctx;
+    const len = dayHours(declination);
+    const day =
+      smoothstep(11.5 - len / 2, 12.7 - len / 2, hour) *
+      (1 - smoothstep(11.3 + len / 2, 12.5 + len / 2, hour));
+    const sb = seasonBlend(year);
+    const share = (s: number): number => (sb.from === s ? 1 - sb.t : 0) + (sb.to === s ? sb.t : 0);
+    const [spring, summer, autumn] = [share(0), share(1), share(2)];
+    const fair = (1 - Math.min(1, w.rain + w.snowfall)) * (scenes.active.ref.kind === 'wild' ? 1 : 0);
+    // grey, drained land has none: they come back with the colour
+    const life = smoothstep(0.3, 0.8, this.colour) * fair;
+    const fireflies = (1 - day) * Math.min(1, summer + 0.5 * spring + 0.25 * autumn) * life;
+    const calm = 1 - smoothstep(5, 10, Math.hypot(w.windX, w.windZ));
+    const butterflies = day * (spring + summer + 0.3 * autumn) * calm * (1 - 0.6 * w.cloud) * life;
+    renderer.critters.update(
+      dt,
+      player.position.x,
+      player.position.z,
+      (x, z) => Math.max(WATER_LEVEL, wilderness.heightAt(x, z)),
+      { fireflies, butterflies, windX: w.windX, windZ: w.windZ },
+    );
   }
 
   dispose(): void {

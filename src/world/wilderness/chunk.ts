@@ -4,6 +4,7 @@ import { color } from '@/content/palette';
 import { TUNING } from '@/content/tuning';
 import { hashAt, unit } from '../math/hash';
 import { type Wilderness, WATER_LEVEL } from './generator';
+import { type Bridge, pathsOf } from './paths';
 import { type PigmentSource, sourcesInChunk } from './sources';
 import { type Ruin, ruinsInChunk } from './ruins';
 
@@ -35,7 +36,12 @@ export interface WildChunk {
   readonly hasWater: boolean;
   readonly sources: readonly PigmentSource[];
   readonly ruins: readonly Ruin[];
+  /** Footpath bridges whose deck's middle is in this chunk (see paths.ts). */
+  readonly bridges: readonly Bridge[];
 }
+
+/** Trees keep this far (metres) from a footpath's edge. */
+const PATH_ROOM = 2.5;
 
 export const chunkKey = (cx: number, cz: number): string => `${cx},${cz}`;
 
@@ -95,16 +101,30 @@ export function generateWildChunk(w: Wilderness, cx: number, cz: number): WildCh
   const sources = sourcesInChunk(w, cx, cz);
   const ruins = ruinsInChunk(w, cx, cz);
   // now and then a great old tree stands alone in the open, the others giving it room
+  const paths = pathsOf(w);
+  const offPath = (x: number, z: number): boolean => paths.edgeDistance(x, z) > PATH_ROOM;
   const great = greatTreeIn(w, cx, cz, sources, ruins);
-  // keep trees off sources and ruins so they stay visible and reachable
+  // keep trees off sources, ruins and paths so they stay visible and reachable
   const clearTrees = trees.filter(
     (t) =>
       !sources.some((src) => Math.hypot(t.x - src.x, t.z - src.z) < 4) &&
       !ruins.some((r) => Math.hypot(t.x - r.x, t.z - r.z) < 14) &&
-      !(great && Math.hypot(t.x - great.x, t.z - great.z) < GREAT.room),
+      !(great && Math.hypot(t.x - great.x, t.z - great.z) < GREAT.room) &&
+      offPath(t.x, t.z),
   );
   if (great) clearTrees.push(great);
-  return { cx, cz, x0, z0, n, cell, heights, biomes, trees: clearTrees, hasWater, sources, ruins };
+  const bridges: Bridge[] = [];
+  for (const t of paths.trailsNear(x0, z0, x0 + size, z0 + size))
+    for (const b of t.bridges) {
+      const mx = (b.x0 + b.x1) / 2;
+      if (mx < x0 || mx >= x0 + size || b.z < z0 || b.z >= z0 + size) continue;
+      // two paths out of the same gate may cross the river at the same spot: one bridge serves
+      const overlaps = bridges.some(
+        (o) => b.x0 < o.x1 && o.x0 < b.x1 && Math.abs(b.z - o.z) < b.half + o.half + 1,
+      );
+      if (!overlaps) bridges.push(b);
+    }
+  return { cx, cz, x0, z0, n, cell, heights, biomes, trees: clearTrees, hasWater, sources, ruins, bridges };
 }
 
 /** Great trees: the chance a chunk has one, their size, and the room they are given. */
@@ -130,6 +150,8 @@ export function greatTreeIn(
     if (w.townAt(x, z, 30)) continue;
     if (sources.some((p) => Math.hypot(p.x - x, p.z - z) < GREAT.room)) continue;
     if (ruins.some((p) => Math.hypot(p.x - x, p.z - z) < GREAT.room + 10)) continue;
+    // beside a footpath, not on it: its spread may reach over the way
+    if (pathsOf(w).edgeDistance(x, z) < PATH_ROOM + 3) continue;
     const y = w.heightAt(x, z);
     if (y < WATER_LEVEL + 1.2) continue;
     // gentle ground under the whole spread

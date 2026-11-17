@@ -12,6 +12,7 @@ import * as THREE from 'three';
 import { FXAAShader } from 'three/examples/jsm/shaders/FXAAShader.js';
 import { type Daylight, daylightAt } from './daylight';
 import { ResolutionGovernor } from './resolution';
+import { Critters } from './critters';
 import { Precipitation } from './precipitation';
 import { makeCanopyBrush } from './canopy-brush';
 import { disposeTree } from '../resources';
@@ -104,6 +105,8 @@ export class InkRenderer {
   private cloudShade = 0;
   /** Rain, snow and lightning over the painted frame. */
   private readonly precipitation: Precipitation;
+  /** Fireflies and butterflies in the air round the player (moved by the atmosphere system). */
+  readonly critters: Critters;
   /** Sun, sky and shade for the current hour; its vectors are the post pass's uniforms. */
   private readonly day: Daylight = daylightAt(10);
   /** GPU time per pass while profiling (see passTimes). */
@@ -184,6 +187,7 @@ export class InkRenderer {
     });
     this.postScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this.post));
     this.precipitation = new Precipitation(depthTexture);
+    this.critters = new Critters(depthTexture);
     // the eye sees grass; the sun's shadow camera (default layer only) does not
     this.camera.layers.enable(NO_SHADOW_LAYER);
     this.fxaa = new THREE.ShaderMaterial({
@@ -252,6 +256,7 @@ export class InkRenderer {
     u.uAspect!.value = w / h;
     this.fxaa.uniforms.resolution!.value.set(1 / rw, 1 / rh);
     this.precipitation.setSize(rw, rh);
+    this.critters.setSize(rw, rh);
   }
 
   /** Lightning strikes the ground at `at` (drawn for a moment; `shape` picks its path). */
@@ -437,6 +442,7 @@ export class InkRenderer {
     this.pass('weather');
     // after the brush pass, which would smear one-pixel streaks away
     this.precipitation.render(r, this.camera, { ...w, night: this.day.night }, u.uTime!.value);
+    this.critters.render(r, this.camera, this.day.night);
     this.pass('fxaa');
     r.setRenderTarget(null);
     r.render(this.fxaaScene, this.postCam);
@@ -456,6 +462,7 @@ export class InkRenderer {
     this.rivers.dispose();
     if (shared.uCanopyBrush.value === this.canopyBrush) shared.uCanopyBrush.value = null;
     this.precipitation.dispose();
+    this.critters.dispose();
     this.rt.dispose();
     this.shadows.dispose();
     this.paintRt.dispose();

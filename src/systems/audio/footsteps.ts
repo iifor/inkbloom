@@ -11,8 +11,9 @@ import type { NoiseOptions } from '@/engine/audio/synth';
 import type { GameContext } from '@/game/types';
 import { seasonBlend } from '@/world/climate/calendar';
 import { snowCover } from '@/world/climate/temperature';
+import { pathsOf } from '@/world/wilderness/paths';
 
-export type Footing = 'grass' | 'stone' | 'sand' | 'rock' | 'shallows';
+export type Footing = 'grass' | 'stone' | 'sand' | 'rock' | 'trail' | 'wood' | 'shallows';
 
 export interface Ground {
   readonly footing: Footing;
@@ -37,6 +38,11 @@ export function groundUnder(ctx: GameContext): Ground {
   const snow = Math.max(snowCover(a.seaTemp - TUNING.season.lapse * y), w.freshSnow);
   if (player.waterMode === 'wading') return { footing: 'shallows', snow: 0, wet: 0, leaves: 0 };
   if (!wild) return { footing: 'stone', snow, wet: w.wet, leaves: 0 };
+  // on a footpath's bridge (on the deck, not swimming under it), or on the path itself
+  const paths = pathsOf(wilderness);
+  const bridge = paths.bridgeAt(x, z);
+  if (bridge && y > bridge.y - 0.3) return { footing: 'wood', snow, wet: w.wet, leaves: 0 };
+  if (paths.edgeDistance(x, z) < 0) return { footing: 'trail', snow, wet: w.wet, leaves: 0 };
   const biome = BIOMES[wilderness.biomeAt(x, z)]!;
   const slope =
     Math.hypot(
@@ -60,6 +66,8 @@ export function stepLayers(g: Ground, side: number): NoiseOptions[] {
     stone: { dur: 0.07, gain: 0.09, type: 'bandpass', freq: 900 + side * 120, q: 2 },
     sand: { dur: 0.12, gain: 0.07, type: 'bandpass', freq: 1600 + side * 150, q: 0.7 },
     rock: { dur: 0.05, gain: 0.1, type: 'bandpass', freq: 1200 + side * 160, q: 3 },
+    trail: { dur: 0.09, gain: 0.08, type: 'bandpass', freq: 700 + side * 90, q: 0.9 },
+    wood: { dur: 0.08, gain: 0.1, type: 'bandpass', freq: 520 + side * 60, q: 2.5 },
     shallows: { dur: 0.21, gain: 0.09, type: 'bandpass', freq: 2200, freqEnd: 520, q: 1 },
   };
   const b = base[g.footing];
@@ -99,6 +107,9 @@ const RECORDED: Record<Exclude<Footing, 'shallows'>, { key: SoundKey; rate: numb
   // no sand or rock takes: a soft step for sand, a quicker, harder one for rock
   sand: { key: 'stepSoft', rate: 0.9 },
   rock: { key: 'stepStone', rate: 1.2 },
+  // a trodden earth path: the soft step, a little firmer
+  trail: { key: 'stepSoft', rate: 1.05 },
+  wood: { key: 'stepWood', rate: 1 },
 };
 
 /**

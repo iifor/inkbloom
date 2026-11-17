@@ -37,7 +37,7 @@ export {
   type Point,
   type RoadClass,
 } from './site';
-export type { Gate } from './gates';
+export { type Gate, type WorldGate, townGates } from './gates';
 export type { Street } from './streets';
 export { type Building, rectsOverlap } from './houses';
 
