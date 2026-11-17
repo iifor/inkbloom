@@ -733,7 +733,7 @@ export class InkRenderer {
       litterSeason: 0,
     },
   };
-  /** How far the wind has carried the air since the game started, metres (drifts the clouds). */
+  /** Wind travel in metres for cloud drift and the meadow wind map. */
   private readonly drift = new THREE.Vector2();
   private lastFrame = performance.now();
   /** How strongly broken cloud shades the ground, 0..1 (from `applyWeather`). */
@@ -1030,7 +1030,15 @@ export class InkRenderer {
   }
 
   render(): void {
-    if (this.governor.frame(performance.now())) {
+    const now = performance.now();
+    const dt = Math.min(0.1, (now - this.lastFrame) / 1000);
+    this.lastFrame = now;
+    const w = this.atmosphere.weather;
+    shared.uWind.value.set(w.windX, w.windZ);
+    this.drift.addScaledVector(shared.uWind.value, dt);
+    shared.uWindDrift.value.copy(this.drift);
+    shared.uTime.value = now / 1000;
+    if (this.governor.frame(now)) {
       this.pixelRatio = this.maxPixelRatio * this.governor.scale;
       this.resize();
     }
@@ -1054,23 +1062,14 @@ export class InkRenderer {
     u.uGloom!.value = this.atmosphere.gloom;
     u.uYear!.value = this.atmosphere.year;
     u.uSeaTemp!.value = this.atmosphere.seaTemp;
-    const w = this.atmosphere.weather;
     u.uCloud!.value = w.cloud;
     u.uOvercast!.value = Math.min(1, w.rain + w.snowfall);
     u.uFog!.value = w.fog;
     u.uWet!.value = w.wet;
     u.uFreshSnow!.value = w.freshSnow;
-    // grass sways with the weather's wind, and it carries the clouds and their shadows along
-    shared.uWind.value.set(w.windX, w.windZ);
-    const now = performance.now();
-    const dt = Math.min(0.1, (now - this.lastFrame) / 1000);
-    this.lastFrame = now;
-    this.drift.x += w.windX * dt;
-    this.drift.y += w.windZ * dt;
     u.uCloudShade!.value = this.cloudShade;
     u.uNight!.value = this.day.night;
-    u.uTime!.value = performance.now() / 1000;
-    shared.uTime.value = u.uTime!.value;
+    u.uTime!.value = shared.uTime.value;
     r.setRenderTarget(this.paintRt);
     r.render(this.postScene, this.postCam);
     this.brush.uniforms.uTime!.value = u.uTime!.value;

@@ -68,7 +68,6 @@ class TreeBatch {
       mesh.instanceMatrix.addUpdateRange(0, mesh.count * 16);
       mesh.instanceMatrix.needsUpdate = true;
       mesh.computeBoundingSphere();
-      mesh.boundingSphere!.radius += 0.5; // allow for wind at the outside of the batch
     }
   }
 

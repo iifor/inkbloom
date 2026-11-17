@@ -9,7 +9,7 @@ import { GeometryBuilder } from '@/engine/render/geometry-builder';
 import { makeInkMaterial, shared } from '@/engine/render/ink-material';
 import { disposeTree } from '@/engine/resources';
 import type { GameContext, GameScene } from '@/game/types';
-import { calendarAt, seasonBlend } from '@/world/climate/calendar';
+import { calendarAt, grassCoverAt, seasonBlend } from '@/world/climate/calendar';
 import { chunkKey, generateWildChunk } from '@/world/wilderness/chunk';
 import { buildTerrainSteps, addChunkColliders } from './build-chunk';
 import { WildTrees } from './wild-trees';
@@ -111,9 +111,11 @@ export class WildScene implements GameScene {
       const [cx, cz] = key.split(',').map(Number) as [number, number];
       if (Math.max(Math.abs(cx - pcx), Math.abs(cz - pcz)) > W.unloadRadius) this.unload(key, item);
     }
-    const year = seasonBlend(calendarAt(this.ctx.state.clock).yearPhase);
+    const phase = calendarAt(this.ctx.state.clock).yearPhase;
+    const year = seasonBlend(phase);
     this.trees.update(p);
-    this.grass.update(p, SEASONS[year.from]!.flowers * (1 - year.t) + SEASONS[year.to]!.flowers * year.t);
+    const flowers = SEASONS[year.from]!.flowers * (1 - year.t) + SEASONS[year.to]!.flowers * year.t;
+    this.grass.update(p, flowers, grassCoverAt(phase));
     const t = this.ctx.state.clock;
     this.fish.update(t, p, dt);
     if (this.ctx.player.waterMode !== 'dry' && this.ctx.player.speed > 0.45 && t >= this.nextWake) {

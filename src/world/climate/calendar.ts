@@ -4,6 +4,7 @@
 // seasons, so midsummer is the longest day. Everything that changes with the time of day or the
 // time of year reads it from here.
 import { TUNING } from '@/content/tuning';
+import { smoothstep } from '../math/noise';
 
 /** Earth's axial tilt, radians: how far the sun's path moves north and south over a year. */
 const TILT = (23.44 * Math.PI) / 180;
@@ -34,6 +35,12 @@ export function seasonBlend(yearPhase: number): { from: number; to: number; t: n
   const from = Math.floor(p) % 4;
   const f = p - Math.floor(p);
   return { from, to: (from + 1) % 4, t: f * f * (3 - 2 * f) };
+}
+
+/** Meadow tufts return through the first half of spring and die back through late autumn.
+ * The ground stays bare for the entire calendar winter, including days without snow. */
+export function grassCoverAt(yearPhase: number): number {
+  return smoothstep(0, 0.125, yearPhase) * (1 - smoothstep(0.625, 0.75, yearPhase));
 }
 
 export function calendarAt(clock: number): Calendar {

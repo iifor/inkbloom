@@ -15,8 +15,6 @@ import * as THREE from 'three';
 import { color, MAX_COLORS } from '@/content/palette';
 import { TUNING } from '@/content/tuning';
 
-const CROWNS = new THREE.Vector3(color('leaf'), color('canopy'), color('cedar'));
-
 export const shared = {
   uCanopyBrush: { value: null as THREE.Texture | null },
   uLightDir: { value: new THREE.Vector3(0, 1, 0) },
@@ -35,6 +33,8 @@ export const shared = {
   uTime: { value: 0 },
   /** Wind, metres per second along +x and +z (set from the weather each frame). */
   uWind: { value: new THREE.Vector2(2.4, 1.5) },
+  /** Wind travel in world metres, integrated across changes in the weather. */
+  uWindDrift: { value: new THREE.Vector2() },
 };
 
 /** Layer for things drawn but never shadow-casting (grass: it would speckle the ground). */
@@ -66,9 +66,14 @@ uniform int uStateWidth;
 ${wildernessDrainGLSL}
 uniform mat4 uShadowMatrix;
 uniform float uTime;
+#ifdef WIND
 uniform vec2 uWind;
-/** Palette indices of tree crowns, which rock in the wind: broadleaf, wood canopy, cedar. */
-uniform vec3 uCrowns;
+uniform vec2 uWindDrift;
+uniform sampler2D uWindMap;
+#ifdef BLADES
+attribute float aBladePhase;
+#endif
+#endif
 varying vec3 vNormalV;
 varying float vCode;
 varying vec4 vShadow;
@@ -82,7 +87,7 @@ varying vec3 vTreeView;
 #ifdef FIELD
 uniform vec3 uField;
 uniform vec2 uFieldFade;
-uniform float uBloom;
+uniform float uDensity;
 varying float vFieldCover;
 varying vec2 vPlantMark;
 #endif
@@ -111,7 +116,7 @@ void main() {
       float range = length(offset);
       bool hidden = range >= uFieldFade.y;
       #ifdef USE_INSTANCING_COLOR
-        hidden = hidden || instanceColor.g > uBloom;
+        hidden = hidden || instanceColor.g >= uDensity;
       #endif
       if (hidden) {
         gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
@@ -138,32 +143,37 @@ void main() {
     world.xz += vec2(0.075, 0.038) * position.y * position.y * sin(1.25 * uTime + world.x * 0.43 + world.z * 0.35);
   #endif
   #ifdef WIND
-    // plants sway: the higher up the blade, the further; slow waves roll across the field
-    // gusts: broad bands of wind rolling across the field, bending the grass further
-    vGust = smoothstep(0.55, 1.0, sin(uTime * 0.9 + world.x * 0.045 - world.z * 0.06) * 0.5 + 0.5);
-    float sway = sin(uTime * 1.6 + world.x * 0.31 + world.z * 0.23) * 0.6
-               + sin(uTime * 0.7 + world.x * 0.05 - world.z * 0.07) * 0.5 + vGust * 0.9;
-    // with the wind: about today's look at 3 m/s, storms bend the grass much further
-    float ws = length(uWind);
-    vec2 wdir = ws > 0.1 ? uWind / ws : vec2(0.85, 0.53);
-    float windHeight = max(position.y, 0.0);
-    #if defined(FIELD) && defined(USE_INSTANCING) && !defined(BLADES)
-      windHeight *= instanceMatrix[1].y;
+    vec2 root = modelMatrix[3].xz;
+    float height = max(position.y, 0.0);
+    #ifdef USE_INSTANCING
+      root = (modelMatrix * instanceMatrix[3]).xz;
+      height *= instanceMatrix[1].y;
     #endif
-    world.xz += wdir * sway * 0.16 * clamp(0.3 + ws * 0.23, 0.3, 2.2) * windHeight;
+    // Every vertex on a plant feels the same travelling gust at its root.
+    vec2 air = texture2D(uWindMap, (root - uWindDrift) / 96.0).rg;
+    float gust = smoothstep(0.22, 0.80, air.r);
+    float side = 2.0 * air.g - 1.0;
+    float seed = 0.5;
+    #ifdef USE_INSTANCING_COLOR
+      seed = instanceColor.b;
+    #endif
+    float phase = seed;
+    float flex = height;
+    #ifdef BLADES
+      phase += aBladePhase;
+      flex *= uv.y * (0.84 + 0.30 * seed);
+    #endif
+    float flutter = sin(uTime * (2.4 + 0.9 * seed) + 6.2832 * phase + side);
+    float speed = length(uWind);
+    vec2 along = uWind / (4.0 + speed);
+    vec2 across = vec2(-along.y, along.x);
+    world.xz += flex * (along * (0.06 + 0.39 * gust + 0.095 * flutter)
+                      + across * (0.25 * side + 0.075 * flutter));
+    vGust = gust * speed / (3.0 + speed);
     vTip = clamp(position.y / 0.4, 0.0, 1.0);
   #else
     vTip = 1.0;
     vGust = 0.0;
-    // tree crowns lean and rock with the wind; a slow wave across the wood keeps neighbouring
-    // trees out of step (trunks stay put)
-    if (abs(aColor - uCrowns.x) < 0.5 || abs(aColor - uCrowns.y) < 0.5 || abs(aColor - uCrowns.z) < 0.5) {
-      float ws = length(uWind);
-      vec2 wdir = ws > 0.1 ? uWind / ws : vec2(0.85, 0.53);
-      float rock = sin(uTime * (0.8 + ws * 0.06) + world.x * 0.13 + world.z * 0.09) * 0.6
-                 + sin(uTime * 1.9 + world.x * 0.31 - world.z * 0.27) * 0.25;
-      world.xz += wdir * (0.012 * ws + (0.03 + 0.022 * ws) * rock);
-    }
   #endif
   float idx = aColor;
   #if defined(USE_INSTANCING_COLOR) && !defined(FISH)
@@ -216,7 +226,6 @@ varying vec2 vCardUv;
 varying float vTip;
 varying float vGust;
 #ifdef TREE
-uniform vec3 uCrowns;
 uniform sampler2D uCanopyBrush;
 varying vec3 vTreePosition;
 varying vec3 vTreeView;
@@ -278,7 +287,7 @@ void main() {
       vec3 p = vTreePosition;
       vec2 uv = vec2(p.x + 0.51 * p.z, p.y - 0.63 * p.z);
       vec2 sprigs = texture2D(uCanopyBrush, uv * 0.64).rg;
-      float ink = floor(vCode) == uCrowns.z ? sprigs.g : sprigs.r;
+      float ink = floor(vCode) == ${color('cedar')}.0 ? sprigs.g : sprigs.r;
       float wash = texture2D(uCanopyBrush, vec2(p.z - 0.45 * p.x, p.y + 0.65 * p.x) * 0.81).b;
       float cut = clamp(0.22 + 0.86 * (0.51 - ink) + 0.72 * (0.51 - wash), 0.0, 0.65);
       if (silhouette < cut * (1.0 - smoothstep(27.0, 40.0, -vTreeView.z))) discard;
@@ -333,12 +342,12 @@ export interface InkMaterialOptions {
   state?: SurfaceStateTexture;
   side?: THREE.Side;
   shadeBias?: number;
-  /** Sway in the wind by local height (grass, flowers). */
-  wind?: boolean;
+  /** World-space gust strength and lateral wind for grass and flowers. */
+  wind?: THREE.Texture;
   waterweed?: boolean;
   /** Shaped grass ribbons with a soft edge instead of a cutout texture. */
   blades?: boolean;
-  /** A world-anchored field with a bounded drawing radius and seasonal flowers. */
+  /** A world-anchored field with a bounded drawing radius and seasonal density. */
   field?: FieldUniforms;
 }
 
@@ -348,8 +357,8 @@ export interface FieldUniforms {
   readonly uField: { value: THREE.Vector3 };
   /** Distances where the outer coverage fade begins and ends (metres). */
   readonly uFieldFade: { value: THREE.Vector2 };
-  /** The season's bloom, 0..1: flowers needing more than this are hidden. */
-  readonly uBloom: { value: number };
+  /** Share of this plant population visible this season, 0..1. */
+  readonly uDensity: { value: number };
 }
 
 export function makeInkMaterial(opts: InkMaterialOptions = {}): THREE.ShaderMaterial {
@@ -366,8 +375,9 @@ export function makeInkMaterial(opts: InkMaterialOptions = {}): THREE.ShaderMate
       uShadowTexel: shared.uShadowTexel,
       uShadowOn: shared.uShadowOn,
       uTime: shared.uTime,
-      uWind: shared.uWind,
-      uCrowns: { value: CROWNS },
+      ...(opts.wind
+        ? { uWind: shared.uWind, uWindDrift: shared.uWindDrift, uWindMap: { value: opts.wind } }
+        : {}),
       uCanopyBrush: shared.uCanopyBrush,
       uState: { value: opts.state?.texture ?? empty() },
       uStateWidth: { value: opts.state?.width ?? 1 },

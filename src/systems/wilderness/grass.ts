@@ -5,6 +5,7 @@ import * as THREE from 'three';
 import { climateBiome } from '@/content/biomes';
 import { color, type ColorKey } from '@/content/palette';
 import { NO_SHADOW_LAYER, makeInkMaterial } from '@/engine/render/ink-material';
+import { makeWindMap } from '@/engine/render/wind-map';
 import { hashInts, unit } from '@/world/math/hash';
 import { createNoise2D, smoothstep, type Noise2D } from '@/world/math/noise';
 import { BANK_HEIGHT, riverbedMeadow, WATER_LEVEL, type Wilderness } from '@/world/wilderness/generator';
@@ -43,44 +44,62 @@ class Grid {
 }
 
 export class GrassField {
+  private readonly coverRoot = new THREE.Group();
   private readonly frustum = new THREE.Frustum();
   private readonly viewProjection = new THREE.Matrix4();
+  private readonly grassDensity = { value: 1 };
+  private readonly flowerDensity = { value: 1 };
   private readonly field = {
     uField: { value: new THREE.Vector3() },
     uFieldFade: { value: new THREE.Vector2(RADIUS - 8, RADIUS) },
-    uBloom: { value: 1 },
   };
-  private readonly grids = [
-    new Grid(
-      'grass',
-      0.67,
-      16,
-      makeBladeClump(),
-      makeInkMaterial({ wind: true, side: THREE.DoubleSide, blades: true, field: this.field }),
-    ),
-    new Grid(
-      'flower',
-      1.1,
-      12,
-      meadowFlower(),
-      makeInkMaterial({ wind: true, field: this.field, side: THREE.DoubleSide }),
-    ),
-  ];
+  private readonly grids: Grid[];
+  private readonly windMap: THREE.DataTexture;
   private readonly drifts: Noise2D;
   private readonly hues: Noise2D;
 
   constructor(
     private readonly wilderness: Wilderness,
-    private readonly root: THREE.Object3D,
+    root: THREE.Object3D,
     private readonly camera: THREE.Camera,
   ) {
+    this.windMap = makeWindMap(wilderness.seed ^ 0x714d);
+    this.grids = [
+      new Grid(
+        'grass',
+        0.67,
+        16,
+        makeBladeClump(),
+        makeInkMaterial({
+          wind: this.windMap,
+          side: THREE.DoubleSide,
+          blades: true,
+          field: { ...this.field, uDensity: this.grassDensity },
+        }),
+      ),
+      new Grid(
+        'flower',
+        1.1,
+        12,
+        meadowFlower(),
+        makeInkMaterial({
+          wind: this.windMap,
+          side: THREE.DoubleSide,
+          field: { ...this.field, uDensity: this.flowerDensity },
+        }),
+      ),
+    ];
+    root.add(this.coverRoot);
     this.drifts = createNoise2D(wilderness.seed ^ 0x51f0);
     this.hues = createNoise2D(wilderness.seed ^ 0x2b1d);
   }
 
-  update(at: THREE.Vector3, flowers = 1): void {
+  update(at: THREE.Vector3, flowers = 1, grass = 1): void {
+    this.coverRoot.visible = grass > 0;
+    if (!this.coverRoot.visible) return;
+    this.grassDensity.value = grass;
+    this.flowerDensity.value = Math.min(flowers, grass);
     this.field.uField.value.copy(at);
-    this.field.uBloom.value = flowers;
     this.camera.updateMatrixWorld();
     this.frustum.setFromProjectionMatrix(
       this.viewProjection.multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse),
@@ -147,7 +166,7 @@ export class GrassField {
     mesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(count * 3), 3).setUsage(
       THREE.DynamicDrawUsage,
     );
-    this.root.add(mesh);
+    this.coverRoot.add(mesh);
     return { i: 0, k: 0, mesh };
   }
 
@@ -198,7 +217,10 @@ export class GrassField {
             dz,
           );
           colors[count * 3] = color(cover.blades[Math.floor(r(6) * cover.blades.length)]!);
+          colors[count * 3 + 1] = r(7);
         }
+        // The blue channel holds a stable wind response, independent of density and streaming order.
+        colors[count * 3 + 2] = r(10);
         count++;
       }
     }
@@ -211,7 +233,7 @@ export class GrassField {
       attr.needsUpdate = true;
     }
     mesh.computeBoundingBox();
-    mesh.boundingBox!.expandByScalar(0.5);
+    mesh.boundingBox!.expandByScalar(0.65); // Includes the tallest tip at maximum wind bend.
   }
 
   private flowerColour(x: number, z: number, roll: number): ColorKey {
@@ -221,6 +243,8 @@ export class GrassField {
   }
 
   dispose(): void {
+    this.windMap.dispose();
+    this.coverRoot.removeFromParent();
     for (const grid of this.grids) {
       for (const { mesh } of [...grid.patches.values(), ...grid.spare]) {
         mesh.removeFromParent();

@@ -14,6 +14,7 @@ export function makeBladeClump(): THREE.BufferGeometry {
   const rand = sequence(0x30a9);
   const pos: number[] = [],
     uv: number[] = [],
+    bladePhases: number[] = [],
     indices: number[] = [];
   for (let i = 0; i < 10; i++) {
     const angle = i * 2.4 + rand() * 0.7;
@@ -40,6 +41,7 @@ export function makeBladeClump(): THREE.BufferGeometry {
     }
     pos.push(dx * (root + reach) - dz * curl * 0.1, height * 0.84, dz * (root + reach) + dx * curl * 0.1);
     uv.push(0.5, 1);
+    for (let v = first; v < pos.length / 3; v++) bladePhases.push((angle / (2 * Math.PI)) % 1);
     for (let row = 0; row < 2; row++) {
       const a = first + 2 * row;
       indices.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
@@ -54,6 +56,7 @@ export function makeBladeClump(): THREE.BufferGeometry {
   geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   geo.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
   geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  geo.setAttribute('aBladePhase', new THREE.Float32BufferAttribute(bladePhases, 1));
   geo.setAttribute('aColor', new THREE.BufferAttribute(new Float32Array(count), 1));
   geo.setAttribute('aSurface', new THREE.BufferAttribute(new Float32Array(count).fill(-1), 1));
   return geo;
