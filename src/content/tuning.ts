@@ -231,6 +231,8 @@ export const TUNING = {
     monsterKnockBack: 6,
   },
   economy: {
+    /** Metres within which a wilderness pigment source is drawn (beyond it is a few pixels). */
+    sourceView: 140,
     /** Ink from one city ink stain. Tuned so a city's own stains plus starting pigment cover
      * about 90% of getting every block to 有色; the rest comes from one wilderness trip. */
     inkPerStain: 10,

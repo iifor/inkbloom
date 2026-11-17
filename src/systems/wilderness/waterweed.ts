@@ -36,10 +36,25 @@ function ribbons() {
   return g.build();
 }
 
+/** Metres from a chunk's edge within which its weed is drawn: seen through the water, it is
+ * gone into the depth long before that. */
+const VIEW = 90;
+
 export class Waterweed {
   private readonly shape = ribbons();
   private readonly material = makeInkMaterial({ side: THREE.DoubleSide, waterweed: true });
+  private readonly beds = new Map<THREE.InstancedMesh, WildChunk>();
   constructor(private readonly root: THREE.Group) {}
+
+  /** Show the beds near the player, hide the rest. */
+  update(p: THREE.Vector3): void {
+    for (const [mesh, c] of this.beds) {
+      const size = c.n * c.cell;
+      const dx = Math.max(c.x0 - p.x, p.x - (c.x0 + size), 0);
+      const dz = Math.max(c.z0 - p.z, p.z - (c.z0 + size), 0);
+      mesh.visible = Math.hypot(dx, dz) < VIEW;
+    }
+  }
 
   add(chunk: WildChunk, w: Wilderness): () => void {
     if (!chunk.hasWater) return () => {};
@@ -73,7 +88,9 @@ export class Waterweed {
     mesh.computeBoundingSphere();
     mesh.boundingSphere!.radius += 0.17;
     this.root.add(mesh);
+    this.beds.set(mesh, chunk);
     return () => {
+      this.beds.delete(mesh);
       mesh.removeFromParent();
       mesh.dispose();
     };

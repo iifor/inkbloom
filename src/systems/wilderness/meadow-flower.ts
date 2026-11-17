@@ -4,12 +4,13 @@ import { GeometryBuilder, NO_SURFACE } from '@/engine/render/geometry-builder';
 
 // One indexed flower for the whole instanced field. The five petals overlap only
 // at the throat, so each rounded blade reads separately even looking straight down.
-export function meadowFlower(): THREE.BufferGeometry {
+// `segments` rounds each petal: a flower sea, thousands at once, makes do with fewer.
+export function meadowFlower(segments = 12): THREE.BufferGeometry {
   const b = new GeometryBuilder();
   const pose = new THREE.Matrix4();
   const headX = 0.025;
   const headY = 0.99;
-  const petal = new THREE.CircleGeometry(1, 12);
+  const petal = new THREE.CircleGeometry(1, segments);
   const positions = petal.getAttribute('position');
   const wash: number[] = [];
   for (let i = 0; i < positions.count; i++) {

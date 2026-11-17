@@ -27,8 +27,12 @@ import { PassTimer } from './pass-timer';
 import { SunShadows } from './sun-shadows';
 import { RIVER_SAMPLES, RiverTable, WAKE_COUNT } from './water-paint';
 
-/** Most pixels drawn a frame at each quality: about 2300 x 1400, and 1900 x 1100. */
+/** Most pixels drawn a frame at each quality, to start with: about 2300 x 1400, and 1900 x 1100.
+ * When frames keep up, automatic resolution raises it along with the pixel ratio. */
 const PIXEL_BUDGET = { high: 3.2e6, low: 2.1e6 } as const;
+/** Pixel ratio each quality starts at, and the most it goes up to while frames keep up (a
+ * retina screen's own 2 on high: sharper brushwork where the GPU has room for it). */
+const PIXEL_RATIO = { high: { start: 1.5, most: 2 }, low: { start: 1, most: 1 } } as const;
 const _grey = new THREE.Vector3();
 const _avg = new THREE.Vector3();
 /** What a lightning flash adds to the light: a cold white-violet. */
@@ -60,6 +64,8 @@ export class InkRenderer {
   private pixelRatio: number;
   /** The quality setting's pixel ratio: the most the frame is ever drawn at. */
   private maxPixelRatio: number;
+  /** The governor's scale the quality setting starts at (its start ratio over its most). */
+  private startScale = 1;
   /** Most pixels drawn a frame (see resize). */
   private pixelBudget: number = PIXEL_BUDGET.high;
   /** Automatic resolution: how much of maxPixelRatio is drawn now. */
@@ -166,8 +172,9 @@ export class InkRenderer {
     this.renderer.autoClear = false;
     // count draws across both passes; render() resets once per frame
     this.renderer.info.autoReset = false;
-    this.maxPixelRatio = Math.min(window.devicePixelRatio || 1, 1.5);
-    this.pixelRatio = this.maxPixelRatio;
+    this.maxPixelRatio = 1;
+    this.pixelRatio = 1;
+    this.pickResolution('high');
     const depthTexture = new THREE.DepthTexture(2, 2);
     depthTexture.format = THREE.DepthFormat;
     depthTexture.type = THREE.FloatType;
@@ -240,14 +247,29 @@ export class InkRenderer {
   }
 
   setQuality(quality: 'high' | 'low'): void {
-    this.maxPixelRatio = Math.min(window.devicePixelRatio || 1, quality === 'high' ? 1.5 : 1);
-    this.pixelBudget = quality === 'high' ? PIXEL_BUDGET.high : PIXEL_BUDGET.low;
-    // a new setting starts again from full resolution and finds its own level
-    this.governor.reset();
-    this.pixelRatio = this.maxPixelRatio;
+    this.pickResolution(quality);
     // smaller strokes on the faster setting (the filter cost does not change, the look does)
     this.brushSpread = quality === 'high' ? 2.8 : 2;
+    // and a lighter paint pass: half the contact shadow's taps, no dabs on the ground
+    const cheap = quality === 'low';
+    if ('CHEAP' in this.post.defines !== cheap) {
+      if (cheap) this.post.defines.CHEAP = '';
+      else delete this.post.defines.CHEAP;
+      this.post.needsUpdate = true;
+    }
     this.resize();
+  }
+
+  /** A quality setting's resolution: start at its start ratio (or the screen's own, if less)
+   * and let the governor find its level, up to the most the setting and the screen allow. */
+  private pickResolution(quality: 'high' | 'low'): void {
+    const dpr = window.devicePixelRatio || 1;
+    const r = PIXEL_RATIO[quality];
+    this.maxPixelRatio = Math.min(dpr, r.most);
+    this.startScale = Math.min(1, Math.min(dpr, r.start) / this.maxPixelRatio);
+    this.pixelBudget = PIXEL_BUDGET[quality];
+    this.governor.reset(this.startScale);
+    this.pixelRatio = this.maxPixelRatio * this.governor.scale;
   }
 
   resize(): void {
@@ -256,7 +278,10 @@ export class InkRenderer {
     const h = Math.max(2, el.clientHeight);
     // a big window draws no more pixels than the budget (never under one per CSS pixel): every
     // pass after the scene runs once a pixel, and the brush filter softens the detail anyway
-    const ratio = Math.min(this.pixelRatio, Math.max(1, Math.sqrt(this.pixelBudget / (w * h))));
+    // (the budget grows as the governor steps up from where it started, so it starts where it
+    // always did and only a GPU that keeps up draws more)
+    const budget = this.pixelBudget * (this.governor.scale / this.startScale) ** 2;
+    const ratio = Math.min(this.pixelRatio, Math.max(1, Math.sqrt(budget / (w * h))));
     this.renderer.setPixelRatio(ratio);
     this.renderer.setSize(w, h, false);
     const rw = Math.floor(w * ratio);
@@ -363,7 +388,7 @@ export class InkRenderer {
     this.timer.pass(this.renderer, next);
   }
 
-  /** Dev tools: milliseconds per pass, each drawn `n` times over and then waited for (a pixel
+  /** Dev tools: milliseconds per pass, each drawn `n` times and waited for every time (a pixel
    * read makes the GPU finish), less the cost of the wait itself. Steadier than timer queries
    * when the page is in the background. */
   benchPasses(n = 20): Record<string, number> {
@@ -377,11 +402,15 @@ export class InkRenderer {
       gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
     };
     const out: Record<string, number> = {};
+    // each draw is waited for on its own: drawn back to back, a tile-based GPU (Apple's) skips
+    // shading what the next full-screen draw covers, and only the last one would cost anything
     const time = (name: string, draw: () => void): void => {
       wait();
       const t = performance.now();
-      for (let i = 0; i < n; i++) draw();
-      wait();
+      for (let i = 0; i < n; i++) {
+        draw();
+        wait();
+      }
       out[name] = (performance.now() - t) / n;
     };
     this.render();

@@ -134,6 +134,7 @@ export class WildScene implements GameScene {
     this.grass.update(p, flowers, grassCoverAt(phase), phase);
     const t = this.ctx.state.clock;
     this.fish.update(t, p, dt);
+    this.weed.update(p);
     // a swimmer's wake comes from the strokes (see the constructor); a wader's from each step
     if (this.ctx.player.waterMode === 'wading' && this.ctx.player.speed > 0.45 && t >= this.nextWake) {
       this.ctx.renderer.ripple(p.x, p.z, true);

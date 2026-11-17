@@ -380,7 +380,11 @@ void main() {
         brush = mix(sideBrush, brush, smoothstep(0.25, 0.75, abs(dot(wn, vec3(-0.39, 0.48, 0.78)))));
         dab = (cedar ? brush.g : brush.r) - 0.45;
         canopyWash = (brush.b - 0.46) * dabFade;
-      } else dab = dabs(bp * 1.7);
+      }
+      #ifndef CHEAP
+      // (the low quality setting leaves the ground's dabs out: a cell search per pixel)
+      else dab = dabs(bp * 1.7);
+      #endif
     }
     base *= 1.0 + dab * 0.16 * dabFade;
     // big fields of colour across meadows and hills: warm yellow-green here, cool blue-green there
@@ -413,14 +417,26 @@ void main() {
     // soft contact shadow where surfaces meet (a few depth taps around the pixel)
     float rpx = clamp(14.0 / max(d, 0.5), 1.5, 26.0) * uRes.y / 900.0;
     float occ = 0.0;
-    for (int k = 0; k < 8; k++) {
-      float a = float(k) * 0.785 + hash21(pp) * 0.785;
+    // (the low quality setting, CHEAP, takes half the taps: one ring of four, half-way out)
+    #ifdef CHEAP
+    const int AO_TAPS = 4;
+    #else
+    const int AO_TAPS = 8;
+    #endif
+    float spin = hash21(pp) * 0.785;
+    for (int k = 0; k < AO_TAPS; k++) {
+      #ifdef CHEAP
+      float a = float(k) * 1.571 + spin * 2.0;
+      vec2 o = vec2(cos(a), sin(a)) * rpx * 0.75;
+      #else
+      float a = float(k) * 0.785 + spin;
       vec2 o = vec2(cos(a), sin(a)) * rpx * (0.5 + 0.5 * float(k / 4));
+      #endif
       float dk = linDepth(texture2D(tDepth, vUv + o * px).x);
       float diff = d - dk;
       occ += smoothstep(0.03, 0.4, diff) * (1.0 - smoothstep(0.8, 2.5, diff));
     }
-    float ao = 1.0 - (occ / 8.0) * 0.45;
+    float ao = 1.0 - (occ / float(AO_TAPS)) * 0.45;
 
     vec3 painted = base * light * ao;
     if (petal) {

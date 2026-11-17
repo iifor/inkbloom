@@ -7,7 +7,7 @@ import { type Tree, generateWildChunk, greatTreeIn } from '@/world/wilderness/ch
 import { townLayout } from '@/world/city/layout';
 import { WATER_LEVEL, createWilderness } from '@/world/wilderness/generator';
 
-it('switches each tree once across the detail band, including after a teleport and unload', () => {
+it('switches each tree once across each detail band, including after a teleport and unload', () => {
   const chunk = generateWildChunk(createWilderness(42), 0, 0);
   const tree = { x: 0, y: 0, z: 0, height: 4.2, crown: 1.6, color: color('canopy') };
   const root = new THREE.Group();
@@ -18,17 +18,24 @@ it('switches each tree once across the detail band, including after a teleport a
     root.children
       .filter((m) => m.name === name && m.visible)
       .reduce((sum, m) => sum + (m as THREE.InstancedMesh).count, 0);
-  const check = (x: number, near: number) => {
+  // near (leaf sprays), far, remote (beyond 120 m, give or take 6)
+  const check = (x: number, near: number, remote: number) => {
     trees.update(pos.set(x, 0, 0));
     expect(count('tree-sprays')).toBe(near);
-    expect(count('distant-trees')).toBe(2 - near);
+    expect(count('remote-trees')).toBe(remote);
+    expect(count('distant-trees')).toBe(2 - near - remote);
   };
-  check(0, 1);
-  check(35, 1);
-  check(45, 0);
-  check(35, 0);
-  check(29, 1);
-  check(200, 1);
+  check(0, 1, 1);
+  check(35, 1, 1);
+  check(45, 0, 1);
+  check(35, 0, 1);
+  check(29, 1, 1);
+  check(78, 0, 1);
+  check(90, 0, 0);
+  check(130, 0, 1);
+  check(118, 0, 1);
+  check(110, 0, 0);
+  check(200, 1, 1);
   release();
   expect(root.children).toHaveLength(0);
   trees.dispose();

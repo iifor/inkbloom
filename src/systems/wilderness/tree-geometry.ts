@@ -107,10 +107,11 @@ type Lump = readonly [x: number, y: number, z: number, width: number, height: nu
  * lump, the way a painted tree reads; each lump's own normals alone make a cluster of balls.
  */
 /** How finely foliage is built: near by, from a field away (a great tree), or far off. */
-type Detail = 'near' | 'mid' | 'far';
+type Detail = 'near' | 'mid' | 'spray' | 'far';
 const RINGS: Record<Detail, { sides: number; latitudes: readonly number[] }> = {
   near: { sides: 26, latitudes: [-1.04, -0.69, -0.32, 0.08, 0.48, 0.85, 1.19] },
   mid: { sides: 14, latitudes: [-0.95, -0.42, 0.12, 0.62, 1.08] },
+  spray: { sides: 11, latitudes: [-0.7, 0, 0.7] },
   far: { sides: 8, latitudes: [-0.55, 0.59] },
 };
 
@@ -580,11 +581,107 @@ function bamboo(distant: boolean): { wood: THREE.BufferGeometry; leaves: THREE.B
     }
   }
   const leaves = new TreeMesh();
-  foliage(leaves, lumps, distant ? 'far' : 'mid', [0, 0.72, 0], NORMAL_TRANSFER, false);
+  // the sprays are flat: a handful of rings round them is as good as many
+  foliage(leaves, lumps, distant ? 'far' : 'spray', [0, 0.72, 0], NORMAL_TRANSFER, false);
   return { wood: wood.geometry(), leaves: leaves.geometry() };
 }
 
 const bamboos = { near: bamboo(false), far: bamboo(true) };
+
+/**
+ * Trees a long way off (see WildTrees): a few pixels across, so a crown is three rounded banks
+ * (a cedar two stacked cones, a bamboo clump three sprays) on a bare post, a few dozen triangles
+ * where the far detail has a few hundred. Built in the same units as appendTree's.
+ */
+function remoteTree(kind: 'broadleaf' | 'cedar' | 'bamboo'): {
+  wood: THREE.BufferGeometry;
+  leaves: THREE.BufferGeometry;
+} {
+  const wood = new TreeMesh();
+  const leaves = new TreeMesh();
+  if (kind === 'cedar') {
+    limbOf(
+      wood,
+      [
+        [0, 0, 0, 0.2],
+        [0, 0.5, 0, 0.12],
+      ],
+      4,
+    );
+    // in the crown's units (see appendTree): a broad cone with a narrower one above it
+    limbOf(
+      leaves,
+      [
+        [0, 0.52, 0, 1.12],
+        [0, 1.15, 0, 0.7],
+        [0, 1.8, 0, 0.02],
+      ],
+      6,
+    );
+  } else if (kind === 'bamboo') {
+    limbOf(
+      wood,
+      [
+        [0, 0, 0, 0.12],
+        [0.05, 0.6, 0, 0.06],
+      ],
+      3,
+    );
+    foliage(
+      leaves,
+      [
+        [0.45, 0.72, 0.08, 0.5, 0.07],
+        [-0.38, 0.78, 0.3, 0.48, 0.07],
+        [0.0, 0.9, -0.42, 0.45, 0.06],
+      ],
+      'far',
+      [0, 0.72, 0],
+      NORMAL_TRANSFER,
+      false,
+    );
+  } else {
+    limbOf(
+      wood,
+      [
+        [0, 0, 0, 0.22],
+        [0.03, 0.7, 0.02, 0.12],
+      ],
+      4,
+    );
+    foliage(
+      leaves,
+      [
+        [-0.42, 0.82, 0.15, 1.0, 0.25],
+        [0.45, 0.9, -0.12, 0.98, 0.27],
+        [0.0, 1.08, 0.05, 0.85, 0.24],
+      ],
+      'far',
+      [0, 0.94, 0],
+      NORMAL_TRANSFER,
+      false,
+    );
+  }
+  return { wood: wood.geometry(), leaves: leaves.geometry() };
+}
+
+const remote = {
+  broadleaf: remoteTree('broadleaf'),
+  cedar: remoteTree('cedar'),
+  bamboo: remoteTree('bamboo'),
+};
+
+/** A tree far off: the few-triangle version of appendTree (a great tree keeps its far look). */
+export function appendRemoteTree(
+  g: GeometryBuilder,
+  palette: number,
+  transform: THREE.Matrix4,
+  kind: Tree['kind'] = undefined,
+): void {
+  if (kind === 'great') return appendTree(g, palette, transform, true, kind);
+  const t = kind === 'bamboo' ? remote.bamboo : palette === color('cedar') ? remote.cedar : remote.broadleaf;
+  g.meshSmooth(t.wood, transform, kind === 'bamboo' ? color('green') : color('bark'));
+  g.meshSmooth(t.leaves, transform, palette);
+}
 
 const great = {
   crown: greatCrown(false),

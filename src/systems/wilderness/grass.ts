@@ -26,6 +26,9 @@ const COVER = {
   forest: { tuft: 0.85, flower: 0.03, blades: ['grass', 'sprout', 'forest'] },
   mountain: { tuft: 0.85, flower: 0.04, blades: ['grass', 'sprout', 'forest'] },
 } as const;
+/** Segments round a sea flower's petal (a meadow flower has 12): half the triangles, and a
+ * sea is seen as a mass of flowers, seldom one at arm's length. */
+const SEA_PETAL = 6;
 const FLOWERS: readonly ColorKey[] = ['yellow', 'yellow', 'cream', 'cream', 'pink', 'sky', 'purple'];
 
 interface Patch {
@@ -102,7 +105,7 @@ export class GrassField {
         'sea',
         0.46,
         24,
-        meadowFlower(),
+        meadowFlower(SEA_PETAL),
         makeInkMaterial({
           wind: this.windMap,
           side: THREE.DoubleSide,
@@ -219,7 +222,9 @@ export class GrassField {
         // towns have paving and yards of their own; footpaths are trodden bare down the middle,
         // with the meadow spilling over their edges
         if (w.townAt(x, z, 1)) continue;
-        if (paths.edgeDistance(x, z) < -0.3) continue;
+        // the meadow creeps in over a path's edges, thinning out toward the trodden middle
+        const onPath = -paths.edgeDistance(x, z);
+        if (onPath > 0.25 && r(11) < Math.min(1, (onPath - 0.25) / 0.7)) continue;
         // nor in a hot spring's pool
         if (springsNear(w, x, z, 8).some((s) => Math.hypot(s.x - x, s.z - z) < s.r + 0.3)) continue;
         const climate = w.climate(x, z);

@@ -51,4 +51,18 @@ describe('automatic resolution', () => {
     }
     expect(g.scale).toBe(1);
   });
+
+  it('can start below full, climb to full when fast, and fall to half its start when slow', () => {
+    const g = new ResolutionGovernor();
+    g.reset(0.75);
+    expect(g.scale).toBe(0.75);
+    let t = run(g, 0, 1000 / 60, 30);
+    expect(g.scale).toBe(1);
+    g.reset(0.75);
+    t = run(g, t, 30, 30);
+    expect(g.scale).toBeCloseTo(0.375);
+    // and back up from there in tenths
+    run(g, t, 1000 / 60, 9);
+    expect(g.scale).toBeCloseTo(0.5);
+  });
 });

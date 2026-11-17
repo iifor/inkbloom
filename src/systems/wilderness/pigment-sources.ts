@@ -42,7 +42,6 @@ export class WildSources {
         mesh.material = this.reedMaterial;
         mesh.layers.set(NO_SHADOW_LAYER);
       }
-      mesh.visible = sourceReady(this.ctx.state, src.id);
       this.root.add(mesh);
       this.shown.set(src.id, { src, mesh });
       const off = this.ctx.interactions.add({
@@ -52,6 +51,7 @@ export class WildSources {
         label: () => this.label(src),
         activate: () => this.harvest(src),
       });
+      this.refresh();
       return () => {
         off();
         mesh.geometry.dispose();
@@ -97,7 +97,12 @@ export class WildSources {
   }
 
   private refresh(): void {
-    for (const { src, mesh } of this.shown.values()) mesh.visible = sourceReady(this.ctx.state, src.id);
+    // a bush a long way off is a few pixels of thousands of triangles: leave it out
+    const p = this.ctx.player.position;
+    for (const { src, mesh } of this.shown.values())
+      mesh.visible =
+        sourceReady(this.ctx.state, src.id) &&
+        Math.hypot(src.x - p.x, src.z - p.z) < TUNING.economy.sourceView;
   }
 
   dispose(): void {
