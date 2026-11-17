@@ -1,9 +1,11 @@
 // Footsteps that tell you what you are walking on: soft grass, hard paving, hissing sand, clicky
 // rock, splashing shallows, and on top of that the season and weather underfoot: a squeaky
 // crunch in snow, a wet slap after rain, a rustle through autumn leaves. `groundUnder` reads the
-// world where the player stands; `stepLayers` turns that into the noise bursts of one step
-// (pure, so it can be tested).
+// world where the player stands; `stepRecording` picks a recorded step for it (CC0 takes, see
+// content/sounds.ts) with synthesised layers on top, and `stepLayers` is the all-synthesised
+// step played when the recording is missing. Both are pure, so they can be tested.
 import { BIOMES } from '@/content/biomes';
+import type { SoundKey } from '@/content/sounds';
 import { TUNING } from '@/content/tuning';
 import type { NoiseOptions } from '@/engine/audio/synth';
 import type { GameContext } from '@/game/types';
@@ -81,4 +83,49 @@ export function stepLayers(g: Ground, side: number): NoiseOptions[] {
       out.push({ dur: 0.13, gain: 0.05 * g.leaves, type: 'highpass', freq: 2500 + side * 300 });
   }
   return out;
+}
+
+/** A recorded step: which recording, how loud and fast, and synthesised layers to add on top. */
+export interface RecordedStep {
+  readonly key: SoundKey;
+  readonly gain: number;
+  readonly rate: number;
+  readonly extra: NoiseOptions[];
+}
+
+const RECORDED: Record<Exclude<Footing, 'shallows'>, { key: SoundKey; rate: number }> = {
+  grass: { key: 'stepGrass', rate: 1 },
+  stone: { key: 'stepStone', rate: 1 },
+  // no sand or rock takes: a soft step for sand, a quicker, harder one for rock
+  sand: { key: 'stepSoft', rate: 0.9 },
+  rock: { key: 'stepStone', rate: 1.2 },
+};
+
+/**
+ * The same step with a recording for the ground, when there is one: null in the shallows (the
+ * synthesised splash is better). Deep snow is all crunch; thin snow, wet ground and leaves are
+ * synthesised layers over the recording of what is beneath.
+ */
+export function stepRecording(g: Ground, side: number): RecordedStep | null {
+  if (g.footing === 'shallows') return null;
+  const rate = 1 + (side ? 0.04 : -0.04);
+  if (g.snow > 0.5) return { key: 'stepSnow', gain: 0.35 + 0.15 * g.snow, rate, extra: [] };
+  const r = RECORDED[g.footing];
+  const extra: NoiseOptions[] = [];
+  if (g.snow > 0.15) {
+    extra.push({
+      dur: 0.16,
+      gain: 0.1 * g.snow,
+      type: 'bandpass',
+      freq: 2400 + side * 200,
+      freqEnd: 800,
+      q: 1.5,
+    });
+  } else {
+    if (g.wet > 0.2)
+      extra.push({ dur: 0.08, gain: 0.06 * g.wet, type: 'bandpass', freq: 1100, freqEnd: 500, q: 2 });
+    if (g.leaves > 0.2)
+      extra.push({ dur: 0.13, gain: 0.05 * g.leaves, type: 'highpass', freq: 2500 + side * 300 });
+  }
+  return { key: r.key, gain: 0.35 * (1 - g.snow), rate: r.rate * rate, extra };
 }

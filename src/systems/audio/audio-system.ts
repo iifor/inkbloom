@@ -1,12 +1,13 @@
 // All the game's sound. Listens to game events and plays procedural recipes; the rest of the
 // game never calls audio directly. To give something a sound: emit an event (game/events.ts)
 // where it happens and add a recipe below.
-import { type Loop, Synth, midi } from '@/engine/audio/synth';
+import { type Loop, type SampleOptions, type Stream, Synth, midi } from '@/engine/audio/synth';
 import type { Point3 } from '@/game/events';
 import type { GameContext, System } from '@/game/types';
+import { BEDS, SOUNDS, type SoundKey } from '@/content/sounds';
 import { WEAPONS } from '@/content/weapons';
 import { Ambience } from './ambience';
-import { groundUnder, stepLayers } from './footsteps';
+import { groundUnder, stepLayers, stepRecording } from './footsteps';
 import { Music } from './music';
 
 /** Major pentatonic steps; colours map onto it so every bloom is in key. */
@@ -25,6 +26,7 @@ export class AudioSystem implements System {
   private wind: Loop | null = null;
   private rumble: Loop | null = null;
   private rain: Loop | null = null;
+  private rainBed: Stream | null = null;
   private stepT = 0;
   private stepSide = 0;
   /** The weapon last fired or taken in hand (blade hits and switching sound by it). */
@@ -51,11 +53,19 @@ export class AudioSystem implements System {
       }),
       on('weapon:skill', ({ key }) => this.skill(key)),
       on('weapon:reload', () => {
-        s.noise({ dur: 0.04, gain: 0.2, type: 'highpass', freq: 3000 });
-        s.noise({ dur: 0.05, gain: 0.25, type: 'highpass', freq: 2200, delay: 0.25 });
+        this.play('gunLatch', { gain: 0.35 }, () =>
+          s.noise({ dur: 0.04, gain: 0.2, type: 'highpass', freq: 3000 }),
+        );
+        this.play('gunClick', { gain: 0.35, delay: 0.25 }, () =>
+          s.noise({ dur: 0.05, gain: 0.25, type: 'highpass', freq: 2200, delay: 0.25 }),
+        );
       }),
       // pulling the trigger mid-reload: a dry click
-      on('weapon:dry', () => s.noise({ dur: 0.02, gain: 0.12, type: 'bandpass', freq: 3000, q: 4 })),
+      on('weapon:dry', () =>
+        this.play('gunClick', { gain: 0.25, rate: 1.4 }, () =>
+          s.noise({ dur: 0.02, gain: 0.12, type: 'bandpass', freq: 3000, q: 4 }),
+        ),
+      ),
       on('equip', ({ key }) => this.equip(key)),
       on('blast', ({ at, radius }) => {
         s.noise({ dur: 0.7, gain: 0.7, freq: 700, freqEnd: 90, pos: at });
@@ -68,8 +78,10 @@ export class AudioSystem implements System {
         else if (heavy) s.noise({ dur: 0.06, gain: 0.3, type: 'lowpass', freq: 500 });
         // the blade biting in: a thick thwack, not a gun's tick
         if (heavy && this.weapon === 'katana') {
-          s.noise({ dur: 0.12, gain: 0.3, type: 'bandpass', freq: 900, freqEnd: 400, q: 1 });
-          s.tone({ freq: 220, freqEnd: 140, dur: 0.1, gain: 0.12, type: 'triangle' });
+          this.play('bladeSlice', { gain: 0.45 }, () => {
+            s.noise({ dur: 0.12, gain: 0.3, type: 'bandpass', freq: 900, freqEnd: 400, q: 1 });
+            s.tone({ freq: 220, freqEnd: 140, dur: 0.1, gain: 0.12, type: 'triangle' });
+          });
         }
       }),
       // a fleck off the brush: a soft wet pat (a brush throws many; a few are heard)
@@ -88,8 +100,10 @@ export class AudioSystem implements System {
       on('patch:rejected', () => {
         if (performance.now() / 1000 - this.rejectAt < 0.4) return;
         this.rejectAt = performance.now() / 1000;
-        s.tone({ freq: 330, dur: 0.14, gain: 0.06, type: 'triangle' });
-        s.tone({ freq: 262, dur: 0.18, gain: 0.06, type: 'triangle', delay: 0.15 });
+        this.play('refused', { gain: 0.18, vary: 0 }, () => {
+          s.tone({ freq: 330, dur: 0.14, gain: 0.06, type: 'triangle' });
+          s.tone({ freq: 262, dur: 0.18, gain: 0.06, type: 'triangle', delay: 0.15 });
+        });
       }),
       on('monster:interrupted', ({ at }) => {
         // a sharp crack: the attack breaks
@@ -97,13 +111,19 @@ export class AudioSystem implements System {
         s.tone({ freq: 880, freqEnd: 330, dur: 0.15, gain: 0.18, type: 'triangle', pos: at });
       }),
       on('shot:impact', ({ at }) =>
-        s.noise({ dur: 0.05, gain: 0.12, type: 'bandpass', freq: 2600, q: 1.4, pos: at }),
+        this.play('hitWall', { gain: 0.3, pos: at }, () =>
+          s.noise({ dur: 0.05, gain: 0.12, type: 'bandpass', freq: 2600, q: 1.4, pos: at }),
+        ),
       ),
       on('monster:hit', ({ at }) =>
-        s.noise({ dur: 0.09, gain: 0.35, type: 'bandpass', freq: 650, q: 3, pos: at }),
+        this.play('hitSoft', { gain: 0.5, pos: at }, () =>
+          s.noise({ dur: 0.09, gain: 0.35, type: 'bandpass', freq: 650, q: 3, pos: at }),
+        ),
       ),
       on('monster:died', ({ at }) => {
-        s.noise({ dur: 0.35, gain: 0.45, freq: 1200, freqEnd: 180, pos: at });
+        this.play('thudHeavy', { gain: 0.55, rate: 0.85, pos: at }, () =>
+          s.noise({ dur: 0.35, gain: 0.45, freq: 1200, freqEnd: 180, pos: at }),
+        );
         s.tone({ freq: 240, freqEnd: 60, dur: 0.3, gain: 0.2, type: 'triangle', pos: at });
       }),
       on('monster:spit', ({ at }) => {
@@ -115,7 +135,7 @@ export class AudioSystem implements System {
       ),
       on('player:hurt', () => {
         s.tone({ freq: 150, freqEnd: 60, dur: 0.22, gain: 0.3, type: 'triangle' });
-        s.noise({ dur: 0.12, gain: 0.25, freq: 700 });
+        this.play('punch', { gain: 0.4 }, () => s.noise({ dur: 0.12, gain: 0.25, freq: 700 }));
       }),
       on('player:died', () => {
         for (let i = 0; i < 4; i++)
@@ -125,7 +145,9 @@ export class AudioSystem implements System {
         s.noise({ dur: 0.12, gain: air ? 0.12 : 0.07, type: 'highpass', freq: 1200, freqEnd: 3000 }),
       ),
       on('player:land', ({ impact }) => {
-        s.noise({ dur: 0.1 + impact * 0.15, gain: 0.15 + impact * 0.35, freq: 350, freqEnd: 120 });
+        this.play('thudHeavy', { gain: 0.15 + impact * 0.4, rate: 1.1 - impact * 0.2 }, () =>
+          s.noise({ dur: 0.1 + impact * 0.15, gain: 0.15 + impact * 0.35, freq: 350, freqEnd: 120 }),
+        );
       }),
       on('player:stroke', ({ power }) => {
         // the hands part the water, then the kick swirls it behind
@@ -156,8 +178,10 @@ export class AudioSystem implements System {
       on('patch:applied', ({ patch }) => {
         switch (patch.kind) {
           case 'collect':
-            s.tone({ freq: 300, freqEnd: 760, dur: 0.12, gain: 0.12 });
-            s.noise({ dur: 0.1, gain: 0.08, freq: 600 });
+            this.play('pickUp', { gain: 0.3 }, () => {
+              s.tone({ freq: 300, freqEnd: 760, dur: 0.12, gain: 0.12 });
+              s.noise({ dur: 0.1, gain: 0.08, freq: 600 });
+            });
             break;
           case 'refine':
           case 'collectStock':
@@ -211,11 +235,29 @@ export class AudioSystem implements System {
     s.tone({ freq: 55, freqEnd: 32, dur: 1.8, gain: 0.15 + 0.3 * near, delay: delay + 0.1 });
   }
 
-  /** Start audio from a user gesture (browser rule). */
+  /** Start audio from a user gesture (browser rule), and load the recordings. */
   start(): void {
+    const first = !this.synth.ctx;
     this.synth.init();
     void this.synth.resume();
     this.loops();
+    if (first)
+      this.rainBed = this.synth.stream(import.meta.env.BASE_URL + BEDS.rain, {
+        loop: true,
+        gain: 0.6,
+        bus: 'ambience',
+      });
+    if (first)
+      for (const [key, urls] of Object.entries(SOUNDS))
+        void this.synth.load(
+          key,
+          urls.map((u) => import.meta.env.BASE_URL + u),
+        );
+  }
+
+  /** A recording if it is loaded, else its synthesised stand-in. */
+  private play(key: SoundKey, o: SampleOptions, fallback: () => void): void {
+    if (!this.synth.sample(key, o)) fallback();
   }
 
   /** Loops are created once audio exists. */
@@ -296,15 +338,19 @@ export class AudioSystem implements System {
     const weapon = key === 'weapons' ? this.weapon : key;
     if (key === 'weapons' || WEAPON_KEYS.has(key)) this.weapon = weapon;
     if (weapon === 'katana' && (key === 'weapons' || key === 'katana')) {
-      s.noise({ dur: 0.25, gain: 0.12, type: 'highpass', freq: 3000, freqEnd: 6000 });
-      s.tone({ freq: 2400, dur: 0.35, gain: 0.025 });
+      this.play('bladeDraw', { gain: 0.35 }, () => {
+        s.noise({ dur: 0.25, gain: 0.12, type: 'highpass', freq: 3000, freqEnd: 6000 });
+        s.tone({ freq: 2400, dur: 0.35, gain: 0.025 });
+      });
     } else if (weapon === 'staff' && (key === 'weapons' || key === 'staff')) {
       s.tone({ freq: 520, freqEnd: 780, dur: 0.25, gain: 0.05, type: 'triangle' });
     } else if (key === 'weapons' || WEAPON_KEYS.has(key)) {
-      s.noise({ dur: 0.03, gain: 0.15, type: 'bandpass', freq: 2000, q: 3 });
-      s.noise({ dur: 0.04, gain: 0.13, type: 'bandpass', freq: 1400, q: 3, delay: 0.08 });
+      this.play('gunLatch', { gain: 0.3 }, () => {
+        s.noise({ dur: 0.03, gain: 0.15, type: 'bandpass', freq: 2000, q: 3 });
+        s.noise({ dur: 0.04, gain: 0.13, type: 'bandpass', freq: 1400, q: 3, delay: 0.08 });
+      });
     } else {
-      s.noise({ dur: 0.1, gain: 0.08, type: 'lowpass', freq: 900 });
+      this.play('cloth', { gain: 0.3 }, () => s.noise({ dur: 0.1, gain: 0.08, type: 'lowpass', freq: 900 }));
     }
   }
 
@@ -323,7 +369,9 @@ export class AudioSystem implements System {
     const w = this.ctx.renderer.atmosphere.weather;
     const blow = Math.max(0, Math.hypot(w.windX, w.windZ) - 3) / 9;
     this.loops().wind?.set(Math.max(player.gliding ? 1 : 0, Math.min(0.8, blow)));
-    this.loops().rain?.set(w.rain);
+    // the recorded rain once it has loaded, the synthesised hiss until then (or if it cannot)
+    this.rainBed?.set(w.rain, 2);
+    this.loops().rain?.set(this.rainBed?.playing ? 0 : w.rain);
     // footsteps (a swimmer's strokes sound on 'player:stroke' instead)
     const water = player.waterMode === 'wading';
     const swimming = player.waterMode === 'swimming';
@@ -333,7 +381,11 @@ export class AudioSystem implements System {
         this.stepT = water ? 0.63 : player.speed > 8 ? 0.3 : 0.44;
         this.stepSide ^= 1;
         // what is underfoot: grass, paving, sand, rock or shallows, with snow, rain or leaves
-        for (const layer of stepLayers(groundUnder(this.ctx), this.stepSide)) this.synth.noise(layer);
+        const ground = groundUnder(this.ctx);
+        const rec = stepRecording(ground, this.stepSide);
+        if (rec && this.synth.sample(rec.key, { gain: rec.gain, rate: rec.rate, vary: 0.04 }))
+          for (const layer of rec.extra) this.synth.noise(layer);
+        else for (const layer of stepLayers(ground, this.stepSide)) this.synth.noise(layer);
       }
     } else this.stepT = 0;
     this.music.update(dt);

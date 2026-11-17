@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { type Ground, stepLayers } from '@/systems/audio/footsteps';
+import { type Ground, stepLayers, stepRecording } from '@/systems/audio/footsteps';
 
 const dry = (footing: Ground['footing']): Ground => ({ footing, snow: 0, wet: 0, leaves: 0 });
 
@@ -35,5 +35,18 @@ describe('footsteps', () => {
 
   it('wading is just the splash', () => {
     expect(stepLayers({ footing: 'shallows', snow: 0, wet: 1, leaves: 1 }, 0)).toHaveLength(1);
+  });
+
+  it('picks the recording for the ground, with weather layered on top', () => {
+    expect(stepRecording(dry('grass'), 0)!.key).toBe('stepGrass');
+    expect(stepRecording(dry('stone'), 0)!.key).toBe('stepStone');
+    expect(stepRecording(dry('sand'), 0)!.key).toBe('stepSoft');
+    expect(stepRecording(dry('shallows'), 0)).toBeNull();
+    expect(stepRecording({ footing: 'grass', snow: 1, wet: 1, leaves: 1 }, 0)).toMatchObject({
+      key: 'stepSnow',
+      extra: [],
+    });
+    expect(stepRecording({ footing: 'stone', snow: 0, wet: 1, leaves: 0 }, 0)!.extra).toHaveLength(1);
+    expect(stepRecording({ footing: 'grass', snow: 0.3, wet: 0, leaves: 0 }, 0)!.extra).toHaveLength(1);
   });
 });

@@ -1,4 +1,5 @@
-// Procedural Web Audio: every sound is synthesised from noise and oscillators, no assets.
+// Web Audio for the game. Most sounds are synthesised from noise and oscillators; some are
+// short recordings (`load` / `sample`), which always have a synthesised fallback in the recipes.
 // Three buses (sfx, music, ambience) feed a master gain, a soft top-end rolloff and a gentle
 // compressor, and send some of themselves to a hall reverb (an impulse made of decaying noise,
 // so still no assets): the mix is meant to be calm and soft. Sounds can be placed
@@ -38,6 +39,29 @@ export interface ToneOptions {
   bus?: 'sfx' | 'music' | 'ambience';
 }
 
+export interface SampleOptions {
+  gain?: number;
+  /** Playback speed (and pitch), 1 = as recorded. */
+  rate?: number;
+  /** Random +/- spread on the rate, so repeats do not sound identical. */
+  vary?: number;
+  delay?: number;
+  pos?: Vec3 | null;
+  bus?: 'sfx' | 'music' | 'ambience';
+}
+
+/** A long recording streamed from a file (a looping ambience bed, or a music track). */
+export interface Stream {
+  /** Fade to `level` (0..1 of the stream's gain) over `seconds`. */
+  set(level: number, seconds?: number): void;
+  /** Fade out and stop for good. */
+  stop(seconds?: number): void;
+  /** Whether it is actually sounding: false while loading, after an error, or once ended. */
+  readonly playing: boolean;
+  /** True once it can never play: it failed to load, finished (not looping) or was stopped. */
+  readonly over: boolean;
+}
+
 export interface Loop {
   /** 0..1, smoothed. */
   set(level: number): void;
@@ -54,6 +78,8 @@ export class Synth {
   private noiseBuf: AudioBuffer | null = null;
   private readonly listener = { pos: { x: 0, y: 0, z: 0 }, right: { x: 1, y: 0, z: 0 } };
   private volumes = { master: 0.8, sfx: 1, music: 0.6 };
+  /** Decoded recordings by name, each a few takes. */
+  private readonly samples = new Map<string, AudioBuffer[]>();
 
   /** Must run from a user gesture (browsers block audio until then). Safe to call again. */
   init(): void {
@@ -162,6 +188,86 @@ export class Synth {
     g.connect(p);
     p.connect(dest);
     return g;
+  }
+
+  /**
+   * Stream a long recording from `url` through `bus` (an audio element, so a minutes-long file
+   * is never decoded into memory). It starts silent: fade it in with `set`. A file that fails
+   * to load never reports `playing`, so callers keep their synthesised version.
+   */
+  stream(url: string, o: { loop: boolean; gain: number; bus: 'music' | 'ambience' }): Stream {
+    const ctx = this.ctx;
+    const state = { playing: false, over: false };
+    if (!ctx) return { set: () => {}, stop: () => {}, playing: false, over: true };
+    const el = new Audio(url);
+    el.loop = o.loop;
+    el.preload = 'auto';
+    const g = ctx.createGain();
+    g.gain.value = 0;
+    ctx.createMediaElementSource(el).connect(g);
+    g.connect(this.buses.get(o.bus)!);
+    el.addEventListener('playing', () => (state.playing = !state.over));
+    const end = (): void => {
+      state.playing = false;
+      state.over = true;
+    };
+    el.addEventListener('error', end);
+    el.addEventListener('ended', end);
+    el.play().catch(end);
+    return {
+      set: (level, seconds = 1) => {
+        g.gain.cancelScheduledValues(ctx.currentTime);
+        g.gain.setTargetAtTime(Math.max(0, level) * o.gain, ctx.currentTime, Math.max(0.01, seconds / 3));
+      },
+      stop: (seconds = 1) => {
+        g.gain.setTargetAtTime(0, ctx.currentTime, Math.max(0.01, seconds / 3));
+        window.setTimeout(() => el.pause(), seconds * 1000 + 200);
+        end();
+      },
+      get playing() {
+        return state.playing;
+      },
+      get over() {
+        return state.over;
+      },
+    };
+  }
+
+  /** Fetch and decode the takes of a recorded sound. Takes that fail are skipped quietly: the
+   * caller's synthesised fallback plays instead. Needs `init()` first. */
+  async load(name: string, urls: readonly string[]): Promise<void> {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    const takes = await Promise.all(
+      urls.map(async (url) => {
+        try {
+          const res = await fetch(url);
+          if (!res.ok) return null;
+          return await ctx.decodeAudioData(await res.arrayBuffer());
+        } catch {
+          return null;
+        }
+      }),
+    );
+    const ok = takes.filter((t): t is AudioBuffer => t !== null);
+    if (ok.length) this.samples.set(name, ok);
+  }
+
+  /** Play one take of a loaded recording, at random. False when it is not loaded (yet), so the
+   * caller plays its synthesised version instead. */
+  sample(name: string, o: SampleOptions = {}): boolean {
+    const ctx = this.ctx;
+    const takes = this.samples.get(name);
+    if (!ctx || !takes) return false;
+    const src = ctx.createBufferSource();
+    src.buffer = takes[Math.floor(Math.random() * takes.length)]!;
+    src.playbackRate.value = (o.rate ?? 1) * (1 + (Math.random() * 2 - 1) * (o.vary ?? 0.06));
+    const g = ctx.createGain();
+    g.gain.value = o.gain ?? 0.5;
+    src.connect(g);
+    g.connect(this.out(o.pos, o.bus ?? 'sfx'));
+    src.start(ctx.currentTime + (o.delay ?? 0));
+    return true;
   }
 
   noise(o: NoiseOptions): void {

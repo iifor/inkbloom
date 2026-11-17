@@ -3,8 +3,11 @@
 // and a faster beat take over. The time of day, the season and the weather colour it too:
 // nights are slower and quieter, rain draws the music back so the rain is heard, winter
 // melodies ring higher and longer like bells. Notes are scheduled half a second ahead on the
-// audio clock.
-import { type Synth, midi } from '@/engine/audio/synth';
+// audio clock. Now and then, on a calm, fair day out in coloured land, a recorded piece (CC0,
+// see content/sounds.ts) takes a turn while the generated music fades away; it comes back when
+// the piece ends, or at once if an ink tide rolls in or the weather turns.
+import { TRACKS } from '@/content/sounds';
+import { type Stream, type Synth, midi } from '@/engine/audio/synth';
 import { dayHours } from '@/engine/render/daylight';
 import type { GameContext } from '@/game/types';
 import { seasonBlend } from '@/world/climate/calendar';
@@ -41,9 +44,17 @@ export class Music {
   /** The hour, season and weather's hold on the music: speed, how many notes, how loud. */
   private tempo = 1;
   private density = 1;
-  private loud = 1;
+  private level = 1;
   /** 0..1: winter melodies ring like bells. */
   private bells = 0;
+  /** A fair, calm day in the wild with colour around: a recorded piece may play. */
+  private calm = false;
+  /** The recorded piece playing, if any, and when the next may start (audio clock). */
+  private track: Stream | null = null;
+  private nextTrackAt = -1;
+  private trackIndex = 0;
+  /** How much of the generated music is heard, 0..1: it steps aside for a recorded piece. */
+  private share = 1;
 
   constructor(
     private readonly synth: Synth,
@@ -73,6 +84,7 @@ export class Music {
       // ease towards the target so walking into grey land changes the mood gradually
       this.brightness += (this.sample() - this.brightness) * 0.35;
       this.mood();
+      this.takeTurns(s.now);
     }
     const now = s.now;
     if (this.next < now - 0.5) this.next = now + 0.05;
@@ -98,12 +110,45 @@ export class Music {
     const ease = (now: number, to: number): number => now + (to - now) * 0.3;
     this.tempo = ease(this.tempo, 1 - 0.15 * night - 0.1 * winter);
     this.density = ease(this.density, (1 - 0.5 * night) * (1 - 0.6 * wet) * (1 + 0.15 * summer));
-    this.loud = ease(this.loud, (1 - 0.35 * night) * (1 - 0.5 * wet));
+    this.level = ease(this.level, (1 - 0.35 * night) * (1 - 0.5 * wet));
     this.bells = ease(this.bells, winter);
+    this.calm =
+      day > 0.5 && wet < 0.3 && this.brightness > 0.45 && this.ctx.scenes.active.ref.kind === 'wild';
+  }
+
+  /** Once a second: start, end or interrupt a recorded piece, and fade the generated music round it. */
+  private takeTurns(now: number): void {
+    // the first piece a little while after the game starts, so it opens on the generated music
+    if (this.nextTrackAt < 0) this.nextTrackAt = now + 60;
+    const t = this.track;
+    if (t && (this.tide || !this.calm)) {
+      t.stop(4);
+      this.track = null;
+      this.nextTrackAt = now + 90;
+    } else if (t?.over) {
+      this.track = null;
+      this.nextTrackAt = now + 150 + Math.random() * 150;
+    } else if (!t && !this.tide && this.calm && now >= this.nextTrackAt && TRACKS.length) {
+      const url = TRACKS[this.trackIndex++ % TRACKS.length]!;
+      this.track = this.synth.stream(import.meta.env.BASE_URL + url, {
+        loop: false,
+        gain: 0.55,
+        bus: 'music',
+      });
+      this.track.set(1, 6);
+    }
+    const target = this.track?.playing && !this.tide ? 0 : 1;
+    this.share += (target - this.share) * 0.3;
+  }
+
+  /** How loud the generated music is now: the hour and weather's level, less any recorded piece. */
+  private get voice(): number {
+    return this.level * this.share;
   }
 
   private play(t: number, step: number): void {
     const s = this.synth;
+    if (!this.tide && this.share < 0.02) return;
     const bright = this.brightness > 0.5;
     const prog = bright ? BRIGHT : DARK;
     const scale = bright ? MAJOR_PENTA : MINOR_PENTA;
@@ -120,7 +165,7 @@ export class Music {
         s.tone({
           freq: midi(chordRoot + iv),
           dur: EIGHTH * 10,
-          gain: (0.03 + 0.02 * b) * this.loud,
+          gain: (0.03 + 0.02 * b) * this.voice,
           type: 'sine',
           at: t,
           attack: 0.9 / this.tempo,
@@ -129,7 +174,7 @@ export class Music {
       s.tone({
         freq: midi(chordRoot - 12),
         dur: EIGHTH * 7,
-        gain: 0.05 * this.loud,
+        gain: 0.05 * this.voice,
         type: 'sine',
         at: t,
         attack: 0.25,
@@ -151,7 +196,7 @@ export class Music {
         freq: midi(pitch),
         // long, overlapping notes with a soft start, so the line flows instead of plinking
         dur: EIGHTH * (bell ? 4.5 : 2.6),
-        gain: (0.04 + 0.025 * b) * (this.tide ? 1 : this.loud) * (bell ? 0.8 : 1),
+        gain: (0.04 + 0.025 * b) * (this.tide ? 1 : this.voice) * (bell ? 0.8 : 1),
         type: bell || !bright ? 'sine' : 'triangle',
         at: t,
         attack: 0.05,

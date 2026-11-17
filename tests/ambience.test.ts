@@ -12,6 +12,8 @@ interface Scene {
   colour?: number;
   rain?: number;
   city?: boolean;
+  /** Whether the recorded beds have loaded (else the synth plays the whole chorus). */
+  beds?: boolean;
 }
 
 /** Counts what an Ambience plays over a minute in a given scene, with a synth that only listens. */
@@ -25,6 +27,7 @@ function listen(scene: Scene): { birds: number; crickets: number; owls: number; 
     tone: (o: ToneOptions) => void tones.push(o),
     noise: () => {},
     noiseLoop: () => loop,
+    stream: () => ({ ...loop, playing: !!scene.beds, over: !scene.beds }),
   } as unknown as Synth;
   const declination = ((23.44 * Math.PI) / 180) * Math.sin(2 * Math.PI * (scene.year - 0.125));
   const ctx = {
@@ -81,5 +84,12 @@ describe('ambience', () => {
     const night = listen({ hour: 1, year: 0.375, city: true });
     expect(city.birds).toBeGreaterThan(0);
     expect(night.owls + night.frogs).toBe(0);
+  });
+
+  it('with the recorded birdsong playing, the synthesised calls are only accents', () => {
+    const alone = listen({ hour: 9, year: 0.125 }).birds;
+    const over = listen({ hour: 9, year: 0.125, beds: true }).birds;
+    expect(over).toBeGreaterThan(0);
+    expect(over).toBeLessThan(alone / 2);
   });
 });

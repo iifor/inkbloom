@@ -4,8 +4,12 @@
 // running water near rivers and lakes, leaves rustling in the wind. Life comes back with colour:
 // drained grey land is nearly silent, and birds return as the colour does. Everything is placed
 // a few metres to tens of metres around the listener, so it pans and fades like other sounds.
+// Under it all lie recorded beds (CC0 field recordings, see content/sounds.ts): birdsong in the
+// woods and in open country, and running water; the synthesised calls then become occasional
+// accents. Until a bed has loaded, or if it cannot, the synthesised version plays alone.
 import { BIOMES } from '@/content/biomes';
-import { type Loop, type Synth } from '@/engine/audio/synth';
+import { BEDS } from '@/content/sounds';
+import { type Loop, type Stream, type Synth } from '@/engine/audio/synth';
 import { dayHours } from '@/engine/render/daylight';
 import type { GameContext } from '@/game/types';
 import { seasonBlend } from '@/world/climate/calendar';
@@ -26,6 +30,7 @@ export class Ambience {
   private cicada: Loop | null = null;
   private stream: Loop | null = null;
   private leaves: Loop | null = null;
+  private beds: { forest: Stream; birds: Stream; river: Stream } | null = null;
 
   constructor(
     private readonly synth: Synth,
@@ -38,6 +43,9 @@ export class Ambience {
     this.cicada = s.noiseLoop({ type: 'bandpass', freq: 4200, q: 3, gain: 0.05 });
     this.stream = s.noiseLoop({ type: 'bandpass', freq: 900, q: 0.7, gain: 0.22 });
     this.leaves = s.noiseLoop({ type: 'highpass', freq: 2400, gain: 0.12 });
+    const bed = (url: string, gain: number): Stream =>
+      s.stream(import.meta.env.BASE_URL + url, { loop: true, gain, bus: 'ambience' });
+    this.beds = { forest: bed(BEDS.forest, 0.55), birds: bed(BEDS.birds, 0.45), river: bed(BEDS.river, 0.6) };
   }
 
   private sample(): void {
@@ -93,15 +101,21 @@ export class Ambience {
     const life = 0.15 + 0.85 * a.colour;
     const roll = (perSecond: number): boolean => Math.random() < perSecond * dt;
 
-    const birds =
-      0.5 *
+    // how much birdsong there is: by day, most at dawn, in spring; none in rain or a gale
+    const song =
       day *
-      (1 + 1.5 * dawn) *
-      (1.2 * spring + summer + 0.6 * autumn + 0.25 * winter) *
+      (1 + 0.3 * dawn) *
+      (1.2 * spring + summer + 0.6 * autumn + 0.2 * winter) *
       (1 - 0.95 * wet) *
       (1 - smoothstep(6, 12, wind)) *
-      life *
-      (h.wild ? 0.6 + 0.9 * h.trees : 0.4);
+      life;
+    const beds = this.beds;
+    // the recorded chorus: woodland birds under trees, open-country birds elsewhere
+    beds?.forest.set(song * (h.wild ? h.trees : 0.15), 3);
+    beds?.birds.set(song * (h.wild ? 1 - 0.6 * h.trees : 0.35), 3);
+    const recorded = !!beds && (beds.forest.playing || beds.birds.playing);
+    // single synthesised calls: the whole chorus without the beds, a few accents with them
+    const birds = 0.5 * song * (1 + 1.2 * dawn) * (h.wild ? 0.6 + 0.9 * h.trees : 0.4) * (recorded ? 0.3 : 1);
     if (roll(birds)) this.bird(spring);
 
     const warmNights = summer + 0.5 * spring + 0.6 * autumn;
@@ -115,8 +129,10 @@ export class Ambience {
     if (h.wild && roll((night * (0.3 + 0.7 * h.trees) * (1 - wet) * life) / 35)) this.owl();
     if (h.wild && roll(0.8 * night * h.water * (spring + summer) * (1 - 0.5 * wet) * life)) this.frog();
 
-    // still water in a freeze makes no sound
-    this.stream?.set(h.water * (1 - 0.8 * winter * smoothstep(0, -3, a.seaTemp)));
+    // still water in a freeze makes no sound; the recorded river when it has loaded
+    const water = h.water * (1 - 0.8 * winter * smoothstep(0, -3, a.seaTemp));
+    beds?.river.set(water, 2);
+    this.stream?.set(beds?.river.playing ? 0 : water);
     // bare winter branches hardly rustle
     this.leaves?.set(h.wild ? h.trees * smoothstep(1.5, 9, wind) * (1 - 0.7 * winter) : 0);
   }
@@ -203,5 +219,6 @@ export class Ambience {
 
   dispose(): void {
     for (const l of [this.cicada, this.stream, this.leaves]) l?.stop();
+    if (this.beds) for (const bed of Object.values(this.beds)) bed.stop(0.2);
   }
 }
