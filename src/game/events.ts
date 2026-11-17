@@ -57,6 +57,8 @@ export interface GameEvents {
   'tide:drip': { readonly at: Point3 };
   'player:jump': { readonly air: boolean };
   'player:land': { readonly impact: number };
+  /** A swimming stroke kicked: the hands shot forward through the water (where they broke it). */
+  'player:stroke': { readonly hands: readonly Point3[]; readonly power: number };
   'player:died': { readonly lostInk: number };
   /** The player's attack hit something. `heavy`: a blade or a shell's direct hit (hitstop). */
   'shot:hit': { readonly killed: boolean; readonly heavy: boolean };

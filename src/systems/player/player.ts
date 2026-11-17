@@ -97,7 +97,7 @@ export class PlayerSystem implements System, PlayerApi {
     this.dashT = 0;
     this.gliding = false;
     this.body.height = P.height;
-    this.arms.update(0, 0, 0);
+    this.arms.update(0, 0, this.body.vel, yaw);
     this.yaw = yaw;
     this.pitch = 0;
     this.syncCamera();
@@ -152,8 +152,13 @@ export class PlayerSystem implements System, PlayerApi {
       this.gliding = false;
       this.fly(dt);
     } else if (this.ctx.combat.alive) this.walk(dt);
-    this.arms.update(dt, this.swimBlend, this.speed, this.pitch);
+    const kicked = this.arms.update(dt, this.swimBlend, this.body.vel, this.yaw, this.pitch);
     this.syncCamera();
+    if (kicked && this.waterMode === 'swimming') {
+      const hands = this.arms.hands();
+      for (const h of hands) h.y = WATER_LEVEL;
+      this.ctx.events.emit('player:stroke', { hands, power: Math.min(1, this.speed / P.swimSpeed) });
+    }
   }
 
   private walk(dt: number): void {
@@ -232,15 +237,22 @@ export class PlayerSystem implements System, PlayerApi {
 
   private syncCamera(): void {
     const cam = this.ctx.renderer.camera;
-    this.eye.set(this.body.pos.x, this.body.pos.y + P.eyeHeight - this.swimBlend * 0.62, this.body.pos.z);
-    cam.position.copy(this.eye);
+    const head = this.arms.head;
+    this.eye.set(this.body.pos.x, this.body.pos.y + P.eyeHeight - this.swimBlend * 0.74, this.body.pos.z);
+    // the stroke rocks the head: up to breathe, on with the kick (presentation only, like shake)
+    const surge = this.speed > 0.3 ? (head.surge * this.swimBlend) / this.speed : 0;
+    cam.position.set(
+      this.eye.x + this.body.vel.x * surge,
+      this.eye.y + head.lift * this.swimBlend,
+      this.eye.z + this.body.vel.z * surge,
+    );
     // a little shake decays quickly; it never touches the aim the player sees in yaw/pitch
     this.shakeAmt = Math.max(0, this.shakeAmt - 1 / 30);
     const s = this.shakeAmt * this.shakeAmt * 0.04;
     cam.rotation.set(
-      this.pitch + this.punchAmt + (Math.random() - 0.5) * s,
+      this.pitch + this.punchAmt + head.nod * this.swimBlend + (Math.random() - 0.5) * s,
       this.yaw + (Math.random() - 0.5) * s,
-      0,
+      head.roll * this.swimBlend,
       'YXZ',
     );
     cam.updateMatrixWorld();

@@ -86,6 +86,18 @@ export class AudioSystem implements System {
       on('player:land', ({ impact }) => {
         s.noise({ dur: 0.1 + impact * 0.15, gain: 0.15 + impact * 0.35, freq: 350, freqEnd: 120 });
       }),
+      on('player:stroke', ({ power }) => {
+        // the hands part the water, then the kick swirls it behind
+        s.noise({ dur: 0.26, gain: 0.05 + 0.05 * power, type: 'bandpass', freq: 2400, freqEnd: 700, q: 1.2 });
+        s.noise({
+          dur: 0.34,
+          gain: 0.04 + 0.04 * power,
+          type: 'lowpass',
+          freq: 600,
+          freqEnd: 180,
+          delay: 0.12,
+        });
+      }),
       on('tide:warning', ({ at }) => {
         for (const d of [0, 0.9])
           for (const f of [110, 116.5])
@@ -230,9 +242,10 @@ export class AudioSystem implements System {
     const blow = Math.max(0, Math.hypot(w.windX, w.windZ) - 3) / 9;
     this.loops().wind?.set(Math.max(player.gliding ? 1 : 0, Math.min(0.8, blow)));
     this.loops().rain?.set(w.rain);
-    // footsteps
-    const water = player.waterMode !== 'dry';
-    if ((player.grounded || water) && player.speed > 1.5 && !player.flying) {
+    // footsteps (a swimmer's strokes sound on 'player:stroke' instead)
+    const water = player.waterMode === 'wading';
+    const swimming = player.waterMode === 'swimming';
+    if ((player.grounded || water) && !swimming && player.speed > 1.5 && !player.flying) {
       this.stepT -= dt;
       if (this.stepT <= 0) {
         this.stepT = water ? 0.63 : player.speed > 8 ? 0.3 : 0.44;

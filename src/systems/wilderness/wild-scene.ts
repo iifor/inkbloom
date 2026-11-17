@@ -50,6 +50,7 @@ export class WildScene implements GameScene {
   private readonly fish = new WildFish(this.root, (x, z) => this.ctx.renderer.ripple(x, z, false));
   private readonly weed = new Waterweed(this.root);
   private nextWake = 0;
+  private readonly offStroke: () => void;
 
   constructor(private readonly ctx: GameContext) {
     this.root.name = 'wild';
@@ -60,6 +61,9 @@ export class WildScene implements GameScene {
     this.monsters = new WildMonsterCamps(ctx, this.physics, this.root, this.material);
     this.ruins = new WildRuins(ctx, this.material, this.root);
     this.marks = new WildMarks(ctx, this.material, this.root);
+    this.offStroke = ctx.events.on('player:stroke', ({ hands }) => {
+      for (const h of hands) ctx.renderer.ripple(h.x, h.z, true);
+    });
   }
 
   spawn(): { pos: THREE.Vector3; yaw: number } {
@@ -118,7 +122,8 @@ export class WildScene implements GameScene {
     this.grass.update(p, flowers, grassCoverAt(phase));
     const t = this.ctx.state.clock;
     this.fish.update(t, p, dt);
-    if (this.ctx.player.waterMode !== 'dry' && this.ctx.player.speed > 0.45 && t >= this.nextWake) {
+    // a swimmer's wake comes from the strokes (see the constructor); a wader's from each step
+    if (this.ctx.player.waterMode === 'wading' && this.ctx.player.speed > 0.45 && t >= this.nextWake) {
       this.ctx.renderer.ripple(p.x, p.z, true);
       this.nextWake = t + 0.41;
     }
@@ -225,6 +230,7 @@ export class WildScene implements GameScene {
     // a chunk half built has already registered things; finish it so it unloads cleanly
     if (this.building) while (!this.building.steps.next().done);
     this.building = null;
+    this.offStroke();
     for (const [key, item] of [...this.loaded]) this.unload(key, item);
     this.sources.dispose();
     this.monsters.dispose();
