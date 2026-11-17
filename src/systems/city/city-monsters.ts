@@ -76,7 +76,7 @@ export class CityMonsters {
     const spots: THREE.Vector3[] = [];
     for (let iz = 0; iz < n; iz++)
       for (let ix = 0; ix < n; ix++) {
-        if (roads[iz * n + ix] === ROAD_NONE) continue;
+        if (roads[iz * n + ix] === ROAD_NONE || this.layout.water[iz * n + ix]) continue;
         const x = ox + (ix + 0.5) * cell;
         const z = oz + (iz + 0.5) * cell;
         if (x < bounds.x0 || x >= bounds.x1 || z < bounds.z0 || z >= bounds.z1) continue;
