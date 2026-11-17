@@ -65,6 +65,9 @@ export const TUNING = {
     climbCost: 60,
     /** Street cost added by a slow noise field, 0..this: streets wander a little. */
     wander: 0.8,
+    /** Cost of a street crossing a cell of river, against 1 for open ground: streets bridge
+     * the river where they must, at its narrows, and not twice where once will do. */
+    bridgeCost: 30,
     /** Cost of running along an existing street, against 1 for open ground: lanes join the
      * nearest street and follow it, so they branch like a tree. */
     reuse: 0.35,

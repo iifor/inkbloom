@@ -78,6 +78,8 @@ interface FeatureInput {
   readonly chunks: number;
   readonly cell: number;
   readonly roads: Uint8Array;
+  /** River cells: no stains or guards there (the street over one is a bridge). */
+  readonly water?: Uint8Array;
   readonly surfaces: readonly SurfaceInfo[];
   readonly buildings: readonly {
     readonly id: number;
@@ -103,7 +105,8 @@ export function placeFeatures(c: FeatureInput): Omit<CitySkeleton, 'surfaces' | 
   const roadCells: number[][] = Array.from({ length: side * side }, () => []);
   for (let iz = 2; iz < n - 2; iz++)
     for (let ix = 2; ix < n - 2; ix++)
-      if (roads[iz * n + ix] !== 0) roadCells[chunkOfCell(ix, iz)]!.push(iz * n + ix);
+      if (roads[iz * n + ix] !== 0 && !c.water?.[iz * n + ix])
+        roadCells[chunkOfCell(ix, iz)]!.push(iz * n + ix);
   const stains: Stain[] = [];
   roadCells.forEach((cells, chunk) => {
     const pool = [...cells];

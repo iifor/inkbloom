@@ -6,10 +6,12 @@ import { color } from '@/content/palette';
 import { BUILDINGS } from '@/content/templates';
 import { type ColliderData, type Vec3Like, turnedBox } from '@/engine/physics/world';
 import { GeometryBuilder } from '@/engine/render/geometry-builder';
+import { WATER_LEVEL } from '@/world/wilderness/generator';
 import {
   GATE_HALF,
   ROAD_MAIN,
   ROAD_NONE,
+  WET,
   groundAt,
   type Building,
   type CityLayout,
@@ -29,6 +31,19 @@ const LIFT = { square: 0.13, 3: 0.11, 2: 0.1, 1: 0.09 } as const;
 /** Street strips are cut at most this far apart along their length, to follow the land. */
 const STRIP_STEP = 2;
 const UP = { x: 0, y: 1, z: 0 };
+/** Bridges: how high the deck stands over the water at the least, how much it arches over a
+ * long span, how thick the deck is, and its railings. */
+const BRIDGE = { clearance: 0.7, arch: 0.07, maxArch: 1.4, deck: 0.45, rail: 0.95 } as const;
+/** Steps down to the river beside a bridge: rise and tread of each. */
+const STEP = { rise: 0.3, tread: 0.55 } as const;
+
+/** A box turned about +y (its own +z along `angle`), in one colour. */
+function turnedSolid(g: GeometryBuilder, at: Vec3Like, angle: number, half: Vec3Like, tint: number): void {
+  const b = new GeometryBuilder();
+  const all = { px: tint, nx: tint, py: tint, ny: tint, pz: tint, nz: tint };
+  b.box({ x: -half.x, y: -half.y, z: -half.z }, { x: half.x, y: half.y, z: half.z }, all);
+  g.append(b, new THREE.Matrix4().makeRotationY(angle).setPosition(at.x, at.y, at.z));
+}
 
 /** A quad of four corners in order round it, wound to face up whichever way they go round. */
 function upQuad(
@@ -54,7 +69,7 @@ export interface CityTile {
  * the tiles they see. Colliders go to `physics` once. */
 export function buildCity(city: CityLayout, physics: ColliderSink): CityTile[] {
   const group = cityGroup(city.id);
-  const { n, cell, roads, groundOf, ox, oz, heights, chunks } = city;
+  const { n, cell, roads, groundOf, ox, oz, heights, chunks, water } = city;
   const tiles = Array.from({ length: chunks * chunks }, () => ({
     base: new GeometryBuilder(),
     full: new GeometryBuilder(),
@@ -80,9 +95,21 @@ export function buildCity(city: CityLayout, physics: ColliderSink): CityTile[] {
       corner(kx, Math.max(0, kz - 1)) - corner(kx, Math.min(n, kz + 1)),
     ).normalize();
   const grass = color('grass');
+  const riverside = (ix: number, iz: number): boolean => {
+    for (let dz = -1; dz <= 1; dz++)
+      for (let dx = -1; dx <= 1; dx++) {
+        const x = ix + dx;
+        const z = iz + dz;
+        if (x >= 0 && z >= 0 && x < n && z < n && water[z * n + x]) return true;
+      }
+    return false;
+  };
   for (let iz = 0; iz < n; iz++)
     for (let ix = 0; ix < n; ix++) {
       const surface = groundOf[iz * n + ix]!;
+      // the river and its bare banks are left to the land underneath, which is painted with
+      // the same sandy shallows as any river in the wild
+      if (surface < 0 && riverside(ix, iz)) continue;
       const c = surface >= 0 ? city.surfaces[surface]!.color : grass;
       const P = (kx: number, kz: number): Vec3Like => ({
         x: ox + kx * cell,
@@ -140,6 +167,13 @@ export function buildCity(city: CityLayout, physics: ColliderSink): CityTile[] {
     pts.push(st.points[st.points.length - 1]!);
     const lift = LIFT[st.cls];
     const tint = st.cls === ROAD_MAIN ? color('stone') : color('sand');
+    // where the street meets the river it goes over on a bridge: rows over the water stand
+    // on a deck arching from bank to bank instead of on the ground
+    const deck = bridgeDeck(
+      pts.map((p) => ground(p.x, p.z)),
+      pts,
+      lift,
+    );
     const rows = pts.map((p, i) => {
       const a = pts[Math.max(0, i - 1)]!;
       const b = pts[Math.min(pts.length - 1, i + 1)]!;
@@ -149,9 +183,11 @@ export function buildCity(city: CityLayout, physics: ColliderSink): CityTile[] {
       return [-1, 0, 1].map((u) => {
         const x = p.x + nx * u * (st.width / 2);
         const z = p.z + nz * u * (st.width / 2);
-        return { p: { x, y: ground(x, z) + lift, z }, n: normalAt(x, z) };
+        const y = deck[i] ?? ground(x, z) + lift;
+        return { p: { x, y, z }, n: deck[i] === undefined ? normalAt(x, z) : UP };
       });
     });
+    for (const span of spansOf(deck)) buildBridge(span, pts, deck, st.width, tileAt, group, physics);
     for (let i = 0; i < rows.length - 1; i++)
       for (let j = 0; j < 2; j++) {
         const a = rows[i]![j]!;
@@ -176,7 +212,8 @@ export function buildCity(city: CityLayout, physics: ColliderSink): CityTile[] {
       gateCells.add(along ? (gate.iz + k) * n + gate.ix : gate.iz * n + gate.ix + k);
     }
   const wall = (ix: number, iz: number): void => {
-    if (gateCells.has(iz * n + ix) || roads[iz * n + ix] !== ROAD_NONE) return;
+    // open at the gates, and where a river runs in or out
+    if (gateCells.has(iz * n + ix) || roads[iz * n + ix] !== ROAD_NONE || water[iz * n + ix]) return;
     const c = [corner(ix, iz), corner(ix + 1, iz), corner(ix, iz + 1), corner(ix + 1, iz + 1)];
     const min = { x: ox + ix * cell, y: Math.min(...c) - 0.6, z: oz + iz * cell };
     const max = { x: ox + (ix + 1) * cell, y: Math.max(...c) + 1.4, z: oz + (iz + 1) * cell };
@@ -285,5 +322,150 @@ function buildHouse(
       (min, max, data) => physics.addBox(group, min, max, data),
       box.slice,
     );
+  }
+}
+
+/**
+ * Deck heights for the stretch of a street over water, by row: undefined where the street is
+ * on the ground. A bridge runs from the last dry row before the water to the first after it,
+ * level with the banks, at least `clearance` over the water, arching a little over a long span.
+ */
+function bridgeDeck(
+  grounds: readonly number[],
+  pts: readonly { x: number; z: number }[],
+  lift: number,
+): (number | undefined)[] {
+  const deck: (number | undefined)[] = grounds.map(() => undefined);
+  for (let i = 0; i < grounds.length; i++) {
+    if (grounds[i]! >= WET) continue;
+    let j = i;
+    while (j + 1 < grounds.length && grounds[j + 1]! < WET) j++;
+    // the dry rows either side carry the bridge's ends
+    const a = Math.max(0, i - 1);
+    const b = Math.min(grounds.length - 1, j + 1);
+    const ya = grounds[a]! + lift;
+    const yb = grounds[b]! + lift;
+    let length = 0;
+    for (let k = a; k < b; k++) length += Math.hypot(pts[k + 1]!.x - pts[k]!.x, pts[k + 1]!.z - pts[k]!.z);
+    const arch = Math.min(BRIDGE.maxArch, length * BRIDGE.arch);
+    let walked = 0;
+    for (let k = a; k <= b; k++) {
+      if (k > a) walked += Math.hypot(pts[k]!.x - pts[k - 1]!.x, pts[k]!.z - pts[k - 1]!.z);
+      const t = length > 0 ? walked / length : 0;
+      const level = ya + (yb - ya) * t;
+      deck[k] = Math.max(level, WATER_LEVEL + BRIDGE.clearance) + arch * Math.sin(Math.PI * t);
+    }
+    i = j;
+  }
+  return deck;
+}
+
+/** The row ranges [first, last] of each bridge in a street's deck heights. */
+function spansOf(deck: readonly (number | undefined)[]): [number, number][] {
+  const spans: [number, number][] = [];
+  for (let i = 0; i < deck.length; i++) {
+    if (deck[i] === undefined) continue;
+    let j = i;
+    while (j + 1 < deck.length && deck[j + 1] !== undefined) j++;
+    spans.push([i, j]);
+    i = j;
+  }
+  return spans;
+}
+
+/**
+ * A bridge's sides, railings and colliders, a segment at a time along the street (its deck is
+ * the street's own strip, lifted), and steps down to the water beside its first end.
+ */
+function buildBridge(
+  [first, last]: [number, number],
+  pts: readonly { x: number; z: number }[],
+  deck: readonly (number | undefined)[],
+  width: number,
+  tileAt: (x: number, z: number) => { base: GeometryBuilder },
+  group: string,
+  physics: ColliderSink,
+): void {
+  const stone = color('rock');
+  const wood = color('bark');
+  const half = width / 2;
+  const add = (min: Vec3Like, max: Vec3Like, data: ColliderData) => physics.addBox(group, min, max, data);
+  for (let k = first; k < last; k++) {
+    const a = pts[k]!;
+    const b = pts[k + 1]!;
+    const len = Math.hypot(b.x - a.x, b.z - a.z);
+    if (len < 1e-3) continue;
+    const angle = Math.atan2(b.x - a.x, b.z - a.z);
+    const ya = deck[k]!;
+    const yb = deck[k + 1]!;
+    const top = Math.max(ya, yb);
+    const mid = { x: (a.x + b.x) / 2, z: (a.z + b.z) / 2 };
+    const g = tileAt(mid.x, mid.z).base;
+    // the deck's body under the paving: its stone sides show from the river
+    turnedSolid(
+      g,
+      { x: mid.x, y: (ya + yb) / 2 - BRIDGE.deck / 2 - 0.02, z: mid.z },
+      angle,
+      { x: half + 0.15, y: BRIDGE.deck / 2, z: len / 2 + 0.05 },
+      stone,
+    );
+    turnedBox(
+      { x: mid.x, y: 0, z: mid.z, angle, hx: half, hz: len / 2 + 0.05 },
+      Math.min(ya, yb) - BRIDGE.deck,
+      top,
+      add,
+      0.8,
+    );
+    // railings on both sides: a post per segment and a rail along the top
+    const c = Math.cos(angle);
+    const s = Math.sin(angle);
+    for (const side of [-1, 1]) {
+      const ex = c * side * (half + 0.08);
+      const ez = -s * side * (half + 0.08);
+      turnedSolid(
+        g,
+        { x: a.x + ex, y: ya + BRIDGE.rail / 2, z: a.z + ez },
+        angle,
+        { x: 0.08, y: BRIDGE.rail / 2, z: 0.08 },
+        wood,
+      );
+      turnedSolid(
+        g,
+        { x: mid.x + ex, y: (ya + yb) / 2 + BRIDGE.rail - 0.05, z: mid.z + ez },
+        angle,
+        { x: 0.06, y: 0.05, z: len / 2 + 0.04 },
+        wood,
+      );
+      turnedBox(
+        { x: mid.x + ex, y: 0, z: mid.z + ez, angle, hx: 0.08, hz: len / 2 },
+        Math.min(ya, yb),
+        top + BRIDGE.rail,
+        add,
+        0.8,
+      );
+    }
+  }
+  // steps down to the water beside the bridge's first end, along the bank
+  const a = pts[first]!;
+  const b = pts[Math.min(last, first + 1)]!;
+  const len = Math.hypot(b.x - a.x, b.z - a.z);
+  if (len < 1e-3 || last - first < 3) return;
+  const angle = Math.atan2(b.x - a.x, b.z - a.z);
+  const fx = (b.x - a.x) / len;
+  const fz = (b.z - a.z) / len;
+  const sideX = Math.cos(angle) * (half + 1.6);
+  const sideZ = -Math.sin(angle) * (half + 1.6);
+  let y = deck[first]! - STEP.rise;
+  for (let k = 0; k < 10 && y > WATER_LEVEL - 0.25; k++, y -= STEP.rise) {
+    const at = { x: a.x + sideX + fx * STEP.tread * (k + 0.5), z: a.z + sideZ + fz * STEP.tread * (k + 0.5) };
+    const bottom = WATER_LEVEL - 1.2;
+    turnedSolid(
+      tileAt(at.x, at.z).base,
+      { x: at.x, y: (y + bottom) / 2, z: at.z },
+      angle,
+      { x: 0.8, y: (y - bottom) / 2, z: STEP.tread / 2 },
+      stone,
+    );
+    turnedBox({ x: at.x, y: 0, z: at.z, angle, hx: 0.8, hz: STEP.tread / 2 }, bottom, y, add, 0.8);
   }
 }

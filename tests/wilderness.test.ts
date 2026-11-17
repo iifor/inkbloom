@@ -77,17 +77,19 @@ describe('wilderness', () => {
       expect(Math.abs(e.ox % TUNING.world.cellSize)).toBe(0);
       expect(Math.abs(e.oz % TUNING.world.cellSize)).toBe(0);
       expect(e.y).toBeGreaterThan(WATER_LEVEL + 1);
-      // inside: the land's own rise and fall about the town's level, scaled down, never in water
-      for (const [u, v] of [
-        [0.1, 0.1],
-        [0.5, 0.5],
-        [0.9, 0.3],
-      ] as const) {
-        const x = e.ox + Math.round((u * e.size) / 4) * 4;
-        const z = e.oz + Math.round((v * e.size) / 4) * 4;
-        const want = Math.max(WATER_LEVEL + 0.6, e.y + S.townRelief * (w.rawHeightAt(x, z) - e.y));
-        expect(w.heightAt(x, z)).toBeCloseTo(want, 3);
-      }
+      // inside: the land's own rise and fall about the town's level, scaled down, above the
+      // water; a river running through only ever cuts it lower
+      let kept = 0;
+      for (let u = 0.05; u < 1; u += 0.15)
+        for (let v = 0.05; v < 1; v += 0.15) {
+          const x = e.ox + Math.round((u * e.size) / 4) * 4;
+          const z = e.oz + Math.round((v * e.size) / 4) * 4;
+          const want = Math.max(WATER_LEVEL + 0.6, e.y + S.townRelief * (w.rawHeightAt(x, z) - e.y));
+          const h = w.heightAt(x, z);
+          expect(h).toBeLessThanOrEqual(want + 1e-3);
+          if (Math.abs(h - want) < 1e-3) kept++;
+        }
+      expect(kept).toBeGreaterThan(20);
       expect(w.townAt(e.x, e.z)).toBe(e);
       expect(w.townAt(e.ox - 5, e.z)).toBeNull();
       expect(w.townAt(e.ox - 5, e.z, 6)).toBe(e);

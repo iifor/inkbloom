@@ -3,9 +3,10 @@
 // with accepted patches. It shares the wilderness's physics world: the player walks in through
 // a gate and the scene manager makes it the active scene while they are inside.
 import * as THREE from 'three';
+import { color } from '@/content/palette';
 import { TUNING } from '@/content/tuning';
 import { PhysicsWorld } from '@/engine/physics/world';
-import { fromGeometryData } from '@/engine/render/geometry-builder';
+import { GeometryBuilder, fromGeometryData } from '@/engine/render/geometry-builder';
 import { SurfaceStateTexture, makeInkMaterial, shared } from '@/engine/render/ink-material';
 import { disposeTree } from '@/engine/resources';
 import type { GameContext, GameScene } from '@/game/types';
@@ -25,6 +26,32 @@ import { Studios } from './studios';
 /** Metres from a district's middle beyond which its houses are drawn as shells. A district is
  * 128 m across, so its nearest houses are then over 100 m off: window frames are a few pixels. */
 const FAR_DETAIL = 200;
+/** Radians a second the waterwheel turns. */
+const WHEEL_TURN = 0.45;
+
+/** A wooden undershot waterwheel turning about its own x axis: two rims, spokes, paddles. */
+function waterwheel(r: number): THREE.BufferGeometry {
+  const g = new GeometryBuilder();
+  const wood = color('bark');
+  const m = new THREE.Matrix4();
+  const turn = new THREE.Matrix4();
+  const rim = new THREE.TorusGeometry(r, 0.09, 5, 28).rotateY(Math.PI / 2);
+  const spoke = new THREE.BoxGeometry(0.08, 2 * r, 0.08);
+  const paddle = new THREE.BoxGeometry(1.3, 0.55, 0.06);
+  const axle = new THREE.CylinderGeometry(0.16, 0.16, 2.2, 8).rotateZ(Math.PI / 2);
+  for (const x of [-0.55, 0.55]) {
+    g.mesh(rim, m.makeTranslation(x, 0, 0), wood);
+    for (let k = 0; k < 4; k++)
+      g.mesh(spoke, m.makeTranslation(x, 0, 0).multiply(turn.makeRotationX((k * Math.PI) / 4)), wood);
+  }
+  for (let k = 0; k < 16; k++) {
+    const a = (k * Math.PI * 2) / 16;
+    g.mesh(paddle, turn.makeRotationX(a).multiply(m.makeTranslation(0, r - 0.2, 0)), wood);
+  }
+  g.mesh(axle, m.identity(), wood);
+  for (const geometry of [rim, spoke, paddle, axle]) geometry.dispose();
+  return g.build();
+}
 
 export class CityScene implements GameScene {
   readonly ref: { readonly kind: 'city'; readonly id: string };
@@ -36,6 +63,8 @@ export class CityScene implements GameScene {
   private readonly release: (() => void)[] = [];
   /** One per district: its geometry in full, and with the houses as shells. */
   private readonly detail: THREE.LOD[] = [];
+  /** The mill's waterwheel, when a river runs through. */
+  private wheel: THREE.Mesh | null = null;
   /** Coloured / total surfaces per city chunk, kept current from patches. */
   private readonly colored: number[];
   private readonly totals: number[];
@@ -144,6 +173,11 @@ export class CityScene implements GameScene {
       this.root.add(lod);
       // a district a frame at most: its first draw also uploads it to the GPU
       yield;
+    }
+    if (layout.wheel) {
+      this.wheel = new THREE.Mesh(waterwheel(layout.wheel.r), this.material);
+      this.wheel.position.set(layout.wheel.x, layout.wheel.y, layout.wheel.z);
+      this.root.add(this.wheel);
     }
     yield;
     this.stains = new InkStains(ctx, layout, stains, this.material, this.root);
@@ -271,6 +305,8 @@ export class CityScene implements GameScene {
   /** Pick each district's level of detail by its distance from the camera. */
   updateDetail(camera: THREE.Camera): void {
     for (const lod of this.detail) lod.update(camera);
+    // the river turns the mill's wheel, downstream (the rivers run along z)
+    if (this.wheel) this.wheel.rotation.x = this.ctx.state.clock * WHEEL_TURN;
   }
 
   /** While the player is inside. In a server world only the town's keeper runs its erosion and

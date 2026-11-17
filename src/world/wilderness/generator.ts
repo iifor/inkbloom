@@ -206,6 +206,14 @@ export function createWilderness(seed: number): Wilderness {
     return null;
   };
   const skirt = S.townSkirt;
+  /** The river channel cut into land of height h. Local widenings form pools, with a deep
+   * channel and gently sloping shores. */
+  const river = (h: number, x: number, z: number): number => {
+    const bank = riverDistance(x, z);
+    const width = 11 + 15 * smoothstep(0.1, 0.7, bends(4.3, z / 270));
+    const channel = lerp(WATER_LEVEL - 2.8, WATER_LEVEL, smoothstep(0, width, bank));
+    return lerp(Math.min(h, channel), h, smoothstep(width * 0.8, width + 17, bank));
+  };
   const ground = (x: number, z: number): number => {
     let h = rawHeightAt(x, z);
     if (h < WATER_LEVEL - 0.45) {
@@ -220,11 +228,7 @@ export function createWilderness(seed: number): Wilderness {
     }
     const start = 1 - smoothstep(16, 43, Math.hypot(x - spawn, z - spawn));
     h = lerp(h, Math.max(h, WATER_LEVEL + 2), start);
-    const bank = riverDistance(x, z);
-    // Local widenings form pools, with a deep channel and gently sloping shores.
-    const width = 11 + 15 * smoothstep(0.1, 0.7, bends(4.3, z / 270));
-    const channel = lerp(WATER_LEVEL - 2.8, WATER_LEVEL, smoothstep(0, width, bank));
-    h = lerp(Math.min(h, channel), h, smoothstep(width * 0.8, width + 17, bank));
+    h = river(h, x, z);
     // Lakes open off river channels, with long shallow shelves and a broad, deep interior.
     const lane = Math.round((x - spawn - 90) / 720),
       reach = Math.round((z - spawn + 166) / 960);
@@ -243,9 +247,9 @@ export function createWilderness(seed: number): Wilderness {
       const dx = Math.max(e.ox - x, 0, x - e.ox - e.size);
       const dz = Math.max(e.oz - z, 0, z - e.oz - e.size);
       if (dx >= skirt || dz >= skirt) continue;
-      // in a town the land keeps its shape but not its steepness, and stays out of the water;
-      // rivers and lakes stop at its edge
-      const town = Math.max(WATER_LEVEL + 0.6, e.y + S.townRelief * (rawHeightAt(x, z) - e.y));
+      // in a town the land keeps its shape but not its steepness, and stays above the water
+      // except where a river runs through (the town bridges it); lakes stop at its edge
+      const town = river(Math.max(WATER_LEVEL + 0.6, e.y + S.townRelief * (rawHeightAt(x, z) - e.y)), x, z);
       if (dx === 0 && dz === 0) return town;
       h = lerp(h, town, smoothstep(skirt, 0, Math.hypot(dx, dz)));
     }

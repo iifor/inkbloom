@@ -512,6 +512,13 @@ void main() {
       }
       if (submerged && (!fish || eye.y > ${WATER_LEVEL})) water += wakeLight(rp, distance(rp, eye.xz)) * mix(0.4, 1.0, lit);
       col = mix(col, mix(drainedOf(water), water, sat), opacity);
+      // broken lines of foam along the shore, where the water thins out over the bank
+      if (submerged && !fish) {
+        float shore = 1.0 - smoothstep(0.03, 0.32, waterDepth);
+        float lace = smoothstep(0.5, 0.78, vnoise(rp * 1.6 + vec2(uTime * 0.18, uTime * 0.31)));
+        vec3 foam = vec3(0.95, 0.97, 0.98) * mix(light, vec3(1.0), 0.4);
+        col = mix(col, mix(drainedOf(foam), foam, sat), shore * lace * 0.55 * (1.0 - 0.6 * uNight));
+      }
     }
     // aerial perspective: far things melt into blue-white haze
     vec3 haze = horizonOf(rd);

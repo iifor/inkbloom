@@ -19,7 +19,7 @@ import { createNoise2D } from '../math/noise';
 import { Rng } from '../math/rng';
 import { Heap } from '../nav/path';
 import type { SurfaceInfo, SurfaceKind } from '../paint/surfaces';
-import type { Entrance, Wilderness } from '../wilderness/generator';
+import { type Entrance, type Wilderness, WATER_LEVEL } from '../wilderness/generator';
 import { type CitySkeleton, placeFeatures } from './features';
 
 export const ROAD_NONE = 0;
@@ -102,6 +102,8 @@ export interface CityLayout extends CitySkeleton {
   readonly heights: Float32Array;
   /** Street class per cell, row-major [iz * n + ix]. */
   readonly roads: Uint8Array;
+  /** 1 where a river runs through the cell (streets cross it by bridge). */
+  readonly water: Uint8Array;
   /** Yard region id + 1 per cell (0 = street or wall). */
   readonly blockOf: Uint16Array;
   /** Building id + 1 per cell (0 = none). */
@@ -111,6 +113,9 @@ export interface CityLayout extends CitySkeleton {
   readonly gates: readonly Gate[];
   readonly streets: readonly Street[];
   readonly square: Point & { readonly r: number };
+  /** A mill's waterwheel in the river beside a house, turning on an axle along x; null when
+   * no river runs through. */
+  readonly wheel: (Point & { readonly y: number; readonly r: number }) | null;
   readonly buildings: readonly Building[];
   readonly surfaces: readonly SurfaceInfo[];
   /** Where a player entering through the main gate appears. */
@@ -128,6 +133,13 @@ const OTHER_WALLS: Record<Face, readonly [Face, Face, Face]> = {
 };
 /** Cells either side of a gate's middle left open in the wall. */
 export const GATE_HALF = 2;
+/** Ground below this is river: a cell whose middle is this low is water. */
+export const WET = WATER_LEVEL + 0.2;
+/** A mill's waterwheel, metres. */
+const WHEEL_RADIUS = 2.4;
+/** It stands where the river is at least this deep, at most this far from its mill's middle. */
+const WHEEL_DEPTH = 0.8;
+const WHEEL_REACH = 12;
 
 type Land = Pick<CityLayout, 'ox' | 'oz' | 'n' | 'cell' | 'heights'>;
 
@@ -241,6 +253,21 @@ export function generateCity(
   const ground = (x: number, z: number): number => groundAt(land, x, z);
   const corner = (kx: number, kz: number): number =>
     heights[Math.min(n, Math.max(0, kz)) * (n + 1) + Math.min(n, Math.max(0, kx))]!;
+  /** Rivers: the cells whose middle is under (or just at) the water. */
+  const water = new Uint8Array(n * n);
+  for (let iz = 0; iz < n; iz++)
+    for (let ix = 0; ix < n; ix++)
+      water[idx(ix, iz)] = ground((ix + 0.5) * cell, (iz + 0.5) * cell) < WET ? 1 : 0;
+  /** Water within `r` cells of a cell. */
+  const nearWater = (ix: number, iz: number, r: number): boolean => {
+    for (let dz = -r; dz <= r; dz++)
+      for (let dx = -r; dx <= r; dx++) {
+        const x = ix + dx;
+        const z = iz + dz;
+        if (x >= 0 && z >= 0 && x < n && z < n && water[idx(x, z)]) return true;
+      }
+    return false;
+  };
   /** Rise over run across each cell. */
   const slope = new Float32Array(n * n);
   for (let iz = 0; iz < n; iz++)
@@ -253,12 +280,21 @@ export function generateCity(
   const gates: Gate[] = [];
   const mid = Math.floor(n / 2);
   const jitter = (): number => rng.int(-Math.floor(n / 8), Math.floor(n / 8));
-  const gateIn = (wall: Face, at: number, isMain: boolean): Gate => {
+  const gateIn = (wall: Face, wanted: number, isMain: boolean): Gate => {
     const dir = GATE_DIR[wall];
     const edge = wall === 'px' || wall === 'pz' ? n - 1 : 0;
-    return wall === 'px' || wall === 'nx'
-      ? { ix: edge, iz: at, dir, main: isMain }
-      : { ix: at, iz: edge, dir, main: isMain };
+    const make = (at: number): Gate =>
+      wall === 'px' || wall === 'nx'
+        ? { ix: edge, iz: at, dir, main: isMain }
+        : { ix: at, iz: edge, dir, main: isMain };
+    // on dry land: where a river leaves the town, move along the wall till the way in is dry
+    for (let k = 0; k < n / 2; k++)
+      for (const at of [wanted + k, wanted - k]) {
+        if (at < GATE_HALF + 2 || at > n - GATE_HALF - 3) continue;
+        const g = make(at);
+        if (!nearWater(g.ix + DX[dir]! * 2, g.iz + DZ[dir]! * 2, GATE_HALF + 1)) return g;
+      }
+    return make(wanted);
   };
   gates.push(gateIn(main, mid + jitter(), true));
   const [left, right, across] = OTHER_WALLS[main];
@@ -286,7 +322,10 @@ export function generateCity(
           lo = Math.min(lo, h);
           hi = Math.max(hi, h);
         }
-      const score = (hi - lo) / (6 * cell) + (0.25 * Math.hypot(ix - mid, iz - mid)) / reach;
+      const score =
+        (hi - lo) / (6 * cell) +
+        (0.25 * Math.hypot(ix - mid, iz - mid)) / reach +
+        (nearWater(ix, iz, 5) ? 10 : 0);
       if (score < sqScore) {
         sqScore = score;
         sq = idx(ix, iz);
@@ -306,7 +345,10 @@ export function generateCity(
       const s = slope[i]!;
       cost[i] =
         inside(ix, iz) || gateCell[i]
-          ? 1 + cfg.climbCost * s * s + cfg.wander * (0.5 + 0.5 * wander(ix / 9, iz / 9))
+          ? 1 +
+            cfg.climbCost * s * s +
+            cfg.wander * (0.5 + 0.5 * wander(ix / 9, iz / 9)) +
+            (water[i] ? cfg.bridgeCost : 0)
           : Infinity;
     }
   const g = new Float32Array(n * n);
@@ -424,7 +466,7 @@ export function generateCity(
     const ix = rng.int(3, n - 4);
     const iz = rng.int(3, n - 4);
     const i = idx(ix, iz);
-    if (slope[i]! > 0.4) continue;
+    if (slope[i]! > 0.4 || nearWater(ix, iz, 2)) continue;
     if (reaches.some((j) => Math.hypot((j % n) - ix, Math.floor(j / n) - iz) < spacing)) continue;
     reaches.push(i);
   }
@@ -573,8 +615,9 @@ export function generateCity(
     const blocked = (i: number): boolean =>
       i < 0 || !inside(i % n, Math.floor(i / n)) || roads[i] !== ROAD_NONE || buildingOf[i] !== 0;
     if (!under.length || under.some(blocked)) return 0;
-    // keep a little room between neighbours
-    if (cellsUnder(x, z, angle, hw, hd, 1.6).some((i) => i >= 0 && buildingOf[i] !== 0)) return 0;
+    // keep a little room between neighbours, and off the river bank
+    if (cellsUnder(x, z, angle, hw, hd, 1.6).some((i) => i >= 0 && (buildingOf[i] !== 0 || water[i] !== 0)))
+      return 0;
     const c = Math.cos(angle);
     const s = Math.sin(angle);
     if (!clearOfStreets(x, z, c, s, hw, hd) || !clearOfHouses(x, z, angle, hw, hd, 1.2)) return 0;
@@ -668,7 +711,8 @@ export function generateCity(
   const yardColors = [color('grass'), color('sand'), color('green')];
   let regions = 0;
   for (let i0 = 0; i0 < n * n; i0++) {
-    if (blockOf[i0] !== 0 || roads[i0] !== ROAD_NONE || !inside(i0 % n, Math.floor(i0 / n))) continue;
+    if (blockOf[i0] !== 0 || roads[i0] !== ROAD_NONE || water[i0] || !inside(i0 % n, Math.floor(i0 / n)))
+      continue;
     const region = ++regions;
     const cells: number[] = [];
     const stack = [i0];
@@ -683,7 +727,7 @@ export function generateCity(
         const z2 = z + DZ[d]!;
         if (!inside(x2, z2)) continue;
         const k = idx(x2, z2);
-        if (roads[k] === ROAD_NONE && blockOf[k] === 0 && district(k) === district(j)) {
+        if (roads[k] === ROAD_NONE && !water[k] && blockOf[k] === 0 && district(k) === district(j)) {
           blockOf[k] = region;
           stack.push(k);
         }
@@ -718,6 +762,37 @@ export function generateCity(
         sz / list.length,
       );
       for (const j of list) groundOf[j] = surface;
+    }
+  }
+
+  // a waterwheel beside the riverside house nearest the square, where the river is deep
+  // enough for its paddles
+  let wheel: CityLayout['wheel'] = null;
+  let wheelD = Infinity;
+  for (const b of buildings) {
+    const reach = Math.ceil((Math.max(b.hw, b.hd) + WHEEL_REACH) / cell);
+    const bx = Math.floor(b.x / cell);
+    const bz = Math.floor(b.z / cell);
+    let near = -1;
+    let nearD = Infinity;
+    for (let dz = -reach; dz <= reach; dz++)
+      for (let dx = -reach; dx <= reach; dx++) {
+        const x = bx + dx;
+        const z = bz + dz;
+        if (!inside(x, z) || !water[idx(x, z)] || roads[idx(x, z)] !== ROAD_NONE) continue;
+        if (ground((x + 0.5) * cell, (z + 0.5) * cell) > WATER_LEVEL - WHEEL_DEPTH) continue;
+        const d = Math.hypot((x + 0.5) * cell - b.x, (z + 0.5) * cell - b.z);
+        if (d < nearD) {
+          nearD = d;
+          near = idx(x, z);
+        }
+      }
+    if (near < 0 || nearD > Math.max(b.hw, b.hd) + WHEEL_REACH) continue;
+    const d = Math.hypot(b.x - square.x, b.z - square.z);
+    if (d < wheelD) {
+      wheelD = d;
+      const c = centreOf(near);
+      wheel = { x: c.x, z: c.z, r: WHEEL_RADIUS, y: WATER_LEVEL + WHEEL_RADIUS * 0.55 };
     }
   }
 
@@ -756,16 +831,18 @@ export function generateCity(
     size,
     heights,
     roads,
+    water,
     blockOf,
     buildingOf,
     groundOf,
     gates,
     streets,
     square,
+    wheel,
     buildings,
     surfaces,
     spawn,
-    ...placeFeatures({ seed, n, cell, chunks, roads, surfaces, buildings, spawn }),
+    ...placeFeatures({ seed, n, cell, chunks, roads, water, surfaces, buildings, spawn }),
   };
 }
 
@@ -779,6 +856,7 @@ export function placeCity(c: CityLayout, at: Point): CityLayout {
     oz: c.oz + at.z,
     streets: c.streets.map((s) => ({ ...s, points: s.points.map(move) })),
     square: move(c.square),
+    wheel: c.wheel && move(c.wheel),
     buildings: c.buildings.map(move),
     surfaces: c.surfaces.map(move),
     stains: c.stains.map(move),

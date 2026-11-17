@@ -18,11 +18,14 @@ import {
 import { cityNav } from '@/world/nav/grids';
 import { findPath } from '@/world/nav/path';
 import { cityStates, createWorldState } from '@/world/state';
-import { createWilderness, townDistance } from '@/world/wilderness/generator';
+import { WATER_LEVEL, createWilderness, townDistance } from '@/world/wilderness/generator';
 
 const SEEDS = [1, 2, 3, 99, 12345];
 /** Rolling land to lay towns out on: a long ridge and a valley across the town. */
-const hills = (x: number, z: number): number => 6 * Math.sin(x / 70) + 4 * Math.cos(z / 55 + x / 140);
+const hills = (x: number, z: number): number => 12 + 6 * Math.sin(x / 70) + 4 * Math.cos(z / 55 + x / 140);
+/** Gentle land with a river running north–south through it at x = 230. */
+const riverland = (x: number, z: number): number =>
+  2 + 0.8 * Math.sin(z / 60) - 4.5 * Math.exp(-(((x - 230 - 12 * Math.sin(z / 90)) / 11) ** 2));
 
 function roadReachable(city: CityLayout): Set<number> {
   const { n, roads } = city;
@@ -196,6 +199,96 @@ describe('town layout', () => {
       // a few metres in from the gate
       expect(city.size - city.spawn.z).toBeGreaterThan(city.cell * 2);
     }
+  });
+});
+
+describe('a river through a town', () => {
+  const city = generateCity('x', 11, 3, 'nx', riverland);
+  const cellAt = (x: number, z: number): number =>
+    Math.floor(z / city.cell) * city.n + Math.floor(x / city.cell);
+
+  it('keeps houses, yards, stains and guards off the water', () => {
+    expect(city.water.reduce((a, v) => a + v, 0)).toBeGreaterThan(200);
+    for (const b of city.buildings)
+      for (const [u, v] of [
+        [0, 0],
+        [1, 1],
+        [-1, 1],
+        [1, -1],
+        [-1, -1],
+      ] as const) {
+        const c = Math.cos(b.angle);
+        const s = Math.sin(b.angle);
+        const i = cellAt(b.x + c * u * b.hw + s * v * b.hd, b.z - s * u * b.hw + c * v * b.hd);
+        expect(city.water[i], `house ${b.id}`).toBe(0);
+      }
+    for (let i = 0; i < city.water.length; i++)
+      if (city.water[i]) {
+        expect(city.groundOf[i]).toBe(-1);
+        expect(city.blockOf[i]).toBe(0);
+      }
+    for (const s of [...city.stains, ...city.monsters]) expect(city.water[cellAt(s.x, s.z)]).toBe(0);
+    // gates open onto dry land
+    for (const g of city.gates) expect(city.water[g.iz * city.n + g.ix]).toBe(0);
+  });
+
+  it('crosses it by bridge, so the whole town is reachable on foot', () => {
+    // the main gate is in the west wall, the river runs down the middle: a street must cross
+    const bridged = [...city.water.keys()].filter((i) => city.water[i] && city.roads[i] !== ROAD_NONE);
+    expect(bridged.length).toBeGreaterThan(0);
+    expect(bridged.length).toBeLessThan(80);
+    const nav = cityNav(city);
+    const east = city.stains.filter((s) => s.x > 320);
+    expect(east.length).toBeGreaterThan(0);
+    expect(findPath(nav, city.spawn, east[0]!, 40000)).not.toBeNull();
+  });
+
+  it('turns a waterwheel in the river beside a house', () => {
+    expect(city.wheel).not.toBeNull();
+    expect(city.water[cellAt(city.wheel!.x, city.wheel!.z)]).toBe(1);
+    const nearest = Math.min(
+      ...city.buildings.map((b) => Math.hypot(b.x - city.wheel!.x, b.z - city.wheel!.z)),
+    );
+    expect(nearest).toBeLessThan(25);
+  });
+
+  it('carries a walker over the river on the bridge deck, dry', () => {
+    const physics = new PhysicsWorld(8);
+    physics.ground = (x, z) => groundAt(city, x, z);
+    buildCity(city, physics);
+    // a street with water under it: walk it end to end along its middle
+    const st = city.streets.find((s) => s.points.some((p) => city.water[cellAt(p.x, p.z)]))!;
+    expect(st).toBeDefined();
+    const first = st.points[0]!;
+    const body = makeBody(
+      new THREE.Vector3(first.x, groundAt(city, first.x, first.z) + 0.05, first.z),
+      0.35,
+      1.8,
+      0.55,
+    );
+    let next = 1;
+    let overWater = 0;
+    for (let t = 0; t < 120 && next < st.points.length; t += 1 / 60) {
+      const p = st.points[next]!;
+      const dx = p.x - body.pos.x;
+      const dz = p.z - body.pos.z;
+      const d = Math.hypot(dx, dz);
+      if (d < 1.2) {
+        next++;
+        continue;
+      }
+      body.vel.x = (dx / d) * 4;
+      body.vel.z = (dz / d) * 4;
+      body.vel.y -= 22 / 60;
+      physics.moveBody(body, 1 / 60);
+      if (city.water[cellAt(body.pos.x, body.pos.z)]) {
+        overWater++;
+        // on the deck, never down in the river
+        expect(body.pos.y).toBeGreaterThan(WATER_LEVEL + 0.3);
+      }
+    }
+    expect(overWater).toBeGreaterThan(10);
+    expect(next).toBe(st.points.length);
   });
 });
 
