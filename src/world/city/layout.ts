@@ -149,6 +149,8 @@ const WHEEL_REACH = 12;
 const GARDEN_MIN = 1.1;
 /** Yard trees stand at least this far apart, metres. */
 const TREE_SPACING = 9;
+/** The town's great old tree near the square: its height and spread, metres. */
+const TOWN_GREAT = { height: 14, crown: 7 } as const;
 
 type Land = Pick<CityLayout, 'ox' | 'oz' | 'n' | 'cell' | 'heights'>;
 
@@ -825,6 +827,28 @@ export function generateCity(
       crown: treeRng.range(1.5, 2.4),
       color: treeRng.chance(0.6) ? color('leaf') : color('canopy'),
     });
+  }
+
+  // the yard tree nearest the square with room to spread becomes the town's great old tree
+  let greatAt = -1;
+  let greatD = Infinity;
+  trees.forEach((t, i) => {
+    const d = Math.hypot(t.x - square.x, t.z - square.z);
+    if (d >= greatD || d < square.r + TOWN_GREAT.crown) return;
+    const room = buildings.every(
+      (b) => Math.hypot(b.x - t.x, b.z - t.z) - Math.hypot(b.hw, b.hd) > TOWN_GREAT.crown - 1,
+    );
+    if (!room) return;
+    greatAt = i;
+    greatD = d;
+  });
+  if (greatAt >= 0) {
+    const t = trees[greatAt]!;
+    // its spread takes the place of the yard trees under it
+    for (let i = trees.length - 1; i >= 0; i--)
+      if (i !== greatAt && Math.hypot(trees[i]!.x - t.x, trees[i]!.z - t.z) < TOWN_GREAT.crown + 2)
+        trees.splice(i, 1);
+    trees[trees.indexOf(t)] = { ...t, height: TOWN_GREAT.height, crown: TOWN_GREAT.crown, kind: 'great' };
   }
 
   // a waterwheel beside the riverside house nearest the square, where the river is deep

@@ -16,6 +16,7 @@ import {
   type Building,
   type CityLayout,
 } from '@/world/city/layout';
+import { addTrunk } from '../wilderness/build-chunk';
 import { appendTree, treeMatrix, treePalette } from '../wilderness/tree-geometry';
 import { buildCountryHouse } from './country-house';
 
@@ -211,13 +212,9 @@ export function buildCity(city: CityLayout, physics: ColliderSink): CityTile[] {
     const tile = tileAt(t.x, t.z);
     const palette = treePalette(t);
     const m = treeMatrix(t);
-    appendTree(tile.full, palette, m, false);
-    appendTree(tile.far, palette, m, true);
-    physics.addBox(
-      group,
-      { x: t.x - 0.3, y: t.y, z: t.z - 0.3 },
-      { x: t.x + 0.3, y: t.y + t.height * 0.6, z: t.z + 0.3 },
-    );
+    appendTree(tile.full, palette, m, false, t.kind);
+    appendTree(tile.far, palette, m, true, t.kind);
+    addTrunk(physics, group, t);
   }
 
   buildWell(tileAt(sq.x, sq.z).base, { x: sq.x, y: ground(sq.x, sq.z), z: sq.z }, group, physics);

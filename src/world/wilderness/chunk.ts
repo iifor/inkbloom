@@ -1,5 +1,6 @@
 // A wilderness chunk as plain data. The renderer and physics build from this; tests check it.
 import { BIOMES } from '@/content/biomes';
+import { color } from '@/content/palette';
 import { TUNING } from '@/content/tuning';
 import { hashAt, unit } from '../math/hash';
 import { type Wilderness, WATER_LEVEL } from './generator';
@@ -14,6 +15,8 @@ export interface Tree {
   readonly height: number;
   readonly crown: number;
   readonly color: number;
+  /** A great old tree standing alone (height is its whole height, crown its spread). */
+  readonly kind?: 'great';
 }
 
 export interface WildChunk {
@@ -91,11 +94,69 @@ export function generateWildChunk(w: Wilderness, cx: number, cz: number): WildCh
 
   const sources = sourcesInChunk(w, cx, cz);
   const ruins = ruinsInChunk(w, cx, cz);
+  // now and then a great old tree stands alone in the open, the others giving it room
+  const great = greatTreeIn(w, cx, cz, sources, ruins);
   // keep trees off sources and ruins so they stay visible and reachable
   const clearTrees = trees.filter(
     (t) =>
       !sources.some((src) => Math.hypot(t.x - src.x, t.z - src.z) < 4) &&
-      !ruins.some((r) => Math.hypot(t.x - r.x, t.z - r.z) < 14),
+      !ruins.some((r) => Math.hypot(t.x - r.x, t.z - r.z) < 14) &&
+      !(great && Math.hypot(t.x - great.x, t.z - great.z) < GREAT.room),
   );
+  if (great) clearTrees.push(great);
   return { cx, cz, x0, z0, n, cell, heights, biomes, trees: clearTrees, hasWater, sources, ruins };
+}
+
+/** Great trees: the chance a chunk has one, their size, and the room they are given. */
+const GREAT = { chance: 0.35, height: [16, 22], crown: [8.5, 11.5], room: 14, steep: 1.6 } as const;
+
+/** A chunk's great old tree, if it has one: on gentle open ground, dry, away from spawn, towns,
+ * pigment sources and ruins. Deterministic from the world seed, like everything else in a chunk. */
+export function greatTreeIn(
+  w: Wilderness,
+  cx: number,
+  cz: number,
+  sources: readonly { x: number; z: number }[] = sourcesInChunk(w, cx, cz),
+  ruins: readonly { x: number; z: number }[] = ruinsInChunk(w, cx, cz),
+): Tree | null {
+  const size = TUNING.world.chunkSize;
+  const h = hashAt(w.seed, 'great-tree', cx, cz);
+  if (unit(h) >= GREAT.chance) return null;
+  for (let attempt = 0; attempt < 6; attempt++) {
+    const r = hashAt(w.seed, 'great-tree-spot', cx, cz, attempt);
+    const x = cx * size + 20 + unit(r) * (size - 40);
+    const z = cz * size + 20 + unit(r >>> 7) * (size - 40);
+    if (Math.hypot(x - size / 2, z - size / 2) < 70) continue;
+    if (w.townAt(x, z, 30)) continue;
+    if (sources.some((p) => Math.hypot(p.x - x, p.z - z) < GREAT.room)) continue;
+    if (ruins.some((p) => Math.hypot(p.x - x, p.z - z) < GREAT.room + 10)) continue;
+    const y = w.heightAt(x, z);
+    if (y < WATER_LEVEL + 1.2) continue;
+    // gentle ground under the whole spread
+    let lo = y;
+    let hi = y;
+    for (const [dx, dz] of [
+      [10, 0],
+      [-10, 0],
+      [0, 10],
+      [0, -10],
+    ] as const) {
+      const g = w.heightAt(x + dx, z + dz);
+      lo = Math.min(lo, g);
+      hi = Math.max(hi, g);
+      if (g < WATER_LEVEL + 0.5) lo = -Infinity;
+    }
+    if (hi - lo > GREAT.steep) continue;
+    const t = hashAt(w.seed, 'great-tree-size', cx, cz);
+    return {
+      x,
+      z,
+      y: y - 0.3,
+      height: GREAT.height[0] + unit(t) * (GREAT.height[1] - GREAT.height[0]),
+      crown: GREAT.crown[0] + unit(t >>> 9) * (GREAT.crown[1] - GREAT.crown[0]),
+      color: unit(t >>> 3) < 0.5 ? color('leaf') : color('canopy'),
+      kind: 'great',
+    };
+  }
+  return null;
 }
