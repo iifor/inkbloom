@@ -2,7 +2,8 @@
 // AABB physics as the player, registered with ctx.combat so weapons can hit them.
 //
 // AI: notice the player within `aggro` metres with line of sight. With the player in sight,
-// blots run straight at them and bite, spitters keep their distance and spit. Out of sight,
+// blots run straight at them and bite, spitters keep their distance and spit, weasels close in,
+// crouch and spring straight through where the player stood. Out of sight,
 // a monster follows an A* path over the scene's NavGrid (re-planned every ~1 s, a few plans
 // per frame at most). A monster dragged too far from its post gives up and paths home.
 // Without a NavGrid it falls back to sidestepping along walls. A monster that runs into a ledge
@@ -40,6 +41,13 @@ const MELEE_LANDS = 0.55;
 /** Seconds of a spit; the ink leaves at `SPIT_LEAVES` of it. */
 const SPIT_TIME = 0.6;
 const SPIT_LEAVES = 0.45;
+/** Seconds of a lunge: a crouch until `LUNGE_GOES` of it, then the dash. It keeps turning to
+ * follow the player until `LUNGE_AIMED`; stepping aside after that, before the dash, dodges it. */
+const LUNGE_TIME = 0.95;
+const LUNGE_AIMED = 0.22;
+const LUNGE_GOES = 0.42;
+/** A dash hits the player when it passes this close to them (metres, from the body's middle). */
+const LUNGE_REACH = 1.1;
 /** Seconds a defeated monster takes to melt into a puddle. */
 const MELT_TIME = 0.6;
 /** Monsters farther than this from the camera are not drawn (a few pixels tall by then, and
@@ -66,7 +74,7 @@ interface Monster {
   /** Walk cycle phase. */
   walk: number;
   /** An attack under way: its kind, progress 0..1, and whether it has landed / fired. */
-  act: { kind: 'melee' | 'spit'; t: number; done: boolean } | null;
+  act: { kind: 'melee' | 'spit' | 'lunge'; t: number; done: boolean; dx?: number; dz?: number } | null;
   /** -1 while alive; 0..1 while melting after defeat. */
   melt: number;
   readonly tag: string;
@@ -360,7 +368,9 @@ export class MonsterGroup implements TargetSource {
       }
       const b = m.body;
       const def = m.def;
-      if (m.act) m.act.t += dt / (m.act.kind === 'melee' ? MELEE_TIME : SPIT_TIME);
+      if (m.act)
+        m.act.t +=
+          dt / (m.act.kind === 'melee' ? MELEE_TIME : m.act.kind === 'lunge' ? LUNGE_TIME : SPIT_TIME);
       m.attackT -= dt;
       m.sidestepT -= dt;
       m.hurtT -= dt;
@@ -408,6 +418,24 @@ export class MonsterGroup implements TargetSource {
             }
           }
           if (m.act) speed *= 0.3;
+        } else if (a.kind === 'lunge') {
+          // circle in, then crouch facing the player: the line is set when it springs
+          if (!m.act && m.canSee) {
+            if (dist > a.range * 0.85) _dir.copy(_to);
+            else _dir.set(-_to.z * m.strafe, 0, _to.x * m.strafe).addScaledVector(_to, 0.3);
+            if (Math.random() < dt * 0.5) m.strafe = -m.strafe;
+          }
+          if (!m.act && m.canSee && dist < a.range && Math.abs(pp.y - b.pos.y) < 2 && m.attackT <= 0) {
+            m.act = { kind: 'lunge', t: 0, done: false };
+            m.attackT = a.cooldown;
+          }
+          if (m.act?.kind === 'lunge') {
+            speed = 0;
+            if (m.act.t < LUNGE_AIMED || m.act.dx === undefined) {
+              m.act.dx = _to.x;
+              m.act.dz = _to.z;
+            }
+          }
         } else if (m.canSee) {
           if (dist < a.keepAway[0]) _dir.copy(_to).negate();
           else if (dist > a.keepAway[1]) _dir.copy(_to);
@@ -433,6 +461,17 @@ export class MonsterGroup implements TargetSource {
         m.act.done = true;
         this.spit(m, att.speed, att.damage);
       }
+      const dashing =
+        m.act?.kind === 'lunge' && att.kind === 'lunge' && m.act.t >= LUNGE_GOES && !reeling ? m.act : null;
+      if (dashing && !dashing.done) {
+        // passing the player's body (feet to head) on the way through
+        const dy = pp.y - b.pos.y;
+        if (dist < LUNGE_REACH && dy > -1 && dy < 2) {
+          dashing.done = true;
+          combat.damagePlayer(att.damage, b.pos, { melee: true });
+          this.ctx.events.emit('monster:bite', { at: b.pos });
+        }
+      }
       if (m.act && m.act.t >= 1) m.act = null;
       // keep apart from each other
       for (const o of this.monsters) {
@@ -451,8 +490,13 @@ export class MonsterGroup implements TargetSource {
       if (_dir.lengthSq() > 1) _dir.normalize();
       const tx = _dir.x * speed;
       const tz = _dir.z * speed;
-      b.vel.x += THREE.MathUtils.clamp(tx - b.vel.x, -ACCEL * dt, ACCEL * dt);
-      b.vel.z += THREE.MathUtils.clamp(tz - b.vel.z, -ACCEL * dt, ACCEL * dt);
+      if (dashing && att.kind === 'lunge') {
+        b.vel.x = (dashing.dx ?? 0) * att.dash;
+        b.vel.z = (dashing.dz ?? 0) * att.dash;
+      } else {
+        b.vel.x += THREE.MathUtils.clamp(tx - b.vel.x, -ACCEL * dt, ACCEL * dt);
+        b.vel.z += THREE.MathUtils.clamp(tz - b.vel.z, -ACCEL * dt, ACCEL * dt);
+      }
       b.vel.y -= GRAVITY * dt;
       this.physics.moveBody(b, dt);
       const rise =
@@ -472,14 +516,15 @@ export class MonsterGroup implements TargetSource {
       }
       // face the player when after them, otherwise the way it walks; turn smoothly
       const moving = Math.hypot(b.vel.x, b.vel.z);
-      const want =
-        m.aggro && dist > 0.1
+      const want = dashing
+        ? Math.atan2(-(dashing.dx ?? 0), -(dashing.dz ?? 0))
+        : m.aggro && dist > 0.1
           ? Math.atan2(-_to.x, -_to.z)
           : moving > 0.5
             ? Math.atan2(-b.vel.x, -b.vel.z)
             : m.yaw;
       m.yaw += wrapAngle(want - m.yaw) * Math.min(1, dt * 10);
-      m.walk += moving * dt * (def.attack.kind === 'melee' ? 3.4 : 2.6);
+      m.walk += moving * dt * (def.attack.kind === 'spit' ? 2.6 : def.attack.kind === 'lunge' ? 4.6 : 3.4);
     }
     for (let i = this.monsters.length - 1; i >= 0; i--) {
       const m = this.monsters[i]!;

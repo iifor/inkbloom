@@ -23,6 +23,16 @@ export interface SpitAttack {
   readonly speed: number;
 }
 
+export interface LungeAttack {
+  readonly kind: 'lunge';
+  /** Crouches to spring once the player is this close (and in sight). */
+  readonly range: number;
+  readonly damage: number;
+  readonly cooldown: number;
+  /** Speed of the dash, metres per second; it runs on past where the player stood. */
+  readonly dash: number;
+}
+
 export interface EnemyDef {
   readonly key: string;
   readonly name: string;
@@ -35,7 +45,7 @@ export interface EnemyDef {
   readonly aggro: number;
   /** Ink dropped when defeated. design: 5 per monster */
   readonly ink: number;
-  readonly attack: MeleeAttack | SpitAttack;
+  readonly attack: MeleeAttack | SpitAttack | LungeAttack;
   /** A hit must be at least this big to break its wind-up (破招); default `combat.feel.interruptMin`. */
   readonly poise?: number;
   /** A rare, tough monster: takes several times the hits of a common one. */
@@ -88,6 +98,21 @@ export const ENEMIES = [
     elite: true,
     body: color('ink'),
     eyes: color('orange'),
+  },
+  {
+    // a low, quick slick of ink that circles in, crouches, and springs straight through where
+    // the player stood: step aside as it crouches. Wild and tide only, like the 墨巨
+    key: 'weasel',
+    name: '墨鼬',
+    hp: 35,
+    speed: 5.6,
+    halfWidth: 0.35,
+    height: 0.8,
+    aggro: 26,
+    ink: 4,
+    attack: { kind: 'lunge', range: 7, damage: 14, cooldown: 2.6, dash: 15 },
+    body: color('ink'),
+    eyes: color('green'),
   },
 ] as const satisfies readonly EnemyDef[];
 

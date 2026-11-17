@@ -4,7 +4,7 @@
 import * as THREE from 'three';
 import { color } from '@/content/palette';
 import { BUILDINGS } from '@/content/templates';
-import { type ColliderData, type Vec3Like, turnedBox } from '@/engine/physics/world';
+import { type ColliderData, type Vec3Like } from '@/engine/physics/world';
 import { GeometryBuilder } from '@/engine/render/geometry-builder';
 import { WATER_LEVEL } from '@/world/wilderness/generator';
 import {
@@ -22,7 +22,26 @@ import { buildCountryHouse } from './country-house';
 
 /** Where buildCity puts colliders: a PhysicsWorld, or a recorder in the city worker. */
 export interface ColliderSink {
-  addBox(group: string, min: Vec3Like, max: Vec3Like, data?: ColliderData): unknown;
+  addBox(group: string, min: Vec3Like, max: Vec3Like, data?: ColliderData, yaw?: number): unknown;
+}
+
+/** A collider turned about +y by `angle` (as rotation.y), centred on (x, z), half `hx` by `hz`
+ * across in its own frame, from y0 to y1. */
+function turnedCollider(
+  physics: ColliderSink,
+  group: string,
+  t: { x: number; z: number; angle: number; hx: number; hz: number },
+  y0: number,
+  y1: number,
+  data: ColliderData = {},
+): void {
+  physics.addBox(
+    group,
+    { x: t.x - t.hx, y: y0, z: t.z - t.hz },
+    { x: t.x + t.hx, y: y1, z: t.z + t.hz },
+    data,
+    t.angle,
+  );
 }
 
 /** Collider group a town's walls and houses go in, so they leave with it. */
@@ -273,7 +292,7 @@ function buildHouse(
   const { hw, hd } = b;
   const inset = 0.25;
   const down = b.foot - b.base - 0.4;
-  const boxes: { min: Vec3Like; max: Vec3Like; data: ColliderData; slice: number }[] = [];
+  const boxes: { min: Vec3Like; max: Vec3Like; data: ColliderData }[] = [];
   const house = {
     x0: -hw,
     x1: hw,
@@ -291,7 +310,7 @@ function buildHouse(
   } as const;
   // the walls reach down through the plinth, so nothing walks in under a house on a slope
   buildCountryHouse(h, house, (min, max, data) =>
-    boxes.push({ min: { ...min, y: min.y <= 0 ? down : min.y }, max, data, slice: min.y <= 0 ? 0.8 : 1.6 }),
+    boxes.push({ min: { ...min, y: min.y <= 0 ? down : min.y }, max, data }),
   );
   const far = new GeometryBuilder();
   buildCountryHouse(far, house, () => {}, false);
@@ -306,7 +325,7 @@ function buildHouse(
     const min = { x: -1.1, y: down, z: hd + inset };
     const max = { x: 1.1, y: top, z: hd + inset + 0.42 * (k + 1) };
     for (const k of [h, far]) k.box(min, max, all(stone));
-    boxes.push({ min, max, data: {}, slice: 0.8 });
+    boxes.push({ min, max, data: {} });
   }
   if (b.garden > 0) fenceGarden(h, b, boxes);
   const turn = new THREE.Matrix4().makeRotationY(b.angle).setPosition(b.x, b.base, b.z);
@@ -315,29 +334,24 @@ function buildHouse(
   const c = Math.cos(b.angle);
   const s = Math.sin(b.angle);
   for (const box of boxes) {
-    // the box's own middle, carried into the town
+    // the box's own middle, carried into the town; its decals keep their place on it, as
+    // surfaceAt reads them before the turn
     const mx = (box.min.x + box.max.x) / 2;
     const mz = (box.min.z + box.max.z) / 2;
+    const x = b.x + c * mx + s * mz;
+    const z = b.z - s * mx + c * mz;
     const decals = box.data.decals?.map((d) => ({
       ...d,
-      min: { x: d.min.x - mx, y: d.min.y, z: d.min.z - mz },
-      max: { x: d.max.x - mx, y: d.max.y, z: d.max.z - mz },
+      min: { x: d.min.x - mx + x, y: d.min.y + b.base, z: d.min.z - mz + z },
+      max: { x: d.max.x - mx + x, y: d.max.y + b.base, z: d.max.z - mz + z },
     }));
-    turnedBox(
-      {
-        x: b.x + c * mx + s * mz,
-        y: b.base,
-        z: b.z - s * mx + c * mz,
-        angle: b.angle,
-        hx: (box.max.x - box.min.x) / 2,
-        hz: (box.max.z - box.min.z) / 2,
-        ...(box.data.faces ? { faces: box.data.faces } : {}),
-        ...(decals ? { decals } : {}),
-      },
+    turnedCollider(
+      physics,
+      group,
+      { x, z, angle: b.angle, hx: (box.max.x - box.min.x) / 2, hz: (box.max.z - box.min.z) / 2 },
       b.base + box.min.y,
       b.base + box.max.y,
-      (min, max, data) => physics.addBox(group, min, max, data),
-      box.slice,
+      { ...(box.data.faces ? { faces: box.data.faces } : {}), ...(decals ? { decals } : {}) },
     );
   }
 }
@@ -406,7 +420,6 @@ function buildBridge(
   const stone = color('rock');
   const wood = color('bark');
   const half = width / 2;
-  const add = (min: Vec3Like, max: Vec3Like, data: ColliderData) => physics.addBox(group, min, max, data);
   for (let k = first; k < last; k++) {
     const a = pts[k]!;
     const b = pts[k + 1]!;
@@ -426,12 +439,12 @@ function buildBridge(
       { x: half + 0.15, y: BRIDGE.deck / 2, z: len / 2 + 0.05 },
       stone,
     );
-    turnedBox(
-      { x: mid.x, y: 0, z: mid.z, angle, hx: half, hz: len / 2 + 0.05 },
+    turnedCollider(
+      physics,
+      group,
+      { x: mid.x, z: mid.z, angle, hx: half, hz: len / 2 + 0.05 },
       Math.min(ya, yb) - BRIDGE.deck,
       top,
-      add,
-      0.8,
     );
     // railings on both sides: a post per segment and a rail along the top
     const c = Math.cos(angle);
@@ -453,12 +466,12 @@ function buildBridge(
         { x: 0.06, y: 0.05, z: len / 2 + 0.04 },
         wood,
       );
-      turnedBox(
-        { x: mid.x + ex, y: 0, z: mid.z + ez, angle, hx: 0.08, hz: len / 2 },
+      turnedCollider(
+        physics,
+        group,
+        { x: mid.x + ex, z: mid.z + ez, angle, hx: 0.08, hz: len / 2 },
         Math.min(ya, yb),
         top + BRIDGE.rail,
-        add,
-        0.8,
       );
     }
   }
@@ -483,7 +496,7 @@ function buildBridge(
       { x: 0.8, y: (y - bottom) / 2, z: STEP.tread / 2 },
       stone,
     );
-    turnedBox({ x: at.x, y: 0, z: at.z, angle, hx: 0.8, hz: STEP.tread / 2 }, bottom, y, add, 0.8);
+    turnedCollider(physics, group, { x: at.x, z: at.z, angle, hx: 0.8, hz: STEP.tread / 2 }, bottom, y);
   }
 }
 
@@ -492,7 +505,7 @@ function buildBridge(
 function fenceGarden(
   h: GeometryBuilder,
   b: Building,
-  boxes: { min: Vec3Like; max: Vec3Like; data: ColliderData; slice: number }[],
+  boxes: { min: Vec3Like; max: Vec3Like; data: ColliderData }[],
 ): void {
   const paint = color('limewash');
   const all = { px: paint, nx: paint, pz: paint, nz: paint, py: paint };
@@ -518,7 +531,6 @@ function fenceGarden(
       min: { x: lo.x, y: bottom, z: lo.z },
       max: { x: hi.x, y: top, z: hi.z },
       data: {},
-      slice: 0.8,
     });
   };
   run(-wide, front, -FENCE.gate, front);

@@ -168,7 +168,7 @@ describe('hit feel', () => {
   const FEEL = TUNING.combat.feel;
   /** The group's private monster list, to catch one mid wind-up. */
   type Inner = {
-    act: { kind: string; done: boolean } | null;
+    act: { kind: string; done: boolean; t: number; dx?: number; dz?: number } | null;
     stunT: number;
     hp: number;
     body: { pos: THREE.Vector3 };
@@ -225,6 +225,32 @@ describe('hit feel', () => {
     heavy.h.combat.strike(heavy.h.ctx.player.eye, heavy.h.ctx.player.forward, 3, 1, poise);
     expect(heavy.m.act).toBeNull();
     expect(heavy.h.count('monster:interrupted')).toBe(1);
+  });
+
+  it('a 墨鼬 crouches, then springs through where the player stood: stepping aside dodges it', () => {
+    const lunge = (dodge: boolean): number => {
+      const { h, group } = arena();
+      h.place(0, 0, 0);
+      group.spawn(enemyIndex('weasel'), new THREE.Vector3(0, 0, -5), { tag: 'test' });
+      const m = inner(group);
+      for (let i = 0; i < 240 && !m.act; i++) step(h, group)(1 / 60);
+      expect(m.act?.kind).toBe('lunge');
+      // crouched with its aim set, not sprung yet
+      while (m.act!.t < 0.3) step(h, group)(1 / 60);
+      expect(h.count('monster:bite')).toBe(0);
+      // a sidestep across its line
+      const { dx = 0, dz = 0 } = m.act!;
+      if (dodge) h.place(-dz * 3, 0, dx * 3);
+      h.run(1, step(h, group), 1 / 60);
+      return h.count('monster:bite');
+    };
+    // its strafe side and first spring time are random; fix them so the run is the same each time
+    const random = vi.spyOn(Math, 'random').mockReturnValue(0.5);
+    const stood = lunge(false);
+    const dodged = lunge(true);
+    random.mockRestore();
+    expect(stood).toBe(1);
+    expect(dodged).toBe(0);
   });
 
   it('a blade hit shoves the monster back; a shot does not', () => {

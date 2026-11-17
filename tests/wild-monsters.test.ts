@@ -40,6 +40,21 @@ describe('wilderness monsters', () => {
     expect(grey).toBe(0);
   });
 
+  it('come in every common kind, spitters about as often as tuned', () => {
+    const w = createWilderness(SEED);
+    const count = new Map<number, number>();
+    let all = 0;
+    for (let cx = -8; cx <= 8; cx++)
+      for (let cz = -8; cz <= 8; cz++)
+        for (const m of wildMonstersInChunk(w, cx, cz, 0)) {
+          count.set(m.type, (count.get(m.type) ?? 0) + 1);
+          all++;
+        }
+    for (const key of ['blot', 'spitter', 'weasel'] as const)
+      expect(count.get(enemyIndex(key)) ?? 0, key).toBeGreaterThan(all * 0.1);
+    expect((count.get(enemyIndex('spitter')) ?? 0) / all).toBeCloseTo(TUNING.combat.spitterChance, 1);
+  });
+
   it('are stable by id, so a kill can be checked later', () => {
     const w = createWilderness(SEED);
     const list = wildMonstersInChunk(w, 3, -2, 0);

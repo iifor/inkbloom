@@ -25,11 +25,13 @@ export function buildRuin(r: Ruin, g: GeometryBuilder, physics: PhysicsWorld, gr
   const tpl = RUINS[r.template]!;
   const rng = new Rng(r.seed);
   let stones = 0;
-  const stone = (x: number, z: number, w: number, d: number, h: number): void => {
+  /** A stone at (x, z) from the centre, askew unless `turn` sets its yaw. */
+  const stone = (x: number, z: number, w: number, d: number, h: number, turn?: number): void => {
     const cx = r.x + x;
     const cz = r.z + z;
     // each stone stands askew; its own hash, so the rng's sizes and places stay as they were
-    const yaw = unit(hashAt(r.seed, 'ruin-stone', stones++)) * Math.PI;
+    const askew = unit(hashAt(r.seed, 'ruin-stone', stones++)) * Math.PI;
+    const yaw = turn ?? askew;
     const c = Math.cos(yaw);
     const s = Math.sin(yaw);
     // on a hillside each stone stands on the lowest ground under its corners, so none hangs in the air
@@ -131,6 +133,31 @@ export function buildRuin(r: Ruin, g: GeometryBuilder, physics: PhysicsWorld, gr
       if (rng.chance(0.35)) continue;
       const t = Math.PI * (0.15 + (i / 6) * 0.7);
       stone(Math.cos(t) * 8, Math.sin(t) * 8, 1.6, 0.5, rng.range(0.8, 1.6));
+    }
+  } else if (tpl.shape === 'waystation') {
+    // the stubs of an old waystation's four walls, all turned one way, the doorway towards the
+    // crayon; beside it a ring of well stones
+    const yaw = rng.range(0, Math.PI);
+    const c = Math.cos(yaw);
+    const s = Math.sin(yaw);
+    /** A wall stub along local x (or z), from the house's own frame into the ruin's. */
+    const wall = (u: number, v: number, len: number, alongX: boolean): void => {
+      if (rng.chance(0.25)) return; // fallen
+      const x = -6 + u * c + v * s;
+      const z = -5 - u * s + v * c;
+      stone(x, z, alongX ? len : 0.5, alongX ? 0.5 : len, rng.range(0.9, 2.6), yaw);
+    };
+    for (const u of [-2.6, -1, 1, 2.6]) {
+      wall(u, -2.5, 1.5, true);
+      if (Math.abs(u) > 2) wall(u, 2.5, 1.5, true); // the doorway gap faces the court
+    }
+    for (const v of [-1.5, 0, 1.5]) {
+      wall(-3.4, v, 1.4, false);
+      wall(3.4, v, 1.4, false);
+    }
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2;
+      stone(5 + Math.cos(a) * 1.3, -2 + Math.sin(a) * 1.3, 0.8, 0.45, 0.9, -a);
     }
   } else {
     for (let i = 0; i < 7; i++) stone(rng.range(-9, 9), rng.range(-9, 9), 0.7, 1.6, rng.range(1.8, 3.2));

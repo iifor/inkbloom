@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 import { TUNING } from '@/content/tuning';
-import { PhysicsWorld, makeBody } from '@/engine/physics/world';
+import { PhysicsWorld, makeBody, surfaceAt } from '@/engine/physics/world';
 import { buildCity } from '@/systems/city/build-city';
 import { doorFront } from '@/world/city/features';
 import {
@@ -439,5 +439,44 @@ describe('walking into a town', () => {
     expect(Math.hypot(body.pos.x - city.square.x, body.pos.z - city.square.z)).toBeLessThan(
       city.square.r + 4,
     );
+  });
+});
+
+describe('painting a turned house', () => {
+  it('names the wall or door a brush ray meets, as the town laid them out', () => {
+    const w = createWilderness(4242);
+    const city = townLayout(w.entranceInCell(0, 0)!, w);
+    const physics = new PhysicsWorld(8);
+    physics.ground = (x, z) => w.heightAt(x, z);
+    buildCity(city, physics);
+    const turned = city.buildings.filter((b) => Math.abs(Math.sin(2 * b.angle)) > 0.05);
+    expect(turned.length).toBeGreaterThan(10);
+    let shots = 0;
+    let clear = 0;
+    // every house off the axes, and a few turned by whole quarters
+    for (const b of [...turned, ...city.buildings.slice(0, 10)]) {
+      const c = Math.cos(b.angle);
+      const s = Math.sin(b.angle);
+      /** A point in the house's own frame (front +z, floor at 0), in the world. */
+      const at = (u: number, y: number, v: number) =>
+        new THREE.Vector3(b.x + c * u + s * v, b.base + y, b.z - s * u + c * v);
+      // from just outside each wall, square on, beside the door and above the fence; and at the door
+      const aims: [THREE.Vector3, THREE.Vector3, number][] = [
+        [at(b.hw * 0.4, b.height * 0.7, b.hd + 0.6), at(b.hw * 0.4, b.height * 0.7, 0), b.walls.pz],
+        [at(-b.hw * 0.5, b.height * 0.6, -b.hd - 0.6), at(-b.hw * 0.5, b.height * 0.6, 0), b.walls.nz],
+        [at(b.hw + 0.6, b.height * 0.6, b.hd * 0.3), at(0, b.height * 0.6, b.hd * 0.3), b.walls.px],
+        [at(-b.hw - 0.6, b.height * 0.6, -b.hd * 0.3), at(0, b.height * 0.6, -b.hd * 0.3), b.walls.nx],
+        [at(0, 1, b.hd + 0.6), at(0, 1, 0), b.door],
+      ];
+      for (const [from, to, surface] of aims) {
+        const hit = physics.raycast(from, to.clone().sub(from).normalize(), 3);
+        shots++;
+        // a neighbour close enough to stand in the way is not this house's wall
+        if (!hit || Math.abs(hit.dist - 0.6) > 1e-3) continue;
+        clear++;
+        expect(surfaceAt(hit)).toBe(surface);
+      }
+    }
+    expect(clear).toBeGreaterThan(shots * 0.9);
   });
 });

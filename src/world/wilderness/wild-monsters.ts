@@ -49,11 +49,17 @@ export function wildMonstersInChunk(
         k === 0 &&
         saturation < TUNING.combat.wild.drainedBelow &&
         unit(hashAt(w.seed, 'wild-giant', cx, cz)) < TUNING.combat.giantChance.wild;
+      // its own hash for the kind: `h` shifted down is too few bits for `unit` (that made every
+      // wild monster a spitter)
+      const kind = unit(hashAt(w.seed, 'wild-kind', cx, cz, k));
       const type = giant
         ? enemyIndex('giant')
-        : unit(h >>> 16) < TUNING.combat.spitterChance
+        : kind < TUNING.combat.spitterChance
           ? enemyIndex('spitter')
-          : enemyIndex('blot');
+          : kind <
+              TUNING.combat.spitterChance + (1 - TUNING.combat.spitterChance) * TUNING.combat.weaselChance
+            ? enemyIndex('weasel')
+            : enemyIndex('blot');
       out.push({ id: `${cx},${cz}:${k}`, type, x, y, z });
       break;
     }

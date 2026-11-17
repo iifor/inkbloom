@@ -89,7 +89,13 @@ export class CityMonsters {
     for (let k = 0; k < count && spots.length; k++) {
       const spot = spots.splice(Math.floor(Math.random() * spots.length), 1)[0]!;
       const type =
-        giant && k === 0 ? 'giant' : Math.random() < TUNING.combat.spitterChance ? 'spitter' : 'blot';
+        giant && k === 0
+          ? 'giant'
+          : Math.random() < TUNING.combat.spitterChance
+            ? 'spitter'
+            : Math.random() < TUNING.combat.weaselChance
+              ? 'weasel'
+              : 'blot';
       // tide monsters come for this block's colour, and already wear it
       this.group.spawn(enemyIndex(type), spot, {
         tag: 'tide',

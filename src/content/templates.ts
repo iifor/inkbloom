@@ -57,7 +57,7 @@ export const BUILDINGS = [
 export interface RuinTemplate {
   readonly key: string;
   readonly name: string;
-  readonly shape: 'circle' | 'bridge' | 'steles' | 'shrine';
+  readonly shape: 'circle' | 'bridge' | 'steles' | 'shrine' | 'waystation';
   readonly stone: number;
 }
 
@@ -68,4 +68,5 @@ export const RUINS = [
   // which ruin a cell holds is picked by hash modulo this list's length: appending moves
   // existing ruins to other templates (looks only; ids, places and crayons stay)
   { key: 'hill-shrine', name: '山神小祠', shape: 'shrine', stone: color('stone') },
+  { key: 'old-waystation', name: '古井驿站', shape: 'waystation', stone: color('rock') },
 ] as const satisfies readonly RuinTemplate[];

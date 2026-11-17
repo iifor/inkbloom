@@ -108,6 +108,7 @@ export interface BuiltCity {
     readonly min: Vec3Like;
     readonly max: Vec3Like;
     readonly data: ColliderData;
+    readonly yaw: number;
   }[];
 }
 

@@ -1,5 +1,5 @@
 // The default player characters as data: names, fixed colours per part, and what a player may
-// change (skin, hair, one accent colour). Shapes live in systems/figures/player-figure.ts. All
+// change (skin, hair, one accent colour). Shapes live in systems/figures/player-rig.ts. All
 // characters share one hit box, so a look never changes how easy someone is to hit.
 // design: docs/game-design.md section 11.3
 import { type ColorKey, color } from './palette';

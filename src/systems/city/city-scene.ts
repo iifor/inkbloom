@@ -145,7 +145,7 @@ export class CityScene implements GameScene {
     const { ctx, layout, states } = this;
     // geometry and colliders worked out ahead of time in the city worker, when they are ready
     const built = ctx.cities.takeBuilt(layout.id);
-    if (built) for (const b of built.boxes) this.physics.addBox(b.group, b.min, b.max, b.data);
+    if (built) for (const b of built.boxes) this.physics.addBox(b.group, b.min, b.max, b.data, b.yaw);
     const local = built ? null : buildCity(layout, this.physics);
     yield;
     // a district at a time, so what is out of view (or out of the sun's shadow square) is not

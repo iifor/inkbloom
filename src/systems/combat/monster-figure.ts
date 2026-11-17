@@ -61,6 +61,8 @@ interface Rig {
   readonly kind: Brute | Spitter;
   /** Scale from the drawing to the enemy's collision height. */
   fit: number;
+  /** A brute body that lunges (墨鼬) rather than slams. */
+  lunge: boolean;
 }
 
 interface Brute {
@@ -149,6 +151,7 @@ function buildBrute(): Rig {
     parts: b.parts,
     kind: { type: 'brute', armL, armR, foreL, foreR },
     fit: 1,
+    lunge: false,
   };
 }
 
@@ -199,6 +202,7 @@ function buildSpitter(): Rig {
     parts: b.parts,
     kind: { type: 'spitter', neck, head },
     fit: 1,
+    lunge: false,
   };
 }
 
@@ -228,7 +232,30 @@ function pose(r: Rig, p: Pose): void {
   let glow = 1;
   let eyes = 1;
 
-  if (r.kind.type === 'brute') {
+  if (r.kind.type === 'brute' && r.lunge) {
+    const k = r.kind;
+    // a weasel: crouches flat and wide, then springs out long and low, forelimbs reaching
+    let crouch = 0;
+    let reach = 0;
+    if (p.attack >= 0) {
+      const a = p.attack;
+      crouch = a < 0.42 ? ease(a / 0.42) : 0;
+      reach = a < 0.42 ? 0 : Math.max(0, 1 - Math.max(0, a - 0.75) / 0.25);
+    }
+    sy *= 1 - 0.35 * crouch - 0.3 * reach;
+    sxz *= 1 + 0.18 * crouch;
+    r.body.rotation.x += -0.25 * crouch - 0.85 * reach;
+    glow = 1 + 0.5 * crouch;
+    eyes = 1 + 0.5 * crouch;
+    for (const [arm, fore, side] of [
+      [k.armL, k.foreL, -1],
+      [k.armR, k.foreR, 1],
+    ] as const) {
+      arm.scale.setScalar(Math.max(0.001, reach * 0.8));
+      arm.rotation.set(1.5 * reach, 0, side * 0.25);
+      fore.rotation.set(0.2 * reach, 0, 0);
+    }
+  } else if (r.kind.type === 'brute') {
     const k = r.kind;
     // arms only exist to strike: they grow out of the sides, go up, slam down and sink back
     let up = 0;
@@ -362,7 +389,8 @@ export class MonsterFigures {
 
 /** A monster's rig, fitted to its collision height. Exported for tests. */
 export function monsterRig(def: EnemyDef): Rig {
-  const r = def.attack.kind === 'melee' ? buildBrute() : buildSpitter();
+  const r = def.attack.kind === 'spit' ? buildSpitter() : buildBrute();
+  r.lunge = def.attack.kind === 'lunge';
   r.fit = def.height / rigTop(r.root, r.parts);
   return r;
 }

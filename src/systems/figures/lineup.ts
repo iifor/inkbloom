@@ -66,6 +66,8 @@ const PAUSE = 0.5;
 const ACT_SECONDS = 2.5;
 const SPACING = 1.7;
 const DISTANCE = 6;
+/** Monster kinds standing at the left end of the row; the rest stand at the right end. */
+const LEFT = Math.ceil(ENEMIES.length / 2);
 
 interface Slot {
   readonly x: number;
@@ -93,7 +95,7 @@ export class FigureLineup {
     const fwd = new THREE.Vector3(f.x, 0, f.z).normalize();
     const side = new THREE.Vector3(-fwd.z, 0, fwd.x);
     const centre = p.clone().addScaledVector(fwd, DISTANCE);
-    const n = CHARACTERS.length + 2;
+    const n = CHARACTERS.length + ENEMIES.length;
     this.slots = Array.from({ length: n }, (_, i) => {
       const at = centre.clone().addScaledVector(side, (i - (n - 1) / 2) * SPACING);
       return { x: at.x, z: at.z, yaw: Math.atan2(-(p.x - at.x), -(p.z - at.z)), walk: i };
@@ -116,10 +118,12 @@ export class FigureLineup {
       const act =
         this.act === 'cycle' ? CYCLE[(Math.floor(this.t / ACT_SECONDS) + i) % CYCLE.length]! : this.act;
       const phase = (this.t % ACT_SECONDS) / ACT_SECONDS;
+      // which monster kind stands here, or -1 for a player character
+      const monster = i < LEFT ? i : i >= LEFT + CHARACTERS.length ? i - CHARACTERS.length : -1;
       const hand =
-        i > 0 && i < n - 1
+        monster < 0
           ? act === 'attack'
-            ? HANDS[ATTACKS[(i - 1) % ATTACKS.length]!]
+            ? HANDS[ATTACKS[(i - LEFT) % ATTACKS.length]!]
             : act in HANDS
               ? HANDS[act as HandAct]
               : null
@@ -132,8 +136,8 @@ export class FigureLineup {
         (act === 'air' ? Math.sin(phase * Math.PI) * 0.9 : act === 'glide' ? 1.2 : 0);
       const hurt = act === 'hurt' ? Math.max(0, 1 - ((phase * 3) % 1) * 4) : 0;
       const dying = act === 'dying' ? Math.min(1, phase * 1.4) : -1;
-      if (i === 0 || i === n - 1) {
-        const def = ENEMIES[i === 0 ? 0 : 1]!;
+      if (monster >= 0) {
+        const def = ENEMIES[monster]!;
         this.monsters.draw(def, {
           x: s.x,
           y: act === 'glide' ? y - 1.2 : y,
@@ -146,10 +150,10 @@ export class FigureLineup {
           air,
           dying,
           t: this.t,
-          colors: i === 0 ? [color('red'), color('yellow')] : [color('yellow'), color('blue')],
+          colors: monster % 2 ? [color('yellow'), color('blue')] : [color('red'), color('yellow')],
         });
       } else {
-        this.players.draw(defaultLook(CHARACTERS[i - 1]!.key), {
+        this.players.draw(defaultLook(CHARACTERS[i - LEFT]!.key), {
           x: s.x,
           y,
           z: s.z,

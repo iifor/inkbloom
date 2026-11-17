@@ -9,7 +9,6 @@ import * as THREE from 'three';
 import { ARENA } from '@/content/arena';
 import { color } from '@/content/palette';
 import type { WeaponKey } from '@/content/weapons';
-import { turnedBox } from '@/engine/physics/world';
 import { makeInkMaterial, shared } from '@/engine/render/ink-material';
 import type { ArenaApi, GameContext, System, TargetHit, TargetSource } from '@/game/types';
 import { bodyBox, chest, headBox, rayBox } from '@/world/arena/hits';
@@ -333,18 +332,13 @@ export class ArenaSystem implements System, ArenaApi {
       const lo = Math.min(corner(a0, inner, 0).y, corner(a1, inner, 0).y) - 1;
       const hi = Math.max(corner(a0, inner, 0).y, corner(a1, inner, 0).y) + W.height;
       const half = Math.sin(Math.PI / W.segments) * outer + 0.2;
-      turnedBox(
-        {
-          x: cx,
-          y: lo,
-          z: cz,
-          angle: Math.atan2(Math.cos(mid), Math.sin(mid)),
-          hx: half,
-          hz: W.thickness / 2 + 0.2,
-        },
-        lo,
-        hi,
-        (min, max, data) => this.wild.physics.addBox('arena', min, max, data),
+      const hz = W.thickness / 2 + 0.2;
+      this.wild.physics.addBox(
+        'arena',
+        { x: cx - half, y: lo, z: cz - hz },
+        { x: cx + half, y: hi, z: cz + hz },
+        {},
+        Math.atan2(Math.cos(mid), Math.sin(mid)),
       );
     }
     for (const b of site.cover) this.wild.physics.addBox('arena', b.min, b.max);

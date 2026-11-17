@@ -35,7 +35,8 @@ self.addEventListener('message', (event: MessageEvent<CityJob>) => {
     return packed.data;
   };
   const tiles = buildCity(layout, {
-    addBox: (group, min, max, data = {}) => boxes.push({ group, min: { ...min }, max: { ...max }, data }),
+    addBox: (group, min, max, data = {}, yaw = 0) =>
+      boxes.push({ group, min: { ...min }, max: { ...max }, data, yaw }),
   }).map((t) => ({ full: pack(t.full), far: pack(t.far) }));
   const result: CityResult = { cityId, layout, built: { tiles, boxes } };
   (self as unknown as Worker).postMessage(result, transfer);
