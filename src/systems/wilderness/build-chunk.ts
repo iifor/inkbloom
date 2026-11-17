@@ -6,6 +6,7 @@
 // wild physics world stands bodies on the same height function. Trees get trunk colliders.
 import * as THREE from 'three';
 import { TUNING } from '@/content/tuning';
+import { addLandmarkColliders, appendLandmarks } from './build-landmarks';
 import { addBridgeColliders, appendPaths } from './build-paths';
 import { appendTree, treeMatrix, treePalette } from './tree-geometry';
 import { GeometryBuilder } from '@/engine/render/geometry-builder';
@@ -110,11 +111,14 @@ export function* buildTerrainSteps(
   yield;
   // footpaths over the ground, and their bridges
   appendPaths(chunk, w, g);
+  // hot springs and summit lookouts
+  appendLandmarks(chunk, w, g);
 }
 
 export function addChunkColliders(chunk: WildChunk, physics: PhysicsWorld, group: string): void {
   for (const t of chunk.trees) addTrunk(physics, group, t);
   addBridgeColliders(chunk, physics, group);
+  addLandmarkColliders(chunk, physics, group);
 }
 
 /** A collider round a tree's trunk: a great tree's bole is metres across. */

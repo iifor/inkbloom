@@ -114,6 +114,7 @@ export function makePaintMaterial(o: PaintInputs): THREE.ShaderMaterial {
       uFreshSnow: { value: 0 },
       uDrift: { value: o.drift },
       uCloudShade: { value: 0 },
+      uWarm: { value: new THREE.Vector4() },
       uSkySat: { value: 1 },
       uGloom: { value: 0 },
       uTime: { value: 0 },

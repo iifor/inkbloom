@@ -4,6 +4,7 @@ import { color } from '@/content/palette';
 import { TUNING } from '@/content/tuning';
 import { hashAt, unit } from '../math/hash';
 import { type Wilderness, WATER_LEVEL } from './generator';
+import { type Lookout, lookoutsInChunk, type Spring, springsInChunk } from './landmarks';
 import { type Bridge, pathsOf } from './paths';
 import { type PigmentSource, sourcesInChunk } from './sources';
 import { type Ruin, ruinsInChunk } from './ruins';
@@ -38,6 +39,9 @@ export interface WildChunk {
   readonly ruins: readonly Ruin[];
   /** Footpath bridges whose deck's middle is in this chunk (see paths.ts). */
   readonly bridges: readonly Bridge[];
+  /** Hot springs and summit lookouts whose middle is in this chunk (see landmarks.ts). */
+  readonly springs: readonly Spring[];
+  readonly lookouts: readonly Lookout[];
 }
 
 /** Trees keep this far (metres) from a footpath's edge. */
@@ -104,12 +108,22 @@ export function generateWildChunk(w: Wilderness, cx: number, cz: number): WildCh
   const paths = pathsOf(w);
   const offPath = (x: number, z: number): boolean => paths.edgeDistance(x, z) > PATH_ROOM;
   const great = greatTreeIn(w, cx, cz, sources, ruins);
-  // keep trees off sources, ruins and paths so they stay visible and reachable
+  // springs and lookouts here and next door: trees near a chunk's edge give them room too
+  const springs = springsInChunk(w, cx, cz);
+  const lookouts = lookoutsInChunk(w, cx, cz);
+  const marks: { x: number; z: number; room: number }[] = [];
+  for (let dz = -1; dz <= 1; dz++)
+    for (let dx = -1; dx <= 1; dx++) {
+      for (const s of springsInChunk(w, cx + dx, cz + dz)) marks.push({ x: s.x, z: s.z, room: s.r + 5 });
+      for (const l of lookoutsInChunk(w, cx + dx, cz + dz)) marks.push({ x: l.x, z: l.z, room: 7 });
+    }
+  // keep trees off sources, ruins, paths and landmarks so they stay visible and reachable
   const clearTrees = trees.filter(
     (t) =>
       !sources.some((src) => Math.hypot(t.x - src.x, t.z - src.z) < 4) &&
       !ruins.some((r) => Math.hypot(t.x - r.x, t.z - r.z) < 14) &&
       !(great && Math.hypot(t.x - great.x, t.z - great.z) < GREAT.room) &&
+      !marks.some((m) => Math.hypot(t.x - m.x, t.z - m.z) < m.room) &&
       offPath(t.x, t.z),
   );
   if (great) clearTrees.push(great);
@@ -124,7 +138,23 @@ export function generateWildChunk(w: Wilderness, cx: number, cz: number): WildCh
       );
       if (!overlaps) bridges.push(b);
     }
-  return { cx, cz, x0, z0, n, cell, heights, biomes, trees: clearTrees, hasWater, sources, ruins, bridges };
+  return {
+    cx,
+    cz,
+    x0,
+    z0,
+    n,
+    cell,
+    heights,
+    biomes,
+    trees: clearTrees,
+    hasWater,
+    sources,
+    ruins,
+    bridges,
+    springs,
+    lookouts,
+  };
 }
 
 /** Great trees: the chance a chunk has one, their size, and the room they are given. */

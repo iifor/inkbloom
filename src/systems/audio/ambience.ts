@@ -14,6 +14,7 @@ import { dayHours } from '@/engine/render/daylight';
 import type { GameContext } from '@/game/types';
 import { seasonBlend } from '@/world/climate/calendar';
 import { smoothstep } from '@/world/math/noise';
+import { springLevel, springsNear } from '@/world/wilderness/landmarks';
 
 /** What the ambience reads about the land, refreshed twice a second. */
 interface Here {
@@ -22,14 +23,17 @@ interface Here {
   trees: number;
   /** 0 far from water .. 1 on the bank. */
   water: number;
+  /** The nearest hot spring's water, and how far it is (Infinity: none near). */
+  spring: { x: number; y: number; z: number; d: number };
 }
 
 export class Ambience {
-  private readonly here: Here = { wild: true, trees: 0, water: 0 };
+  private readonly here: Here = { wild: true, trees: 0, water: 0, spring: { x: 0, y: 0, z: 0, d: Infinity } };
   private sampleT = 0;
   private cicada: Loop | null = null;
   private stream: Loop | null = null;
   private leaves: Loop | null = null;
+  private simmer: Loop | null = null;
   private beds: { forest: Stream; birds: Stream; river: Stream } | null = null;
 
   constructor(
@@ -43,6 +47,7 @@ export class Ambience {
     this.cicada = s.noiseLoop({ type: 'bandpass', freq: 4200, q: 3, gain: 0.05 });
     this.stream = s.noiseLoop({ type: 'bandpass', freq: 900, q: 0.7, gain: 0.22 });
     this.leaves = s.noiseLoop({ type: 'highpass', freq: 2400, gain: 0.12 });
+    this.simmer = s.noiseLoop({ type: 'lowpass', freq: 420, gain: 0.18 });
     const bed = (url: string, gain: number): Stream =>
       s.stream(import.meta.env.BASE_URL + url, { loop: true, gain, bus: 'ambience' });
     this.beds = { forest: bed(BEDS.forest, 0.55), birds: bed(BEDS.birds, 0.45), river: bed(BEDS.river, 0.6) };
@@ -52,12 +57,21 @@ export class Ambience {
     const { scenes, player, wilderness } = this.ctx;
     const h = this.here;
     h.wild = scenes.active.ref.kind === 'wild';
+    h.spring.d = Infinity;
     if (!h.wild) {
       h.trees = 0.2;
       h.water = 0;
       return;
     }
     const { x, z } = player.position;
+    const spring = springsNear(wilderness, x, z, 45)[0];
+    if (spring)
+      Object.assign(h.spring, {
+        x: spring.x,
+        y: springLevel(spring, wilderness),
+        z: spring.z,
+        d: Math.max(0, Math.hypot(spring.x - x, spring.z - z) - spring.r),
+      });
     const biome = BIOMES[wilderness.biomeAt(x, z)]!;
     h.trees = biome.key === 'forest' ? 1 : biome.key === 'water' ? 0.1 : 0.35;
     // `water` is small along rivers and lakes
@@ -133,6 +147,10 @@ export class Ambience {
     const water = h.water * (1 - 0.8 * winter * smoothstep(0, -3, a.seaTemp));
     beds?.river.set(water, 2);
     this.stream?.set(beds?.river.playing ? 0 : water);
+    // a hot spring simmers, and bubbles break on it now and then
+    const near = 1 / (1 + h.spring.d / 5);
+    this.simmer?.set(Number.isFinite(h.spring.d) ? near : 0);
+    if (Number.isFinite(h.spring.d) && roll(4 * near)) this.bubble();
     // bare winter branches hardly rustle
     this.leaves?.set(h.wild ? h.trees * smoothstep(1.5, 9, wind) * (1 - 0.7 * winter) : 0);
   }
@@ -170,6 +188,15 @@ export class Ambience {
         t += dur + 0.03 + Math.random() * 0.08;
       }
     }
+  }
+
+  /** A bubble breaking on a hot spring: a small, rising blop. */
+  private bubble(): void {
+    const s = this.synth;
+    const p = this.here.spring;
+    const pos = { x: p.x + (Math.random() - 0.5) * 3, y: p.y, z: p.z + (Math.random() - 0.5) * 3 };
+    const f = 220 + Math.random() * 260;
+    s.tone({ freq: f, freqEnd: f * 2.2, dur: 0.06, gain: 0.05, pos, bus: 'ambience' });
   }
 
   /** A cricket's chirp: three tiny pulses. */
@@ -218,7 +245,7 @@ export class Ambience {
   }
 
   dispose(): void {
-    for (const l of [this.cicada, this.stream, this.leaves]) l?.stop();
+    for (const l of [this.cicada, this.stream, this.leaves, this.simmer]) l?.stop();
     if (this.beds) for (const bed of Object.values(this.beds)) bed.stop(0.2);
   }
 }

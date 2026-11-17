@@ -13,6 +13,7 @@ import { FXAAShader } from 'three/examples/jsm/shaders/FXAAShader.js';
 import { type Daylight, daylightAt } from './daylight';
 import { ResolutionGovernor } from './resolution';
 import { Critters } from './critters';
+import { Steam } from './steam';
 import { Precipitation } from './precipitation';
 import { makeCanopyBrush } from './canopy-brush';
 import { disposeTree } from '../resources';
@@ -107,6 +108,10 @@ export class InkRenderer {
   private readonly precipitation: Precipitation;
   /** Fireflies and butterflies in the air round the player (moved by the atmosphere system). */
   readonly critters: Critters;
+  /** Steam off nearby hot springs (set by the atmosphere system). */
+  readonly steam: Steam;
+  /** The nearest hot spring (x, z, radius; radius 0 for none): no snow lies round it. */
+  readonly warmSpot = new THREE.Vector4();
   /** Sun, sky and shade for the current hour; its vectors are the post pass's uniforms. */
   private readonly day: Daylight = daylightAt(10);
   /** GPU time per pass while profiling (see passTimes). */
@@ -188,6 +193,7 @@ export class InkRenderer {
     this.postScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this.post));
     this.precipitation = new Precipitation(depthTexture);
     this.critters = new Critters(depthTexture);
+    this.steam = new Steam(depthTexture);
     // the eye sees grass; the sun's shadow camera (default layer only) does not
     this.camera.layers.enable(NO_SHADOW_LAYER);
     this.fxaa = new THREE.ShaderMaterial({
@@ -257,6 +263,7 @@ export class InkRenderer {
     this.fxaa.uniforms.resolution!.value.set(1 / rw, 1 / rh);
     this.precipitation.setSize(rw, rh);
     this.critters.setSize(rw, rh);
+    this.steam.setSize(rw, rh);
   }
 
   /** Lightning strikes the ground at `at` (drawn for a moment; `shape` picks its path). */
@@ -431,6 +438,7 @@ export class InkRenderer {
     u.uWet!.value = w.wet;
     u.uFreshSnow!.value = w.freshSnow;
     u.uCloudShade!.value = this.cloudShade;
+    (u.uWarm!.value as THREE.Vector4).copy(this.warmSpot);
     u.uNight!.value = this.day.night;
     u.uTime!.value = shared.uTime.value;
     r.setRenderTarget(this.paintRt);
@@ -443,6 +451,7 @@ export class InkRenderer {
     // after the brush pass, which would smear one-pixel streaks away
     this.precipitation.render(r, this.camera, { ...w, night: this.day.night }, u.uTime!.value);
     this.critters.render(r, this.camera, this.day.night);
+    this.steam.render(r, this.camera, u.uTime!.value, this.day.night);
     this.pass('fxaa');
     r.setRenderTarget(null);
     r.render(this.fxaaScene, this.postCam);
@@ -463,6 +472,7 @@ export class InkRenderer {
     if (shared.uCanopyBrush.value === this.canopyBrush) shared.uCanopyBrush.value = null;
     this.precipitation.dispose();
     this.critters.dispose();
+    this.steam.dispose();
     this.rt.dispose();
     this.shadows.dispose();
     this.paintRt.dispose();

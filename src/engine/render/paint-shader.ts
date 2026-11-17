@@ -67,6 +67,8 @@ uniform float uWet;
 uniform float uFreshSnow;
 uniform vec2 uDrift;
 uniform float uCloudShade;
+/** A warm spot (a hot spring): x, z, radius; snow will not lie within a few metres of it. */
+uniform vec4 uWarm;
 uniform float uSkySat;
 uniform float uGloom;
 uniform float uTime;
@@ -302,6 +304,7 @@ void main() {
     // snow lies on what faces up wherever the day's mean temperature is below freezing (colder
     // higher up), in patches at first, then over everything
     float cover = max(smoothstep(1.0, -3.0, uSeaTemp - uLapse * wpos.y), uFreshSnow);
+    if (uWarm.z > 0.0) cover *= smoothstep(uWarm.z + 0.5, uWarm.z + 14.0, distance(wpos.xz, uWarm.xy));
     if (!fish && cover > 0.0 && indexOf(s.g) != uWater && indexOf(s.g) != uGlass) {
       float lie = 0.55 * wn.y + 0.45 * big + (leaf - 0.5) * 0.1;
       float th = mix(1.15, 0.3, cover);

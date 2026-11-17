@@ -11,6 +11,7 @@ import type { NoiseOptions } from '@/engine/audio/synth';
 import type { GameContext } from '@/game/types';
 import { seasonBlend } from '@/world/climate/calendar';
 import { snowCover } from '@/world/climate/temperature';
+import { springsNear } from '@/world/wilderness/landmarks';
 import { pathsOf } from '@/world/wilderness/paths';
 
 export type Footing = 'grass' | 'stone' | 'sand' | 'rock' | 'trail' | 'wood' | 'shallows';
@@ -37,6 +38,9 @@ export function groundUnder(ctx: GameContext): Ground {
   // the same snow line the renderer paints: colder higher up, plus any fresh fall
   const snow = Math.max(snowCover(a.seaTemp - TUNING.season.lapse * y), w.freshSnow);
   if (player.waterMode === 'wading') return { footing: 'shallows', snow: 0, wet: 0, leaves: 0 };
+  // in a hot spring's pool
+  if (wild && springsNear(wilderness, x, z, 8).some((s) => Math.hypot(s.x - x, s.z - z) < s.r))
+    return { footing: 'shallows', snow: 0, wet: 0, leaves: 0 };
   if (!wild) return { footing: 'stone', snow, wet: w.wet, leaves: 0 };
   // on a footpath's bridge (on the deck, not swimming under it), or on the path itself
   const paths = pathsOf(wilderness);

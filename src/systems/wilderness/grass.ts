@@ -9,6 +9,7 @@ import { makeWindMap } from '@/engine/render/wind-map';
 import { hashInts, unit } from '@/world/math/hash';
 import { createNoise2D, smoothstep, type Noise2D } from '@/world/math/noise';
 import { BANK_HEIGHT, riverbedMeadow, WATER_LEVEL, type Wilderness } from '@/world/wilderness/generator';
+import { springsNear } from '@/world/wilderness/landmarks';
 import { pathsOf } from '@/world/wilderness/paths';
 import { makeBladeClump } from './grass-card';
 import { meadowFlower } from './meadow-flower';
@@ -192,6 +193,8 @@ export class GrassField {
         // with the meadow spilling over their edges
         if (w.townAt(x, z, 1)) continue;
         if (paths.edgeDistance(x, z) < -0.3) continue;
+        // nor in a hot spring's pool
+        if (springsNear(w, x, z, 8).some((s) => Math.hypot(s.x - x, s.z - z) < s.r + 0.3)) continue;
         const climate = w.climate(x, z);
         const biome = climateBiome(climate);
         const cover = COVER[biome === 'water' ? 'grassland' : biome];

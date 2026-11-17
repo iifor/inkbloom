@@ -4,7 +4,9 @@
 // year, and the weather where the player is (eased, so it never pops), with lightning. A
 // listener like audio and effects: gameplay never reads it.
 import { SEASONS } from '@/content/seasons';
+import { TUNING } from '@/content/tuning';
 import { dayHours } from '@/engine/render/daylight';
+import { STEAM_SPRINGS } from '@/engine/render/steam';
 import type { GameContext, System } from '@/game/types';
 import { calendarAt, seasonBlend } from '@/world/climate/calendar';
 import { meanTemperature, snowCover } from '@/world/climate/temperature';
@@ -12,6 +14,7 @@ import { type WeatherAt, boltsAt, createWeather } from '@/world/climate/weather'
 import { smoothstep } from '@/world/math/noise';
 import { influenceOf, saturationAt } from '@/world/wilderness/drain';
 import { WATER_LEVEL } from '@/world/wilderness/generator';
+import { springLevel, springsNear } from '@/world/wilderness/landmarks';
 
 /** Gloom while a tide is announced, and while it rolls. */
 const WARNING_GLOOM = 0.35;
@@ -61,6 +64,7 @@ export class AtmosphereSystem implements System {
   private second = -1;
   private flash = 0;
   private litterSeason = 0;
+  private springT = 0;
 
   constructor(private readonly ctx: GameContext) {
     this.weather = createWeather(ctx.wilderness);
@@ -172,6 +176,30 @@ export class AtmosphereSystem implements System {
     a.weather.flash = this.flash;
     a.weather.litterSeason = this.litterSeason;
     this.critters(dt, cal.hour, cal.declination, cal.yearPhase, now);
+    this.springs(dt, cal.hour, now);
+  }
+
+  /**
+   * Hot springs near the player: their steam (thicker the colder the air at the pool, and in
+   * the small hours) and the nearest one's warm patch where snow will not lie.
+   */
+  private springs(dt: number, hour: number, w: WeatherLook): void {
+    const { player, scenes, wilderness, renderer } = this.ctx;
+    this.springT -= dt;
+    if (this.springT > 0) return;
+    this.springT = 0.5;
+    const wild = scenes.active.ref.kind === 'wild';
+    const near = wild
+      ? springsNear(wilderness, player.position.x, player.position.z, 220).slice(0, STEAM_SPRINGS)
+      : [];
+    const sources = near.map((s) => ({ x: s.x, y: springLevel(s, wilderness), z: s.z, r: s.r }));
+    const nearest = near[0];
+    renderer.warmSpot.set(nearest?.x ?? 0, nearest?.z ?? 0, nearest?.r ?? 0, 0);
+    const air =
+      renderer.atmosphere.seaTemp -
+      TUNING.season.lapse * (sources[0]?.y ?? 0) +
+      4 * Math.sin((2 * Math.PI * (hour - 9)) / 24);
+    renderer.steam.set(sources, 0.3 + 0.7 * smoothstep(20, 2, air), w.windX, w.windZ);
   }
 
   /** Fireflies on warm nights, butterflies on fair days; both only in coloured wild land. */
