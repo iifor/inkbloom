@@ -5,6 +5,7 @@ import type { Look } from '@/content/characters';
 import type { Patch } from '../patch';
 import { cleanName, validLook } from '../profile';
 import type { SceneRef } from '../state';
+import type { Fix } from './fix';
 import { validCity, validPatch, validScene } from './validate';
 
 export const PROTOCOL = 1;
@@ -77,8 +78,12 @@ export type ServerMessage =
       readonly players: readonly (Motion & { readonly id: number })[];
       readonly keeps: readonly string[];
     }
-  /** Another player's patch, already judged: apply its effect on the shared world. */
-  | { readonly t: 'applied'; readonly from: number; readonly patch: Patch }
+  /** Another player's patch, already judged: apply its effect on the shared world, then the
+   * values the server ended with. */
+  | { readonly t: 'applied'; readonly from: number; readonly patch: Patch; readonly fix: Fix | null }
+  /** One of this client's patches went through: the values the shared world ended with, and
+   * this player's own things as the server has them. */
+  | { readonly t: 'ok'; readonly seq: number; readonly fix: Fix | null; readonly you: string }
   /** One of this client's patches failed on the server: here is their true slice. */
   | {
       readonly t: 'rejected';
@@ -86,6 +91,8 @@ export type ServerMessage =
       readonly kind: Patch['kind'];
       readonly reason: string;
       readonly you: string;
+      /** The true state of what it touched, to undo the early local change. */
+      readonly fix: Fix | null;
     };
 
 /** Patches that change the shared world, so other players need them. The rest only touch the

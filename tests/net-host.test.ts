@@ -128,6 +128,39 @@ describe('world host: patches', () => {
     expect(r.ok).toBe(false);
     expect(h.sliceOf(a)).toBe(before);
   });
+
+  it('answers with the values it ended on: what changed when accepted, all of it when not', () => {
+    const town = aTown();
+    const h = host();
+    const a = keeper(h, 1, town);
+    colour(h, town, a, 0);
+    const states = h.state.cities.get(town.cityId)!.states;
+    states[1] = 1;
+    const k = keeper(h, 2, town);
+    const ok = h.patch(a, { kind: 'drain', city: town.cityId, surface: 1 });
+    // only the keeper drains; player 1 was first in, so player 2's attempt is turned down
+    expect(ok).toMatchObject({ ok: true, fix: { city: { id: town.cityId, states: [[1, 0]] } } });
+    const no = h.patch(k, { kind: 'drain', city: town.cityId, surface: 0 });
+    expect(no.ok).toBe(false);
+    expect(no.fix?.city?.states).toHaveLength(states.length);
+  });
+
+  it('a restored town pays each player who finishes it, once each', () => {
+    const town = aTown();
+    const h = host();
+    const a = keeper(h, 1, town);
+    const b = joined(h, 2, town.x, town.z);
+    colour(h, town, a, 0);
+    h.state.cities.get(town.cityId)!.states.fill(1);
+    const generic = (id: number): number => deserializeSlice(h.sliceOf(id)!).inventory.generic;
+    const before = generic(b);
+    const done = h.patch(a, { kind: 'complete', city: town.cityId });
+    expect(done).toMatchObject({ ok: true, fix: { city: { completed: true } } });
+    expect(h.patch(a, { kind: 'complete', city: town.cityId }).ok).toBe(false);
+    expect(h.patch(b, { kind: 'complete', city: town.cityId }).ok).toBe(true);
+    expect(generic(b)).toBeGreaterThan(before);
+    expect(h.patch(b, { kind: 'complete', city: town.cityId }).ok).toBe(false);
+  });
 });
 
 describe('world host: the tide and erosion are the keeper’s', () => {

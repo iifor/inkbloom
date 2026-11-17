@@ -282,15 +282,18 @@ function applyRules(state: WorldState, patch: Patch, ctx: PatchContext): PatchRe
 
   switch (patch.kind) {
     case 'complete': {
+      // the town is restored once, for everyone; the reward is each player's own (in a server
+      // world everyone who was there when it happened gets theirs)
       const saved = state.cities.get(patch.city)!;
-      if (saved.completed) return fail('这座城已经恢复了');
+      const restored = `city:${patch.city}:restored`;
+      if (state.growth.milestones.includes(restored)) return fail('这座城已经恢复了');
       const blocks = blockStates(states, skel.surfaces, skel.chunks);
       if (!blocks.every((b) => b === 'colored' || b === 'thriving')) return fail('还有街区没有颜色');
       saved.completed = true;
       inv.generic += TUNING.city.completeReward.generic;
       inv.ink += TUNING.city.completeReward.ink;
       state.growth.xp += XP.cityRestored;
-      milestone(state.growth, `city:${patch.city}:restored`, MILESTONES.cityRestored);
+      milestone(state.growth, restored, MILESTONES.cityRestored);
       inv.glider = true;
       return OK;
     }

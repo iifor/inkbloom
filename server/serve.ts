@@ -171,16 +171,14 @@ export function serve(host: WorldHost, opts: ServeOptions): Promise<Served> {
           break;
         case 'patch': {
           const r = host.patch(id, m.patch);
+          const you = host.sliceOf(id)!;
           if (!r.ok)
-            send(ws, {
-              t: 'rejected',
-              seq: m.seq,
-              kind: m.patch.kind,
-              reason: r.reason,
-              you: host.sliceOf(id)!,
-            });
-          // the checked, rebuilt patch: nothing a client added rides along to the others
-          else if (r.shared) broadcast({ t: 'applied', from: id, patch: m.patch }, id);
+            send(ws, { t: 'rejected', seq: m.seq, kind: m.patch.kind, reason: r.reason, you, fix: r.fix });
+          else {
+            send(ws, { t: 'ok', seq: m.seq, fix: r.fix, you });
+            // the checked, rebuilt patch: nothing a client added rides along to the others
+            if (r.shared) broadcast({ t: 'applied', from: id, patch: m.patch, fix: r.fix }, id);
+          }
           break;
         }
         default:

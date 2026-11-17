@@ -32,6 +32,7 @@ import { WildScene } from '@/systems/wilderness/wild-scene';
 import type { Connection } from '@/systems/net/connection';
 import { NetSystem } from '@/systems/net/net-system';
 import { RemotePlayers } from '@/systems/net/remote-players';
+import { type Fix, applyFix } from '@/world/net/fix';
 import { worldPatchContext } from '@/world/net/patch-context';
 import { standInSlice, withSlice } from '@/world/net/slices';
 import { type Patch, applyPatch } from '@/world/patch';
@@ -142,22 +143,37 @@ export function startOpenWorld(opts: {
     // another player's patch, already judged by the server: only its effect on the shared world
     // lands here; what it pays goes to a stand-in and is thrown away
     const standIn = standInSlice();
-    const run = (patch: Patch): void => {
+    // set the server's values, and tell the town on screen what that changed (as others' doing:
+    // it updates what is shown, with none of this player's own sounds or rewards)
+    const correct = (fix: Fix | null): void => {
+      const c = applyFix(ctx.state, fix);
+      if (!c.city) return;
+      const city = c.city;
+      const states = ctx.state.cities.get(city)!.states;
+      const tell = (patch: Patch): void => ctx.events.emit('patch:applied', { patch, remote: true });
+      for (const surface of c.surfaces)
+        tell({ kind: states[surface] === 0 ? 'drain' : 'restore', city, surface });
+      for (const stain of c.stains) tell({ kind: 'collect', city, stain });
+      for (const monster of c.defeated) tell({ kind: 'defeat', city, monster });
+    };
+    const run = (patch: Patch, fix: Fix | null): void => {
+      // the patch creates the town's save if this client has none yet; the fix then sets its values
       const r = withSlice(ctx.state, standIn, () => applyPatch(ctx.state, patch, patchContext));
-      if (r.ok) ctx.events.emit('patch:applied', { patch });
+      if (r.ok) ctx.events.emit('patch:applied', { patch, remote: true });
+      correct(fix);
     };
     // a patch in a town this client has not worked out yet waits while the worker lays it out,
     // rather than stalling the frame (in order; after a few seconds it is worked out here)
-    const waiting: { patch: Patch; since: number }[] = [];
+    const waiting: { patch: Patch; fix: Fix | null; since: number }[] = [];
     const remotePatches = {
-      apply(patch: Patch): void {
+      apply(patch: Patch, fix: Fix | null): void {
         if ('city' in patch && !ctx.cities.byId(patch.city)) {
           const e = ctx.cities.entranceOf(patch.city);
           if (!e) return;
           ctx.cities.prefetch(e);
-          waiting.push({ patch, since: performance.now() });
-        } else if (waiting.length) waiting.push({ patch, since: performance.now() });
-        else run(patch);
+          waiting.push({ patch, fix, since: performance.now() });
+        } else if (waiting.length) waiting.push({ patch, fix, since: performance.now() });
+        else run(patch, fix);
       },
       flush(): void {
         while (waiting.length) {
@@ -165,9 +181,10 @@ export function startOpenWorld(opts: {
           const ready = !('city' in w.patch) || ctx.cities.byId(w.patch.city);
           if (!ready && performance.now() - w.since < 3000) break;
           waiting.shift();
-          run(w.patch);
+          run(w.patch, w.fix);
         }
       },
+      correct,
     };
     net = new NetSystem(ctx, opts.net, remote, remotePatches);
     ctx.net = net;

@@ -229,7 +229,8 @@ export class CityScene implements GameScene {
   }
 
   private checkComplete(): void {
-    if (this.completed) return;
+    // this player's own restore: in a server world someone else may have finished the town
+    if (this.ctx.state.growth.milestones.includes(`city:${this.layout.id}:restored`)) return;
     if (!this.blocks().every((b) => b === 'colored' || b === 'thriving')) return;
     const hadGlider = this.ctx.state.inventory.glider;
     if (!this.ctx.apply({ kind: 'complete', city: this.layout.id }).ok) return;

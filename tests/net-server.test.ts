@@ -105,6 +105,11 @@ describe('world server over WebSockets', () => {
     a.send({ t: 'patch', seq: 1, patch: { kind: 'harvest', source } });
     const applied = await b.waitFor('applied');
     expect(applied.t === 'applied' && applied.patch).toEqual({ kind: 'harvest', source });
+    // the harvester and everyone else get the same server-clock time for it
+    const ok = await a.waitFor('ok');
+    const when = ok.t === 'ok' && ok.fix?.harvested;
+    expect(when).toEqual([[source, expect.any(Number)]]);
+    expect(applied.t === 'applied' && applied.fix?.harvested).toEqual(when);
     b.send({ t: 'patch', seq: 1, patch: { kind: 'harvest', source } });
     const no = await b.waitFor('rejected');
     expect(no.t === 'rejected' && no.reason).toBeTruthy();

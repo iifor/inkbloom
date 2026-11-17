@@ -3,6 +3,7 @@
 // player's own patches go out from ctx.apply as they happen (modes/open-world.ts).
 import * as THREE from 'three';
 import type { GameContext, NetApi, System } from '@/game/types';
+import type { Fix } from '@/world/net/fix';
 import type { Patch } from '@/world/patch';
 import {
   DASHING,
@@ -25,6 +26,8 @@ export class NetSystem implements System, NetApi {
   readonly id = 'net';
   private sendT = 0;
   private seq = 0;
+  /** This player's patches the server has not answered yet. */
+  private readonly pending = new Set<number>();
   private keeping = new Set<string>();
   private readonly last = new THREE.Vector3();
   private readonly vel = new THREE.Vector3();
@@ -35,8 +38,12 @@ export class NetSystem implements System, NetApi {
     private readonly conn: Connection,
     private readonly remote: RemotePlayers,
     /** Other players' patches, for their effect on the shared world: `apply` as they come,
-     * `flush` once a frame for any that had to wait. */
-    private readonly remotePatches: { apply(patch: Patch): void; flush(): void },
+     * `flush` once a frame for any that had to wait; `correct` sets the server's values. */
+    private readonly remotePatches: {
+      apply(patch: Patch, fix: Fix | null): void;
+      flush(): void;
+      correct(fix: Fix | null): void;
+    },
   ) {
     for (const p of conn.welcome.players) remote.add(p);
     this.last.copy(ctx.player.position);
@@ -59,7 +66,8 @@ export class NetSystem implements System, NetApi {
   }
 
   sendPatch(patch: Patch): void {
-    this.conn.send({ t: 'patch', seq: ++this.seq, patch });
+    this.pending.add(++this.seq);
+    this.conn.send({ t: 'patch', seq: this.seq, patch });
   }
 
   leave(): void {
@@ -91,7 +99,7 @@ export class NetSystem implements System, NetApi {
       case 'applied': {
         // checked like any patch from the network: a server is not trusted to send sense
         const patch = validPatch(m.patch);
-        if (patch) this.remotePatches.apply(patch);
+        if (patch) this.remotePatches.apply(patch, m.fix);
         break;
       }
       case 'joined':
@@ -104,9 +112,11 @@ export class NetSystem implements System, NetApi {
         if (who) this.ctx.events.emit('toast', { text: `${who} 离开了` });
         break;
       }
+      case 'ok':
+        this.answered(m.seq, m.fix, m.you);
+        break;
       case 'rejected':
-        // the server knows best: take its word for this player's own things
-        putSlice(this.ctx.state, deserializeSlice(m.you));
+        this.answered(m.seq, m.fix, m.you);
         // the tide and erosion are the game's doing, not the player's: no message for those
         if (m.kind !== 'drain' && m.kind !== 'tideHeld')
           this.ctx.events.emit('toast', {
@@ -117,6 +127,16 @@ export class NetSystem implements System, NetApi {
       default:
         break;
     }
+  }
+
+  /** The server's answer to one of this player's patches: its values for the shared world, and
+   * this player's own things as they stand there. Those are taken only once every patch sent
+   * has been answered: while some are on their way, the server's copy is missing them, and
+   * taking it would undo them here (a later answer brings them, as the server has them). */
+  private answered(seq: number, fix: Fix | null, you: string): void {
+    this.pending.delete(seq);
+    this.remotePatches.correct(fix);
+    if (!this.pending.size) putSlice(this.ctx.state, deserializeSlice(you));
   }
 
   private sendMotion(dt: number): void {

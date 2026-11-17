@@ -65,7 +65,9 @@ export class PlaytestSystem implements System {
     const on = ctx.events.on.bind(ctx.events);
     const c = this.log.combat;
     this.release.push(
-      on('patch:applied', ({ patch }) => {
+      on('patch:applied', ({ patch, remote }) => {
+        // only this player's own doings count in their report
+        if (remote) return;
         const now = this.read();
         addFlow(this.log, patch.kind, {
           generic: now.generic - this.purse.generic,

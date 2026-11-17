@@ -115,8 +115,8 @@ export class EffectsSystem implements System {
       on('player:land', ({ impact }) => {
         if (impact > 0.5) ctx.player.shake(impact * 0.5);
       }),
-      on('patch:applied', ({ patch }) => {
-        if (patch.kind === 'collect') {
+      on('patch:applied', ({ patch, remote }) => {
+        if (patch.kind === 'collect' && !remote) {
           // the stain splashes up from the ground in front of the player, below the camera
           const p = ctx.player.position;
           const f = ctx.player.forward;

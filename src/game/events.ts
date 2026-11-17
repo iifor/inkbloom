@@ -4,7 +4,10 @@ import type { Patch } from '@/world/patch';
 import type { SceneRef } from '@/world/state';
 
 export interface GameEvents {
-  'patch:applied': { readonly patch: Patch };
+  /** A change to the save. `remote`: another player's (or the server's correction), in a
+   * server world: the world shows it, but it is not this player's doing (no sound, splash or
+   * playtest entry of their own). */
+  'patch:applied': { readonly patch: Patch; readonly remote?: boolean };
   'patch:rejected': { readonly patch: Patch; readonly reason: string };
   'scene:entered': { readonly ref: SceneRef; readonly name: string };
   'city:completed': { readonly city: string; readonly name: string };

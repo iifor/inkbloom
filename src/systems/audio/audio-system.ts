@@ -175,7 +175,9 @@ export class AudioSystem implements System {
         this.music.setTide(false);
         this.arpeggio(held ? [0, 2, 4, 7] : [4, 2, 1, -1], held ? 72 : 60, 0.12);
       }),
-      on('patch:applied', ({ patch }) => {
+      on('patch:applied', ({ patch, remote }) => {
+        // another player's pickup is not this player's to hear
+        if (remote) return;
         switch (patch.kind) {
           case 'collect':
             this.play('pickUp', { gain: 0.3 }, () => {

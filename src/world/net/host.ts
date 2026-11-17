@@ -13,11 +13,19 @@ import type { Look } from '@/content/characters';
 import { applyPatch, type Patch, type PatchResult } from '../patch';
 import { DRAINED } from '../paint/surfaces';
 import { cleanName, validLook } from '../profile';
-import { type SceneRef, type WorldState, deserializeWorld, savedProgress, serializeWorld } from '../state';
+import {
+  type CitySave,
+  type SceneRef,
+  type WorldState,
+  deserializeWorld,
+  savedProgress,
+  serializeWorld,
+} from '../state';
 import { createWilderness } from '../wilderness/generator';
 import { layoutCache, worldPatchContext } from './patch-context';
 import { DEFAULT_MAX_PLAYERS, type Motion, type PlayerInfo, SHARED_KINDS, VIEW_RANGE } from './protocol';
 import { type PlayerSlice, deserializeSlice, newSlice, serializeSlice, withSlice } from './slices';
+import { type Fix, cityFix } from './fix';
 import { placeOf } from './validate';
 
 /** A patch must act within this distance of where its sender stands, metres. */
@@ -67,9 +75,12 @@ export type JoinResult =
     }
   | { readonly ok: false; readonly reason: string };
 
-export type PatchOutcome = PatchResult & { readonly shared: boolean };
-
-const fail = (reason: string): PatchOutcome => ({ ok: false, reason, shared: false });
+export type PatchOutcome = PatchResult & {
+  readonly shared: boolean;
+  /** The values the shared world ended with: what the patch changed if it went through, or
+   * the true state of what it touched if not (so the sender can undo its early local change). */
+  readonly fix: Fix | null;
+};
 
 export class WorldHost {
   private readonly members = new Map<number, Member>();
@@ -194,8 +205,26 @@ export class WorldHost {
     return Math.hypot(place.x - motion.p[0], place.z - motion.p[2]) <= NEAR;
   }
 
+  /** The true state of whatever this patch touches in the shared world. */
+  private truth(patch: Patch): Fix | null {
+    const city = 'city' in patch ? this.state.cities.get(patch.city) : undefined;
+    const fix: { city?: Fix['city']; harvested?: [string, number][]; hunted?: [string, number][] } = {};
+    if (city && 'city' in patch) fix.city = cityFix(patch.city, undefined, city);
+    if (patch.kind === 'harvest' && this.state.harvested.has(patch.source))
+      fix.harvested = [[patch.source, this.state.harvested.get(patch.source)!]];
+    if (patch.kind === 'hunt' && this.state.hunted.has(patch.monster))
+      fix.hunted = [[patch.monster, this.state.hunted.get(patch.monster)!]];
+    return Object.keys(fix).length ? fix : null;
+  }
+
   /** Judge a player's patch against their own things and the shared world. */
   patch(id: number, patch: Patch): PatchOutcome {
+    const fail = (reason: string): PatchOutcome => ({
+      ok: false,
+      reason,
+      shared: false,
+      fix: this.truth(patch),
+    });
     const m = this.members.get(id);
     if (!m) return fail('不在这个世界里');
     if (!this.near(m.motion, patch)) return fail('离那里太远了');
@@ -214,11 +243,20 @@ export class WorldHost {
       const last = this.tidesHeld.get(patch.city);
       if (last !== undefined && this.state.clock - last < TIDE_GAP) return fail('刚守住过一波墨潮');
     }
-    const result = this.attempt(m, patch);
-    if (!result.ok) return { ...result, shared: false };
+    const { result, cityBefore } = this.attempt(m, patch);
+    if (!result.ok) return fail(result.reason);
     if (patch.kind === 'tideHeld') this.tidesHeld.set(patch.city, this.state.clock);
     this.dirty = true;
-    return { ok: true, shared: SHARED_KINDS.has(patch.kind) };
+    // what the shared world ended with (stamped with the server's clock, where it matters)
+    const fix: { city?: Fix['city']; harvested?: [string, number][]; hunted?: [string, number][] } = {};
+    const city = 'city' in patch ? this.state.cities.get(patch.city) : undefined;
+    if (city && 'city' in patch) {
+      const c = cityFix(patch.city, cityBefore, city);
+      if (c) fix.city = c;
+    }
+    if (patch.kind === 'harvest') fix.harvested = [[patch.source, this.state.harvested.get(patch.source)!]];
+    if (patch.kind === 'hunt') fix.hunted = [[patch.monster, this.state.hunted.get(patch.monster)!]];
+    return { ok: true, shared: SHARED_KINDS.has(patch.kind), fix: Object.keys(fix).length ? fix : null };
   }
 
   /** Whether this player may act in this town now (see TOWN_BUDGET); remembers it if so. */
@@ -231,7 +269,7 @@ export class WorldHost {
 
   /** Run a patch so that it either fully happens or leaves nothing behind (not even a half-paid
    * reward from one that threw partway). */
-  private attempt(m: Member, patch: Patch): PatchResult {
+  private attempt(m: Member, patch: Patch): { result: PatchResult; cityBefore: CitySave | undefined } {
     const slice = structuredClone(m.slice);
     const city = 'city' in patch ? patch.city : null;
     const citySave = city ? this.state.cities.get(city) : undefined;
@@ -260,7 +298,7 @@ export class WorldHost {
         else timed.map.set(timed.key, timedBefore);
       }
     }
-    return result;
+    return { result, cityBefore };
   }
 
   /** A player's own things as text (sent to them on joining, or to correct them). */
