@@ -1,10 +1,11 @@
 import * as THREE from 'three';
-import { expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { color } from '@/content/palette';
 import { GeometryBuilder } from '@/engine/render/geometry-builder';
 import { WildTrees } from '@/systems/wilderness/wild-trees';
-import { generateWildChunk } from '@/world/wilderness/chunk';
-import { createWilderness } from '@/world/wilderness/generator';
+import { type Tree, generateWildChunk, greatTreeIn } from '@/world/wilderness/chunk';
+import { townLayout } from '@/world/city/layout';
+import { WATER_LEVEL, createWilderness } from '@/world/wilderness/generator';
 
 it('switches each tree once across the detail band, including after a teleport and unload', () => {
   const chunk = generateWildChunk(createWilderness(42), 0, 0);
@@ -48,4 +49,39 @@ it('keeps the triangle order of loose faces and indexed templates in a merged me
   expect(Array.from(index.array, (i) => palette.getX(i))).toEqual([1, 2, 3].flatMap((c) => Array(6).fill(c)));
   combined.dispose();
   plane.dispose();
+});
+
+describe('great trees', () => {
+  const w = createWilderness(4242);
+  const found: { cx: number; cz: number; t: Tree }[] = [];
+  for (let cx = -8; cx <= 8; cx++)
+    for (let cz = -8; cz <= 8; cz++) {
+      const t = greatTreeIn(w, cx, cz);
+      if (t) found.push({ cx, cz, t });
+    }
+
+  it('stand now and then, alone, on gentle dry open ground', () => {
+    // a few in every stretch of country (towns take half the land), not a forest of them
+    expect(found.length).toBeGreaterThan(289 * 0.05);
+    expect(found.length).toBeLessThan(289 * 0.2);
+    for (const { cx, cz, t } of found) {
+      expect(t.kind).toBe('great');
+      expect(t.height).toBeGreaterThan(15);
+      expect(w.townAt(t.x, t.z, 30)).toBeNull();
+      expect(w.heightAt(t.x, t.z)).toBeGreaterThan(WATER_LEVEL + 1.2);
+      // the chunk gives it room: no other tree under its spread
+      const chunk = generateWildChunk(w, cx, cz);
+      expect(chunk.trees.filter((o) => o.kind === 'great')).toHaveLength(1);
+      for (const o of chunk.trees)
+        if (o.kind !== 'great') expect(Math.hypot(o.x - t.x, o.z - t.z)).toBeGreaterThanOrEqual(14);
+    }
+  });
+
+  it('stands in a town too, near its square', () => {
+    const e = w.entranceInCell(1, 1)!;
+    const city = townLayout(e, w);
+    const great = city.trees.filter((t) => t.kind === 'great');
+    expect(great).toHaveLength(1);
+    expect(Math.hypot(great[0]!.x - city.square.x, great[0]!.z - city.square.z)).toBeLessThan(120);
+  });
 });

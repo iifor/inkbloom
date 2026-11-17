@@ -8,8 +8,8 @@ import * as THREE from 'three';
 import { TUNING } from '@/content/tuning';
 import { appendTree, treeMatrix, treePalette } from './tree-geometry';
 import { GeometryBuilder } from '@/engine/render/geometry-builder';
-import type { PhysicsWorld } from '@/engine/physics/world';
-import type { WildChunk } from '@/world/wilderness/chunk';
+import type { PhysicsWorld, Vec3Like } from '@/engine/physics/world';
+import type { Tree, WildChunk } from '@/world/wilderness/chunk';
 import { riverbedMeadow, type Wilderness } from '@/world/wilderness/generator';
 
 /** Metres between terrain mesh vertices: the height function's own cell. Finer would only add
@@ -109,10 +109,20 @@ export function* buildTerrainSteps(
 }
 
 export function addChunkColliders(chunk: WildChunk, physics: PhysicsWorld, group: string): void {
-  for (const t of chunk.trees)
-    physics.addBox(
-      group,
-      { x: t.x - 0.3, y: t.y, z: t.z - 0.3 },
-      { x: t.x + 0.3, y: t.y + t.height * 0.6, z: t.z + 0.3 },
-    );
+  for (const t of chunk.trees) addTrunk(physics, group, t);
+}
+
+/** A collider round a tree's trunk: a great tree's bole is metres across. */
+export function addTrunk(
+  physics: { addBox(group: string, min: Vec3Like, max: Vec3Like): unknown },
+  group: string,
+  t: Tree,
+): void {
+  const r = t.kind === 'great' ? t.crown * 0.1 : 0.3;
+  const up = t.kind === 'great' ? 0.45 : 0.6;
+  physics.addBox(
+    group,
+    { x: t.x - r, y: t.y, z: t.z - r },
+    { x: t.x + r, y: t.y + t.height * up, z: t.z + r },
+  );
 }

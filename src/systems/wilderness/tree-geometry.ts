@@ -97,22 +97,53 @@ function leafSprig(
   }
 }
 
-function broadleafCrown(distant: boolean): THREE.BufferGeometry {
-  const mesh = new TreeMesh();
-  // Each fork carries its own bank of foliage. Lower limbs spread further on one side.
-  const clusters = [
-    [-0.65, 0.43, 0.17, 0.85, 0.54],
-    [0.64, 0.6, 0.18, 0.97, 0.68],
-    [0.12, 0.55, -0.68, 0.91, 0.66],
-    [-0.09, 0.75, 0.68, 0.81, 0.59],
-    [-0.42, 1.13, -0.13, 0.91, 0.73],
-    [0.41, 1.34, -0.06, 0.77, 0.69],
-  ] as const;
-  clusters.forEach(([x, y, z, width, height], k) => {
-    const bottom = mesh.point(x, y - height, z, x * 0.3, -1, z * 0.3);
+/** A bank of foliage: centre x, y, z, then width (x and z) and height. */
+type Lump = readonly [x: number, y: number, z: number, width: number, height: number];
+
+/**
+ * Foliage lumps, closed and smooth. Their normals are bent towards the direction out from
+ * `centre` (normal transfer, by `transfer`): light then falls on the crown as one soft volume,
+ * lit on the sun's side and shaded on the other, with only a little variation from lump to
+ * lump, the way a painted tree reads; each lump's own normals alone make a cluster of balls.
+ */
+/** How finely foliage is built: near by, from a field away (a great tree), or far off. */
+type Detail = 'near' | 'mid' | 'far';
+const RINGS: Record<Detail, { sides: number; latitudes: readonly number[] }> = {
+  near: { sides: 26, latitudes: [-1.04, -0.69, -0.32, 0.08, 0.48, 0.85, 1.19] },
+  mid: { sides: 14, latitudes: [-0.95, -0.42, 0.12, 0.62, 1.08] },
+  far: { sides: 8, latitudes: [-0.55, 0.59] },
+};
+
+function foliage(
+  mesh: TreeMesh,
+  lumps: readonly Lump[],
+  detail: Detail,
+  centre: readonly [number, number, number],
+  transfer: number,
+  sprigs: boolean,
+): void {
+  const [cx, cy, cz] = centre;
+  /** A point on a lump with its own normal (nx, ny, nz), bent towards the crown's. */
+  const point = (x: number, y: number, z: number, nx: number, ny: number, nz: number): number => {
+    const own = Math.hypot(nx, ny, nz) || 1;
+    const ox = x - cx;
+    const oy = y - cy;
+    const oz = z - cz;
+    const out = Math.hypot(ox, oy, oz) || 1;
+    return mesh.point(
+      x,
+      y,
+      z,
+      (nx / own) * (1 - transfer) + (ox / out) * transfer,
+      (ny / own) * (1 - transfer) + (oy / out) * transfer,
+      (nz / own) * (1 - transfer) + (oz / out) * transfer,
+    );
+  };
+  lumps.forEach(([x, y, z, width, height], k) => {
+    const bottom = point(x, y - height, z, 0, -1, 0);
     let previous: number[] = [];
-    const sides = distant ? 8 : 26;
-    for (const latitude of distant ? [-0.55, 0.59] : [-1.04, -0.69, -0.32, 0.08, 0.48, 0.85, 1.19]) {
+    const { sides, latitudes } = RINGS[detail];
+    for (const latitude of latitudes) {
       const ring: number[] = [];
       for (let i = 0; i < sides; i++) {
         const a = (TAU * i) / sides + k * 1.7 + 0.12 * Math.sin(latitude * 2 + k);
@@ -125,16 +156,22 @@ function broadleafCrown(distant: boolean): THREE.BufferGeometry {
           0.036 * Math.sin(9 * a + 5 * latitude + k);
         const ny = Math.sin(latitude);
         ring.push(
-          mesh.point(
+          point(
             x + width * nx * scallop,
             y + height * (ny + 0.13 * Math.sin(4 * a + k) * Math.cos(latitude)),
             z + width * nz * scallop,
-            nx + 0.22 * x,
+            nx,
             ny + 0.12 * Math.cos(5 * a + k),
-            nz + 0.22 * z,
+            nz,
           ),
         );
-        if (!distant && Math.abs(latitude) < 0.85 && (i + k) % 4 === 0 && nx * x + nz * z > 0.18) {
+        if (
+          sprigs &&
+          detail === 'near' &&
+          Math.abs(latitude) < 0.85 &&
+          (i + k) % 4 === 0 &&
+          nx * x + nz * z > 0.18
+        ) {
           const p = ring[ring.length - 1]! * 3;
           leafSprig(
             mesh,
@@ -151,8 +188,59 @@ function broadleafCrown(distant: boolean): THREE.BufferGeometry {
       else mesh.cap(ring, bottom, false);
       previous = ring;
     }
-    mesh.cap(previous, mesh.point(x, y + height, z, x * 0.15, 1, z * 0.15), true);
+    mesh.cap(previous, point(x, y + height, z, 0, 1, 0), true);
   });
+}
+
+/** How far foliage normals bend towards the whole crown's (see foliage). */
+const NORMAL_TRANSFER = 0.6;
+
+// Each fork carries its own bank of foliage. Lower limbs spread further on one side.
+const BROADLEAF: readonly Lump[] = [
+  [-0.65, 0.43, 0.17, 0.85, 0.54],
+  [0.64, 0.6, 0.18, 0.97, 0.68],
+  [0.12, 0.55, -0.68, 0.91, 0.66],
+  [-0.09, 0.75, 0.68, 0.81, 0.59],
+  [-0.42, 1.13, -0.13, 0.91, 0.73],
+  [0.41, 1.34, -0.06, 0.77, 0.69],
+];
+
+function broadleafCrown(distant: boolean): THREE.BufferGeometry {
+  const mesh = new TreeMesh();
+  foliage(mesh, BROADLEAF, distant ? 'far' : 'near', [0, 0.85, 0], NORMAL_TRANSFER, true);
+  return mesh.geometry();
+}
+
+/**
+ * A great old tree's crown, in tree heights (y) and crown radii (x, z): a low, wide ring of
+ * lumps over the spreading limbs, a smaller ring above, two on top. Flattened banks of leaves
+ * with sky between them, the way a camphor tree stands over a field.
+ */
+const GREAT: readonly Lump[] = [
+  ...Array.from({ length: 7 }, (_, i): Lump => {
+    const a = (TAU * i) / 7 + 0.3;
+    const r = 0.7 + 0.09 * Math.sin(i * 2.3);
+    return [
+      r * Math.cos(a),
+      0.55 + 0.04 * Math.sin(i * 1.7),
+      r * Math.sin(a),
+      0.36 + 0.04 * Math.cos(i),
+      0.12,
+    ];
+  }),
+  ...Array.from({ length: 5 }, (_, i): Lump => {
+    const a = (TAU * i) / 5 + 0.9;
+    return [0.4 * Math.cos(a), 0.75 + 0.03 * Math.sin(i * 2.1), 0.4 * Math.sin(a), 0.34, 0.15];
+  }),
+  // a rounded top: the dome of the crown
+  [-0.08, 0.9, 0.06, 0.3, 0.14],
+  [0.14, 0.94, -0.1, 0.24, 0.12],
+];
+
+function greatCrown(distant: boolean): THREE.BufferGeometry {
+  const mesh = new TreeMesh();
+  // a great tree is seen across a whole field: even far off it keeps a rounded outline
+  foliage(mesh, GREAT, distant ? 'mid' : 'near', [0, 0.62, 0], NORMAL_TRANSFER, false);
   return mesh.geometry();
 }
 
@@ -345,9 +433,9 @@ function cedarCrown(distant: boolean): THREE.BufferGeometry {
 }
 
 type Section = readonly [x: number, y: number, z: number, radius: number];
-function treeWood(cedar: boolean, distant: boolean): THREE.BufferGeometry {
-  const mesh = new TreeMesh();
-  const limb = (sections: readonly Section[], sides: number) => {
+/** A tapering limb through the given sections, capped at its end. */
+function limbOf(mesh: TreeMesh, sections: readonly Section[], sides: number): void {
+  {
     let previous: number[] = [];
     for (const [x, y, z, radius] of sections) {
       const ring = Array.from({ length: sides }, (_, i) => {
@@ -366,7 +454,12 @@ function treeWood(cedar: boolean, distant: boolean): THREE.BufferGeometry {
     }
     const [x, y, z] = sections[sections.length - 1]!;
     mesh.cap(previous, mesh.point(x, y, z, 0, 1, 0), true);
-  };
+  }
+}
+
+function treeWood(cedar: boolean, distant: boolean): THREE.BufferGeometry {
+  const mesh = new TreeMesh();
+  const limb = (sections: readonly Section[], sides: number) => limbOf(mesh, sections, sides);
   if (cedar) {
     limb(
       [
@@ -411,6 +504,44 @@ function treeWood(cedar: boolean, distant: boolean): THREE.BufferGeometry {
   return mesh.geometry();
 }
 
+/** A great old tree's trunk and limbs, in the same units as its crown: a thick bole flaring
+ * into roots, and spreading limbs reaching up into the low ring of foliage. */
+function greatWood(distant: boolean): THREE.BufferGeometry {
+  const mesh = new TreeMesh();
+  limbOf(
+    mesh,
+    [
+      [0, -0.02, 0, 0.21],
+      [0, 0.02, 0, 0.15],
+      [0, 0.07, 0, 0.12],
+      [0.01, 0.22, 0, 0.1],
+      [0.02, 0.36, 0.01, 0.085],
+      [0.03, 0.47, 0, 0.05],
+    ],
+    distant ? 7 : 14,
+  );
+  for (let i = 0; i < (distant ? 4 : 6); i++) {
+    const a = (TAU * i) / 6 + 0.3 + 0.2 * Math.sin(i * 1.9);
+    const up = 0.33 + 0.03 * Math.sin(i * 2.7);
+    limbOf(
+      mesh,
+      [
+        [0.02, up, 0, 0.055],
+        [0.3 * Math.cos(a), up + 0.08, 0.3 * Math.sin(a), 0.035],
+        [0.6 * Math.cos(a), up + 0.17, 0.6 * Math.sin(a), 0.016],
+      ],
+      distant ? 4 : 8,
+    );
+  }
+  return mesh.geometry();
+}
+
+const great = {
+  crown: greatCrown(false),
+  far: greatCrown(true),
+  wood: greatWood(false),
+  farWood: greatWood(true),
+};
 const cedar = {
   crown: cedarCrown(false),
   far: cedarCrown(true),
@@ -431,6 +562,8 @@ const position = new THREE.Vector3(),
   scale = new THREE.Vector3();
 
 export function treePalette(t: Tree): number {
+  // great trees are broadleaved, camphor-like, never a cedar
+  if (t.kind === 'great') return t.color;
   return roll(t.x, t.z) < (t.color === color('canopy') ? 0.4 : 0.12) ? color('cedar') : t.color;
 }
 
@@ -446,7 +579,14 @@ export function appendTree(
   palette: number,
   transform: THREE.Matrix4,
   distant: boolean,
+  kind: Tree['kind'] = undefined,
 ): void {
+  if (kind === 'great') {
+    // drawn whole in its own units: heights up, crown radii across
+    g.meshSmooth(distant ? great.farWood : great.wood, transform, color('bark'));
+    g.meshSmooth(distant ? great.far : great.crown, transform, palette);
+    return;
+  }
   const evergreen = palette === color('cedar');
   const tree = evergreen ? cedar : broadleaf;
   const trunkTop = evergreen ? 0.45 : 0.6;
