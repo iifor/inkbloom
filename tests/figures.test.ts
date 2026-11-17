@@ -115,7 +115,7 @@ describe('player figures: what they hold', () => {
     expect(kicked.y).toBeGreaterThan(sighted.y);
   });
 
-  it('draws the held prop with the figure, and none while gliding', () => {
+  it('draws the held weapon with the figure (its model, one instance), and none while gliding', () => {
     const count = (p: PlayerPose): number => {
       const parent = new THREE.Group();
       const figures = new PlayerFigures(parent, new THREE.MeshBasicMaterial());
@@ -125,9 +125,11 @@ describe('player figures: what they hold', () => {
       return parent.children.reduce((n, m) => n + (m as THREE.InstancedMesh).count, 0);
     };
     const bare = count(standing);
-    const r = characterRig('mason');
-    expect(count({ ...standing, held: 'staff' })).toBe(bare + r.props.staff.parts.length);
+    expect(count({ ...standing, held: 'staff' })).toBe(bare + 1);
     expect(count({ ...standing, held: 'staff', glide: true })).toBe(bare);
+    // the brush is still soft parts on the figure
+    const r = characterRig('mason');
+    expect(count({ ...standing, held: 'brush' })).toBe(bare + r.props.brush.parts.length);
   });
 });
 

@@ -22,8 +22,9 @@ import {
   characterDef,
 } from '@/content/characters';
 import { type ColorKey, color } from '@/content/palette';
-import { WEAPONS } from '@/content/weapons';
+import { WEAPONS, type WeaponKey } from '@/content/weapons';
 import { FigureRenderer } from './figure';
+import { weaponModel } from './player-props';
 import { heldIn } from './player-hold';
 import { type PlayerPose, posePlayer } from './player-pose';
 import { type Rig, characterRig } from './player-rig';
@@ -42,15 +43,44 @@ const HAIR = HAIR_COLORS.map((k) => color(k));
 const WEAPON_LOOK = new Map<string, readonly [number, number]>(WEAPONS.map((w) => [w.key, w.look]));
 const PROP_PAINT: Readonly<Record<string, number>> = { wood: color('brown'), metal: color('charcoal') };
 
-/** Every player figure in a scene, drawn as two instanced meshes. */
+const IS_WEAPON = new Set<string>(WEAPONS.map((w) => w.key));
+
+/** Every player figure in a scene: two instanced meshes for the bodies, one per weapon carried. */
 export class PlayerFigures {
   private readonly rigs = new Map<CharacterKey, Rig>();
   private readonly fixed = new Map<CharacterKey, Map<string, number>>();
   private readonly figures: FigureRenderer;
   private readonly at = new THREE.Vector3();
+  /** The weapons in hand, each its model instanced (colours are in the model). */
+  private readonly weapons = new Map<WeaponKey, { mesh: THREE.InstancedMesh; used: number }>();
 
-  constructor(parent: THREE.Object3D, material: THREE.Material) {
+  constructor(
+    private readonly parent: THREE.Object3D,
+    private readonly material: THREE.Material,
+  ) {
     this.figures = new FigureRenderer(parent, material);
+  }
+
+  /** One more of this weapon this frame, at a prop's joint. */
+  private carry(key: WeaponKey, at: THREE.Matrix4): void {
+    let w = this.weapons.get(key);
+    if (!w || w.used >= w.mesh.instanceMatrix.count) {
+      const mesh = new THREE.InstancedMesh(
+        weaponModel(key).geometry,
+        this.material,
+        (w?.mesh.instanceMatrix.count ?? 4) * 2,
+      );
+      mesh.frustumCulled = false;
+      if (w) {
+        mesh.instanceMatrix.array.set(w.mesh.instanceMatrix.array.subarray(0, w.used * 16));
+        w.mesh.removeFromParent();
+        w.mesh.dispose();
+      }
+      this.parent.add(mesh);
+      w = { mesh, used: w?.used ?? 0 };
+      this.weapons.set(key, w);
+    }
+    w.mesh.setMatrixAt(w.used++, at);
   }
 
   private rig(key: CharacterKey): Rig {
@@ -66,6 +96,7 @@ export class PlayerFigures {
 
   begin(): void {
     this.figures.begin();
+    for (const w of this.weapons.values()) w.used = 0;
   }
 
   draw(look: Look, p: PlayerPose): void {
@@ -96,6 +127,11 @@ export class PlayerFigures {
     });
     const item = heldIn(p);
     if (!item) return;
+    if (IS_WEAPON.has(item)) {
+      // dropped as the ink takes them
+      if (p.dying < 0.3) this.carry(item as WeaponKey, r.props[item].node.matrixWorld);
+      return;
+    }
     const own = WEAPON_LOOK.get(item);
     this.figures.add(r.props[item].parts, (part) => {
       if (inkTo > -Infinity && this.at.setFromMatrixPosition(part.node.matrixWorld).y < inkTo) return INK;
@@ -114,9 +150,18 @@ export class PlayerFigures {
 
   end(): void {
     this.figures.end();
+    for (const w of this.weapons.values()) {
+      w.mesh.count = w.used;
+      w.mesh.instanceMatrix.needsUpdate = true;
+    }
   }
 
   dispose(): void {
     this.figures.dispose();
+    // the models are shared (player-props.ts); only the meshes are this renderer's
+    for (const w of this.weapons.values()) {
+      w.mesh.removeFromParent();
+      w.mesh.dispose();
+    }
   }
 }

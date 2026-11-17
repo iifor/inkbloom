@@ -1,6 +1,8 @@
 // What a player can hold, the brush or a weapon: a few soft parts on a joint of the torso, posed
 // by player-hold.ts and gripped by the hands (arm-ik.ts). design: docs/game-design.md section 11.4
 import * as THREE from 'three';
+import { WEAPONS, type WeaponKey } from '@/content/weapons';
+import { heldModel } from '@/systems/tools/viewmodels';
 import type { HeldItem } from '@/world/net/protocol';
 import { type Part, RigBuilder } from './figure';
 
@@ -13,6 +15,41 @@ export interface Prop {
   readonly off: THREE.Vector3 | null;
   /** The far end (muzzle, blade tip, bristles, orb), in its own space. */
   readonly tip: THREE.Vector3;
+}
+
+/** How far each weapon's far end lies from the main hand, as the holds (player-hold.ts) were
+ * laid out for: the models are scaled to it. */
+const REACH: Readonly<Record<WeaponKey, number>> = {
+  rifle: 0.58,
+  sniper: 0.77,
+  launcher: 0.56,
+  katana: 0.8,
+  staff: 0.78,
+};
+
+const models = new Map<WeaponKey, ReturnType<typeof heldModel>>();
+
+/** A weapon as carried: its model (grip at the origin, pointing along -z), the other hand's
+ * place and its far end. Built once and shared by every figure. */
+export function weaponModel(key: WeaponKey): ReturnType<typeof heldModel> {
+  let m = models.get(key);
+  if (!m)
+    models.set(
+      key,
+      (m = heldModel(
+        WEAPONS.find((w) => w.key === key)!,
+        REACH[key],
+      )),
+    );
+  return m;
+}
+
+/** A weapon's joint: no soft parts (the model is drawn there), the hands from the model. */
+function weapon(torso: THREE.Object3D, key: WeaponKey): Prop {
+  const node = new THREE.Object3D();
+  torso.add(node);
+  const m = weaponModel(key);
+  return { node, parts: [], off: m.off?.clone() ?? null, tip: m.tip.clone() };
 }
 
 /** A limb lying along -z from z (at height y): a barrel, a blade, a shaft. */
@@ -56,40 +93,12 @@ export function buildProps(torso: THREE.Object3D): Record<HeldItem, Prop> {
       b.blob(n, 0, 0, -0.33, 0.024, 0.024, 0.03, 'metal');
       b.blob(n, 0, 0, -0.42, 0.036, 0.034, 0.085, 'bristle');
     }),
-    rifle: prop([0, 0, -0.26], [0, 0.06, -0.58], (b, n) => {
-      b.blob(n, 0, 0.05, -0.1, 0.04, 0.05, 0.17, 'main');
-      bar(b, n, -0.25, 0.06, 0.33, 0.018, 'main');
-      b.blob(n, 0, 0.03, -0.27, 0.032, 0.035, 0.08, 'trim');
-      b.blob(n, 0, -0.03, -0.13, 0.025, 0.06, 0.035, 'trim');
-      b.blob(n, 0, -0.02, 0.01, 0.025, 0.055, 0.03, 'trim');
-      b.blob(n, 0, 0.02, 0.14, 0.035, 0.06, 0.12, 'trim');
-    }),
-    sniper: prop([0, 0, -0.24], [0, 0.06, -0.77], (b, n) => {
-      b.blob(n, 0, 0.05, -0.08, 0.038, 0.05, 0.16, 'main');
-      bar(b, n, -0.22, 0.06, 0.55, 0.015, 'main');
-      b.blob(n, 0, 0.035, -0.26, 0.03, 0.032, 0.09, 'main');
-      b.blob(n, 0, 0.13, -0.1, 0.026, 0.026, 0.11, 'trim');
-      b.blob(n, 0, -0.02, 0.01, 0.025, 0.055, 0.03, 'trim');
-      b.blob(n, 0, 0.02, 0.15, 0.035, 0.065, 0.13, 'trim');
-    }),
-    // carried on the shoulder: the tube sits above the grip
-    launcher: prop([0, 0.02, -0.22], [0, 0.14, -0.54], (b, n) => {
-      b.blob(n, 0, 0.14, -0.1, 0.085, 0.085, 0.42, 'main');
-      b.blob(n, 0, 0.14, -0.5, 0.095, 0.095, 0.045, 'trim');
-      b.blob(n, 0, 0.14, 0.3, 0.09, 0.09, 0.05, 'trim');
-      b.blob(n, 0, 0.02, 0, 0.025, 0.06, 0.03, 'trim');
-      b.blob(n, 0, 0.04, -0.22, 0.025, 0.05, 0.03, 'trim');
-    }),
-    // one hand: a wrapped grip, a round guard, a long flat blade
-    katana: prop(null, [0, 0, -0.8], (b, n) => {
-      bar(b, n, 0.11, 0, 0.17, 0.021, 'trim');
-      b.blob(n, 0, 0, -0.07, 0.05, 0.05, 0.014, 'trim');
-      bar(b, n, -0.08, 0, 0.72, 0.014, 'main', 0.034);
-    }),
-    staff: prop([0, 0, -0.18], [0, 0, -0.78], (b, n) => {
-      bar(b, n, 0.55, 0, 1.25, 0.022, 'wood');
-      b.blob(n, 0, 0, -0.78, 0.085, 0.085, 0.085, 'main');
-      for (const sx of [-1, 1]) b.blob(n, sx * 0.06, 0, -0.71, 0.02, 0.02, 0.05, 'trim');
-    }),
+    // the weapons are the first-person models themselves (systems/tools/viewmodels.ts, without
+    // the hands), drawn by player-figure.ts at the prop's joint; here only where the hands go
+    rifle: weapon(torso, 'rifle'),
+    sniper: weapon(torso, 'sniper'),
+    launcher: weapon(torso, 'launcher'),
+    katana: weapon(torso, 'katana'),
+    staff: weapon(torso, 'staff'),
   };
 }

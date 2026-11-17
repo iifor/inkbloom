@@ -85,7 +85,9 @@ class Parts {
 
   /** A hand closed round a grip at `at`, its sleeve running off towards `elbow` (out of view).
    * `side` is 1 for the right hand, -1 for the left. */
-  hand(at: V, elbow: V, h: Hands, side: 1 | -1, rot: V = [0, 0, 0]): void {
+  hand(at: V, elbow: V, h: Hands | null, side: 1 | -1, rot: V = [0, 0, 0]): void {
+    // carried by someone else, the weapon comes without these hands (their own hold it)
+    if (!h) return;
     // fist and thumb, wrapped round the grip
     this.blob(at, [0.034, 0.042, 0.05], h.skin, rot);
     this.blob([at[0] - side * 0.026, at[1] + 0.022, at[2] - 0.016], [0.014, 0.016, 0.028], h.skin, rot);
@@ -106,23 +108,61 @@ class Parts {
 const RIGHT_ELBOW: V = [0.12, -0.46, 0.42];
 const LEFT_ELBOW: V = [-0.42, -0.44, 0.12];
 
-export function viewModel(def: WeaponDef, h: Hands): THREE.BufferGeometry {
+/** Points on each weapon, in weapon space: where the main hand grips it, where the other hand
+ * holds it (none for one hand), and its far end (muzzle, blade tip, the staff's orb). */
+// (the other hand sits as far along as a figure's arms reach in every stance: the front of the
+// receiver, under the sniper's body, the launcher's front grip, up the staff's shaft)
+const POINTS: Readonly<Record<string, { grip: V; off: V | null; tip: V }>> = {
+  rifle: { grip: [0, -0.1, 0.08], off: [0, -0.03, -0.27], tip: [0, 0.01, -0.67] },
+  sniper: { grip: [0, -0.1, 0.09], off: [0, -0.04, -0.26], tip: [0, 0.005, -1.02] },
+  launcher: { grip: [0, -0.13, -0.01], off: [0, -0.08, -0.28], tip: [0, 0, -0.66] },
+  katana: { grip: [0.005, 0.012, 0.08], off: null, tip: [0, 0.062, -0.88] },
+  staff: { grip: [0, -0.285, 0.1], off: [0, -0.28, 0], tip: [0, -0.27, -0.34] },
+};
+
+/** A weapon as someone else carries it: no hands, the main grip at the origin, scaled so its
+ * far end lies `length` from the grip (a figure's hold is laid out for that length). Also where
+ * the other hand goes and where the far end is, in that same space. */
+export function heldModel(
+  def: WeaponDef,
+  length: number,
+): {
+  readonly geometry: THREE.BufferGeometry;
+  readonly off: THREE.Vector3 | null;
+  readonly tip: THREE.Vector3;
+} {
+  const pts = POINTS[def.key]!;
+  const grip = new THREE.Vector3(...pts.grip);
+  const k = length / new THREE.Vector3(...pts.tip).distanceTo(grip);
+  const place = (v: V): THREE.Vector3 => new THREE.Vector3(...v).sub(grip).multiplyScalar(k);
+  const geometry = viewModel(def, null);
+  geometry.applyMatrix4(
+    new THREE.Matrix4()
+      .makeScale(k, k, k)
+      .multiply(new THREE.Matrix4().makeTranslation(-grip.x, -grip.y, -grip.z)),
+  );
+  return { geometry, off: pts.off ? place(pts.off) : null, tip: place(pts.tip) };
+}
+
+export function viewModel(def: WeaponDef, h: Hands | null): THREE.BufferGeometry {
   const p = new Parts();
   const [main, accent] = def.look;
   const wood = color('brown');
   const metal = color('charcoal');
   switch (def.key) {
     case 'katana': {
-      // a gentle curve: the blade rises a little towards its tip
+      // a gentle curve: the blade rises a little towards its tip. In someone else's hand it is
+      // drawn bolder, or a few metres off it is a hairline lost against the grass
       const len = 0.88;
       const steps = 6;
+      const bold = h ? 1 : 2.2;
       for (let i = 0; i < steps; i++) {
         const z0 = -(i / steps) * len;
         const z1 = -((i + 1) / steps) * len;
         const y = (z: number): number => 0.012 + 0.05 * (z / len) ** 2;
         p.box(
           [0, (y(z0) + y(z1)) / 2, (z0 + z1) / 2 - 0.01],
-          [0.012, 0.042 - i * 0.003, len / steps + 0.02],
+          [0.012 * bold, (0.042 - i * 0.003) * Math.sqrt(bold), len / steps + 0.02],
           main,
           0.005,
           [Math.atan2(y(z1) - y(z0), z0 - z1), 0, 0],
