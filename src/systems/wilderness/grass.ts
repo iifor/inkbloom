@@ -54,7 +54,7 @@ export class GrassField {
     uFieldFade: { value: new THREE.Vector2(RADIUS - 8, RADIUS) },
   };
   private readonly grids: Grid[];
-  private readonly windMap: THREE.DataTexture;
+  readonly windMap: THREE.DataTexture;
   private readonly drifts: Noise2D;
   private readonly hues: Noise2D;
 

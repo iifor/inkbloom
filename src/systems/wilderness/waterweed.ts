@@ -6,29 +6,32 @@ import { hashAt, unit } from '@/world/math/hash';
 import { Rng } from '@/world/math/rng';
 import type { WildChunk } from '@/world/wilderness/chunk';
 import { WATER_LEVEL, type Wilderness } from '@/world/wilderness/generator';
+import { sheet } from './plant-geometry';
 
 function ribbons() {
   const g = new GeometryBuilder(),
     rng = new Rng(241);
+  const pose = new THREE.Matrix4();
   for (let i = 0; i < 8; i++) {
-    const a = i * 2.4,
-      dx = Math.cos(a),
-      dz = Math.sin(a),
-      h = rng.range(0.55, 1);
-    const point = (t: number, side: number) => {
-      const r = 0.08 + t * t * 0.44,
-        width = (1 - t * 0.96) * 0.064;
-      return new THREE.Vector3(dx * r - side * dz * width, t * h, dz * r + side * dx * width);
-    };
-    for (let j = 0; j < 3; j++)
-      g.quad(
-        point(j / 3, -1),
-        point(j / 3, 1),
-        point((j + 1) / 3, 1),
-        point((j + 1) / 3, -1),
-        { x: -dx, y: 0.2, z: -dz },
-        i % 3 === 0 ? color('green') : color('forest'),
+    const yaw = 2.4 * i + rng.range(-0.38, 0.38);
+    const height = rng.range(0.4, 1),
+      reach = rng.range(0.28, 0.58);
+    const twist = rng.range(-1.6, 1.6),
+      breadth = rng.range(0.03, 0.057);
+    const sweep = rng.range(-0.14, 0.14);
+    const tall = height > 0.76;
+    const blade = sheet(tall ? 5 : 4, tall ? 2 : 1, (t, side) => {
+      const width = breadth * (0.18 * (1 - t) + 0.98 * Math.sin(Math.PI * t) ** 0.74 + 0.015);
+      const turn = twist * t + 0.45 * Math.sin(3.6 * t);
+      const fold = width * (1 - Math.abs(side)) * 0.34;
+      return new THREE.Vector3(
+        0.028 + reach * t * t + Math.sin(5.2 * t) * 0.058 + side * width * Math.sin(turn) + fold,
+        height * t * (1.14 - 0.27 * t),
+        sweep * Math.sin(3.8 * t) + side * width * Math.cos(turn),
       );
+    });
+    g.meshSmooth(blade, pose.makeRotationY(yaw), i % 3 ? color('forest') : color('teal'));
+    blade.dispose();
   }
   return g.build();
 }
@@ -68,6 +71,7 @@ export class Waterweed {
     mesh.name = '水草';
     plants.forEach((m, i) => mesh.setMatrixAt(i, m));
     mesh.computeBoundingSphere();
+    mesh.boundingSphere!.radius += 0.17;
     this.root.add(mesh);
     return () => {
       mesh.removeFromParent();

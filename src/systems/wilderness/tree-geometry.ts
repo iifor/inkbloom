@@ -64,12 +64,31 @@ function leafSprig(
       ny,
       dz,
     );
+  if (cedar) {
+    const triangle = (a: number, b: number, c: number) => mesh.indices.push(a, b, c, a, c, b);
+    const end = point(1, 0, -0.32, 0.3);
+    triangle(point(0, -0.03, 0, 0.4), point(0, 0.03, 0, 0.4), end);
+    // Four pairs of needles attach to the same drooping shoot, with shorter tips near the bud.
+    for (let i = 0; i < 4; i++) {
+      const t = i * 0.21;
+      for (const side of [-1, 1]) {
+        const reach = t + (1 - t) * 0.42;
+        const spread = side * (0.34 - 0.23 * t);
+        triangle(
+          point(t, 0, -0.32 * t, 0.42),
+          point(t + 0.14, spread * 0.2, -0.32 * t + 0.025, 0.88),
+          point(reach, spread, -0.32 * reach - 0.13, 0.31),
+        );
+      }
+    }
+    return;
+  }
   for (let i = 0; i < 5; i++) {
     const sign = i % 2 ? 1 : -1;
     const t = i * 0.12;
     const end = t + 0.46 + 0.1 * Math.sin(i * 2.2);
     const curl = sign * (0.31 - t * 0.25);
-    const width = cedar ? 0.066 : 0.12;
+    const width = 0.12;
     const root = point(t, 0, -t * 0.44, 0.1);
     const left = point((t + end) * 0.5, curl * 0.58 - width, -t * 0.42 + 0.05, 0.65);
     const right = point((t + end) * 0.5, curl * 0.58 + width, -t * 0.42 + 0.09, 0.88);
@@ -201,8 +220,8 @@ function cedarCrown(distant: boolean): THREE.BufferGeometry {
       const rim = sprayRim.map(([along, side]) =>
         vertex(
           along,
-          side,
-          spread * (0.1 * along * along - Math.abs(side) * 0.31 + 0.05 * Math.sin(phase + 9 * side)),
+          side * 0.84,
+          spread * (0.1 * along * along - Math.abs(side) * 0.4 + 0.07 * Math.sin(phase + 9 * side)),
           along - 0.32,
           0.03,
           side * 1.8,
@@ -233,7 +252,39 @@ function cedarCrown(distant: boolean): THREE.BufferGeometry {
         );
       }
       mesh.cap(shoulder, vertex(0.38, -0.04, 0.3 * spread + 0.025, 0.45, 1, -0.1), true);
-      mesh.cap(rim, vertex(0.38, 0.03, -0.2 * spread, 0.1, -1, 0.1), false);
+      // Roll the underside in towards the branch, following the notched rim even from below.
+      const underside = SPRAY.filter((_, i) => i % 2 === 0).map(([along, side]) =>
+        vertex(
+          0.16 + along * 0.66,
+          side * 0.46,
+          -spread * (0.13 + 0.1 * Math.abs(side)),
+          along - 0.35,
+          -0.68,
+          side * 1.48,
+        ),
+      );
+      for (let i = 0; i < underside.length; i++) {
+        const k = i * 4;
+        const next = underside[(i + 1) % underside.length]!;
+        mesh.indices.push(
+          underside[i]!,
+          rim[k]!,
+          rim[k + 1]!,
+          underside[i]!,
+          rim[k + 1]!,
+          rim[k + 2]!,
+          underside[i]!,
+          rim[k + 2]!,
+          next,
+          next,
+          rim[k + 2]!,
+          rim[k + 3]!,
+          next,
+          rim[k + 3]!,
+          rim[(k + 4) % rim.length]!,
+        );
+      }
+      mesh.cap(underside, vertex(0.41, -0.02, -0.21 * spread, 0.1, -1, 0), false);
       for (const i of [2, 3, 5, 7, 9, 11]) {
         const p = rim[i * 2]! * 3;
         leafSprig(

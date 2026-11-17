@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { PALETTE } from '@/content/palette';
 import { PIGMENT_SOURCES } from '@/content/pigment-sources';
 import { TUNING } from '@/content/tuning';
-import { makeInkMaterial } from '@/engine/render/ink-material';
+import { makeInkMaterial, NO_SHADOW_LAYER } from '@/engine/render/ink-material';
 import type { GameContext } from '@/game/types';
 import { sourceReady } from '@/world/state';
 import type { PigmentSource } from '@/world/wilderness/sources';
@@ -17,23 +17,31 @@ interface Shown {
 
 export class WildSources {
   private readonly shown = new Map<string, Shown>();
-  private readonly flowerMaterial = makeInkMaterial({ side: THREE.DoubleSide });
+  private readonly foliageMaterial = makeInkMaterial({ side: THREE.DoubleSide });
+  private readonly reedMaterial: THREE.ShaderMaterial;
   private checkT = 0;
 
   constructor(
     private readonly ctx: GameContext,
     private readonly material: THREE.Material,
     private readonly root: THREE.Object3D,
-  ) {}
+    wind: THREE.Texture,
+  ) {
+    this.reedMaterial = makeInkMaterial({ side: THREE.DoubleSide, wind, reeds: true });
+  }
 
   /** Show a chunk's sources. Returns a function that removes them again. */
   add(sources: readonly PigmentSource[]): () => void {
     const releases = sources.map((src) => {
-      const flowers = PIGMENT_SOURCES[src.kind]!.key === 'flowers';
+      const kind = PIGMENT_SOURCES[src.kind]!.key;
       const mesh = new THREE.Mesh(
         buildSource(src, this.ctx.wilderness.heightAt),
-        flowers ? this.flowerMaterial : this.material,
+        kind === 'flowers' || kind === 'berries' ? this.foliageMaterial : this.material,
       );
+      if (kind === 'reeds') {
+        mesh.material = this.reedMaterial;
+        mesh.layers.set(NO_SHADOW_LAYER);
+      }
       mesh.visible = sourceReady(this.ctx.state, src.id);
       this.root.add(mesh);
       this.shown.set(src.id, { src, mesh });
@@ -93,6 +101,7 @@ export class WildSources {
   }
 
   dispose(): void {
-    this.flowerMaterial.dispose();
+    this.foliageMaterial.dispose();
+    this.reedMaterial.dispose();
   }
 }

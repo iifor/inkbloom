@@ -55,11 +55,11 @@ export class WildScene implements GameScene {
     this.root.name = 'wild';
     // rolling hills: bodies stand on the height function itself, not on colliders
     this.physics.ground = (x, z) => ctx.wilderness.heightAt(x, z);
-    this.sources = new WildSources(ctx, this.material, this.root);
+    this.grass = new GrassField(ctx.wilderness, this.root, ctx.renderer.camera);
+    this.sources = new WildSources(ctx, this.material, this.root, this.grass.windMap);
     this.monsters = new WildMonsterCamps(ctx, this.physics, this.root, this.material);
     this.ruins = new WildRuins(ctx, this.material, this.root);
     this.marks = new WildMarks(ctx, this.material, this.root);
-    this.grass = new GrassField(ctx.wilderness, this.root, ctx.renderer.camera);
   }
 
   spawn(): { pos: THREE.Vector3; yaw: number } {

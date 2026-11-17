@@ -70,6 +70,9 @@ uniform float uTime;
 uniform vec2 uWind;
 uniform vec2 uWindDrift;
 uniform sampler2D uWindMap;
+#ifdef REEDS
+attribute vec4 aReedRoot;
+#endif
 #ifdef BLADES
 attribute float aBladePhase;
 #endif
@@ -94,6 +97,12 @@ varying vec2 vPlantMark;
 void main() {
   vec3 transformed = position;
   vec3 objectNormal = normal;
+  #if defined(WIND) && defined(BLADES) && defined(USE_INSTANCING_COLOR)
+    // Fixed at the planting site: adjacent tufts open differently even in still air.
+    float habit = fract(3.13 * instanceColor.b + 4.37 * aBladePhase);
+    transformed.y *= 0.79 + 0.40 * habit;
+    transformed.xz *= 1.0 + uv.y * uv.y * (0.24 - 0.43 * habit);
+  #endif
   #ifdef FISH
     vCardUv = uv;
     #ifdef USE_INSTANCING_COLOR
@@ -140,12 +149,18 @@ void main() {
     vTreeView = (viewMatrix * world).xyz;
   #endif
   #ifdef WATERWEED
-    world.xz += vec2(0.075, 0.038) * position.y * position.y * sin(1.25 * uTime + world.x * 0.43 + world.z * 0.35);
+    float current = 1.12 * uTime + world.x * 0.42 + world.z * 0.32 - 2.65 * position.y;
+    world.xz += position.y * position.y * vec2(0.11 * sin(current), 0.057 * sin(0.79 * current + position.x * 2.2));
   #endif
   #ifdef WIND
     vec2 root = modelMatrix[3].xz;
     float height = max(position.y, 0.0);
-    #ifdef USE_INSTANCING
+    float seed = 0.5;
+    #ifdef REEDS
+      root = aReedRoot.xz;
+      height = max(world.y - aReedRoot.y, 0.0);
+      seed = aReedRoot.w;
+    #elif defined(USE_INSTANCING)
       root = (modelMatrix * instanceMatrix[3]).xz;
       height *= instanceMatrix[1].y;
     #endif
@@ -153,7 +168,6 @@ void main() {
     vec2 air = texture2D(uWindMap, (root - uWindDrift) / 96.0).rg;
     float gust = smoothstep(0.22, 0.80, air.r);
     float side = 2.0 * air.g - 1.0;
-    float seed = 0.5;
     #ifdef USE_INSTANCING_COLOR
       seed = instanceColor.b;
     #endif
@@ -162,6 +176,8 @@ void main() {
     #ifdef BLADES
       phase += aBladePhase;
       flex *= uv.y * (0.84 + 0.30 * seed);
+    #elif defined(REEDS)
+      flex *= 0.53 * smoothstep(0.0, 1.6, height);
     #endif
     float flutter = sin(uTime * (2.4 + 0.9 * seed) + 6.2832 * phase + side);
     float speed = length(uWind);
@@ -170,7 +186,11 @@ void main() {
     world.xz += flex * (along * (0.06 + 0.39 * gust + 0.095 * flutter)
                       + across * (0.25 * side + 0.075 * flutter));
     vGust = gust * speed / (3.0 + speed);
-    vTip = clamp(position.y / 0.4, 0.0, 1.0);
+    #ifdef REEDS
+      vTip = smoothstep(0.0, 1.2, height);
+    #else
+      vTip = clamp(position.y / 0.4, 0.0, 1.0);
+    #endif
   #else
     vTip = 1.0;
     vGust = 0.0;
@@ -311,7 +331,7 @@ void main() {
     // a tuft is dark down among the stems and catches the light at the tips
     shade = clamp(shade * mix(0.62, 1.12, vTip), 0.0, 1.0);
     #ifdef BLADES
-      shade *= mix(0.85, 1.00, vCardUv.y) * (0.90 + 0.10 * sin(vCardUv.x * 3.1416));
+      shade *= mix(0.90, 1.00, vCardUv.y) * (0.96 + 0.04 * sin(vCardUv.x * 3.1416));
     #endif
     // a gust turns the blades over and a wave of light runs across the meadow
     shade = clamp(shade + vGust * vTip * 0.18, 0.0, 1.0);
@@ -344,6 +364,8 @@ export interface InkMaterialOptions {
   shadeBias?: number;
   /** World-space gust strength and lateral wind for grass and flowers. */
   wind?: THREE.Texture;
+  /** Merged reed stems carry individual world-space wind roots. */
+  reeds?: boolean;
   waterweed?: boolean;
   /** Shaped grass ribbons with a soft edge instead of a cutout texture. */
   blades?: boolean;
@@ -392,6 +414,7 @@ export function makeInkMaterial(opts: InkMaterialOptions = {}): THREE.ShaderMate
       ...(opts.fishPaint ? { FISH: '' } : {}),
       ...(opts.waterweed ? { WATERWEED: '' } : {}),
       ...(opts.wind ? { WIND: '' } : {}),
+      ...(opts.reeds ? { REEDS: '' } : {}),
       ...(opts.blades ? { BLADES: '' } : {}),
       ...(opts.field ? { FIELD: '' } : {}),
     },

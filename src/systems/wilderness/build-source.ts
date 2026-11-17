@@ -10,14 +10,17 @@ import type { PigmentSource } from '@/world/wilderness/sources';
 
 import type { Wilderness } from '@/world/wilderness/generator';
 import { addPigmentFlowers } from './pigment-flowers';
+import { addPigmentBerries } from './pigment-berries';
+import { buildPigmentReeds } from './pigment-reeds';
 
 const ico = new THREE.IcosahedronGeometry(1, 0);
 const cube = new THREE.BoxGeometry(1, 1, 1);
 
 export function buildSource(src: PigmentSource, ground: Wilderness['heightAt']): THREE.BufferGeometry {
   const def = PIGMENT_SOURCES[src.kind]!;
-  const g = new GeometryBuilder();
   const rng = new Rng(hashString(src.id));
+  if (def.key === 'reeds') return buildPigmentReeds(src, ground, rng);
+  const g = new GeometryBuilder();
   const m = new THREE.Matrix4();
   const at = (x: number, y: number, z: number, sx: number, sy: number, sz: number, rot = 0): THREE.Matrix4 =>
     m.compose(
@@ -30,16 +33,7 @@ export function buildSource(src: PigmentSource, ground: Wilderness['heightAt']):
       addPigmentFlowers(g, src, ground, rng);
       break;
     case 'berries':
-      g.mesh(ico, at(0, 0.8, 0, 1.4, 1, 1.4, rng.next()), def.base, ALWAYS_COLOR);
-      for (let i = 0; i < 7; i++) {
-        const a = rng.range(0, Math.PI * 2);
-        g.mesh(
-          ico,
-          at(Math.cos(a) * 1.25, rng.range(0.5, 1.4), Math.sin(a) * 1.25, 0.22, 0.22, 0.22),
-          src.color,
-          ALWAYS_COLOR,
-        );
-      }
+      addPigmentBerries(g, src, ground, rng);
       break;
     case 'ore':
       g.mesh(ico, at(0, 0.6, 0, 1.5, 1.1, 1.3, rng.next()), def.base, ALWAYS_COLOR);
@@ -51,15 +45,6 @@ export function buildSource(src: PigmentSource, ground: Wilderness['heightAt']):
           src.color,
           ALWAYS_COLOR,
         );
-      }
-      break;
-    case 'reeds':
-      for (let i = 0; i < 12; i++) {
-        const x = rng.range(-1.3, 1.3);
-        const z = rng.range(-1.3, 1.3);
-        const h = rng.range(1.2, 2.2);
-        g.mesh(cube, at(x, h / 2, z, 0.07, h, 0.07), def.base, ALWAYS_COLOR);
-        g.mesh(cube, at(x, h, z, 0.16, 0.4, 0.16), src.color, ALWAYS_COLOR);
       }
       break;
     case 'shells':
