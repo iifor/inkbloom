@@ -11,7 +11,9 @@ import { makeInkMaterial } from '@/engine/render/ink-material';
 import type { GameContext } from '@/game/types';
 import type { ActKind } from '@/world/net/protocol';
 import { stats } from '@/world/progression';
+import { defaultLook, type Look } from '@/content/characters';
 import { ShotFx } from './shot-fx';
+import { type Hands, handsOf, viewModel } from './viewmodels';
 import type { Tool, ToolHud } from './tool';
 
 /** How fast the viewmodel settles after a shot (per second, exponential). */
@@ -67,56 +69,6 @@ interface Burst {
   t: number;
 }
 
-const always = {
-  px: ALWAYS_COLOR,
-  nx: ALWAYS_COLOR,
-  pz: ALWAYS_COLOR,
-  nz: ALWAYS_COLOR,
-  py: ALWAYS_COLOR,
-  ny: ALWAYS_COLOR,
-};
-const solid = (c: number) => ({ px: c, nx: c, pz: c, nz: c, py: c, ny: c });
-
-function viewModel(def: WeaponDef): THREE.BufferGeometry {
-  const g = new GeometryBuilder();
-  const [main, accent] = def.look;
-  const box = (x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, c: number): void =>
-    g.box({ x: x0, y: y0, z: z0 }, { x: x1, y: y1, z: z1 }, solid(c), always);
-  switch (def.key) {
-    case 'katana':
-      box(-0.02, -0.02, -0.9, 0.02, 0.05, 0, main); // blade
-      box(-0.06, -0.04, 0, 0.06, 0.07, 0.03, accent); // guard
-      box(-0.025, -0.03, 0.03, 0.025, 0.04, 0.28, accent); // grip
-      break;
-    case 'sniper':
-      box(-0.035, -0.05, -0.3, 0.035, 0.04, 0.15, main);
-      box(-0.014, -0.01, -0.95, 0.014, 0.018, -0.3, main);
-      box(-0.03, 0.04, -0.25, 0.03, 0.1, 0.05, accent); // scope
-      box(-0.04, -0.07, 0.15, 0.04, 0.03, 0.33, accent);
-      break;
-    case 'launcher':
-      box(-0.08, -0.09, -0.6, 0.08, 0.07, 0.25, main);
-      box(-0.03, -0.2, -0.05, 0.03, -0.09, 0.03, accent);
-      break;
-    case 'staff': {
-      box(-0.02, -0.3, -0.25, 0.02, -0.26, 0.45, accent); // shaft, angled by the pose
-      g.mesh(
-        new THREE.IcosahedronGeometry(0.08, 0),
-        new THREE.Matrix4().makeTranslation(0, -0.27, -0.33),
-        main,
-        ALWAYS_COLOR,
-      );
-      break;
-    }
-    default: // rifle
-      box(-0.04, -0.05, -0.3, 0.04, 0.04, 0.12, main);
-      box(-0.018, -0.01, -0.62, 0.018, 0.022, -0.3, main);
-      box(-0.035, -0.16, -0.08, 0.035, -0.05, 0, accent);
-      box(-0.045, -0.07, 0.12, 0.045, 0.03, 0.3, accent);
-  }
-  return g.build();
-}
-
 export class WeaponSlot implements Tool {
   readonly id = 'weapons';
   private readonly held = new Map<string, Held>();
@@ -149,6 +101,10 @@ export class WeaponSlot implements Tool {
   private readonly dir = new THREE.Vector3();
   /** Whether the last frame was in the arena (going in or out rearms every weapon). */
   private wasInArena = false;
+  /** The hands holding the weapons: the player's skin and coat. */
+  private hands: Hands = handsOf(defaultLook('courier'));
+  /** Held weapons are painted like the people: brush strokes on every part. */
+  private readonly viewMaterial = makeInkMaterial({ cloth: true });
 
   constructor(private readonly ctx: GameContext) {
     this.fx = new ShotFx(ctx, this.material, color('cream'), color('yellow'));
@@ -198,11 +154,20 @@ export class WeaponSlot implements Tool {
       if (this.held.has(key)) continue;
       const def = WEAPONS.find((w) => w.key === key);
       if (!def) continue;
-      const view = new THREE.Mesh(viewModel(def), this.material);
+      const view = new THREE.Mesh(viewModel(def, this.hands), this.viewMaterial);
       view.visible = false;
       view.frustumCulled = false;
       this.ctx.renderer.camera.add(view);
       this.held.set(key, { def, view, mag: def.magazine, reloading: 0, cooldown: 0, skillT: 0 });
+    }
+  }
+
+  /** The player's character changed: their own hands and sleeves on every weapon. */
+  setLook(look: Look): void {
+    this.hands = handsOf(look);
+    for (const h of this.held.values()) {
+      h.view.geometry.dispose();
+      h.view.geometry = viewModel(h.def, this.hands);
     }
   }
 

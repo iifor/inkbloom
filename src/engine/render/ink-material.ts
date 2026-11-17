@@ -165,10 +165,14 @@ void main() {
     vTreePosition = world.xyz;
     vTreeView = (viewMatrix * world).xyz;
   #endif
-  #if defined(CLOTH) && defined(USE_INSTANCING)
+  #ifdef CLOTH
     // where on its part this point is, in metres, turning with the part: the strokes are
     // painted on the cloth and move with it rather than sliding over it
-    vCloth = mat3(instanceMatrix) * position;
+    #ifdef USE_INSTANCING
+      vCloth = mat3(instanceMatrix) * position;
+    #else
+      vCloth = position;
+    #endif
   #endif
   #ifdef WATERWEED
     float current = 1.12 * uTime + world.x * 0.42 + world.z * 0.32 - 2.65 * position.y;

@@ -8,9 +8,8 @@
 import * as THREE from 'three';
 import { ARENA } from '@/content/arena';
 import { color } from '@/content/palette';
-import type { WeaponKey } from '@/content/weapons';
+import { WEAPONS, type WeaponKey } from '@/content/weapons';
 import { turnedBox } from '@/engine/physics/world';
-import { ALWAYS_COLOR, GeometryBuilder } from '@/engine/render/geometry-builder';
 import { makeInkMaterial, shared } from '@/engine/render/ink-material';
 import type { ArenaApi, GameContext, System, TargetHit, TargetSource } from '@/game/types';
 import { bodyBox, chest, headBox, rayBox } from '@/world/arena/hits';
@@ -21,6 +20,7 @@ import type { NetSystem } from '@/systems/net/net-system';
 import type { RemotePlayers } from '@/systems/net/remote-players';
 import type { WeaponSlot } from '@/systems/tools/weapons';
 import type { WildScene } from '@/systems/wilderness/wild-scene';
+import { buildArena } from './arena-build';
 
 /** Team colours, over each player's own accent. */
 export const TEAM_COLORS = [color('red'), color('blue')] as const;
@@ -137,7 +137,18 @@ export class ArenaSystem implements System, ArenaApi {
         break;
       }
       case 'act':
-        if (m.from !== this.me) this.weapons.seen(m.w, m.k, v3(m.o), v3(m.d));
+        if (m.from !== this.me) {
+          this.weapons.seen(m.w, m.k, v3(m.o), v3(m.d));
+          // their figure acts it out, holding the weapon in its colour
+          const def = WEAPONS.find((x) => x.key === m.w)!;
+          const kind =
+            m.k === 'strike' || m.k === 'slash'
+              ? 'swing'
+              : m.k === 'shield' || m.k === 'focus'
+                ? 'aim'
+                : 'shoot';
+          this.remote.attack(m.from, def.look[0], kind);
+        }
         break;
       case 'hit': {
         this.updateMember(m.to, { hp: m.hp });
@@ -312,56 +323,19 @@ export class ArenaSystem implements System, ArenaApi {
   private build(): void {
     const { site } = this;
     const w = this.ctx.wilderness;
-    const g = new GeometryBuilder();
     const W = ARENA.wall;
-    const ink = color('ink');
     const corner = (a: number, r: number, up: number): THREE.Vector3 => {
       const x = site.x + Math.cos(a) * r;
       const z = site.z + Math.sin(a) * r;
       return new THREE.Vector3(x, w.heightAt(x, z) + up, z);
     };
-    /** A quad facing `n`, wound whichever way faces it. */
-    const face = (
-      a: THREE.Vector3,
-      b: THREE.Vector3,
-      c: THREE.Vector3,
-      d: THREE.Vector3,
-      n: THREE.Vector3,
-    ): void => {
-      const turn = new THREE.Vector3().subVectors(b, a).cross(new THREE.Vector3().subVectors(c, a));
-      if (turn.dot(n) >= 0) g.quad(a, b, c, d, n, ink, ALWAYS_COLOR);
-      else g.quad(a, d, c, b, n, ink, ALWAYS_COLOR);
-    };
     const inner = site.radius;
     const outer = site.radius + W.thickness;
+    // colliders: each stretch of wall as a turned box, a little long so stretches overlap
     for (let i = 0; i < W.segments; i++) {
       const a0 = (i / W.segments) * Math.PI * 2;
       const a1 = ((i + 1) / W.segments) * Math.PI * 2;
       const mid = (a0 + a1) / 2;
-      const out = new THREE.Vector3(Math.cos(mid), 0, Math.sin(mid));
-      // inner and outer faces, from below the ground to the wall's height over it, and the top
-      face(
-        corner(a0, inner, -1),
-        corner(a1, inner, -1),
-        corner(a1, inner, W.height),
-        corner(a0, inner, W.height),
-        out.clone().negate(),
-      );
-      face(
-        corner(a0, outer, -1),
-        corner(a1, outer, -1),
-        corner(a1, outer, W.height),
-        corner(a0, outer, W.height),
-        out,
-      );
-      face(
-        corner(a0, inner, W.height),
-        corner(a1, inner, W.height),
-        corner(a1, outer, W.height),
-        corner(a0, outer, W.height),
-        new THREE.Vector3(0, 1, 0),
-      );
-      // the collider: the segment as a turned box, a little long so segments overlap
       const cx = site.x + Math.cos(mid) * (inner + W.thickness / 2);
       const cz = site.z + Math.sin(mid) * (inner + W.thickness / 2);
       const lo = Math.min(corner(a0, inner, 0).y, corner(a1, inner, 0).y) - 1;
@@ -381,21 +355,11 @@ export class ArenaSystem implements System, ArenaApi {
         (min, max, data) => this.wild.physics.addBox('arena', min, max, data),
       );
     }
-    const stone = color('rock');
-    const all = { px: stone, nx: stone, py: stone, ny: stone, pz: stone, nz: stone };
-    const always = {
-      px: ALWAYS_COLOR,
-      nx: ALWAYS_COLOR,
-      py: ALWAYS_COLOR,
-      ny: ALWAYS_COLOR,
-      pz: ALWAYS_COLOR,
-      nz: ALWAYS_COLOR,
-    };
-    for (const b of site.cover) {
-      g.box(b.min, b.max, all, always);
-      this.wild.physics.addBox('arena', b.min, b.max);
-    }
-    const mesh = new THREE.Mesh(g.build(), this.material);
+    for (const b of site.cover) this.wild.physics.addBox('arena', b.min, b.max);
+    const mesh = new THREE.Mesh(
+      buildArena(site, (x, z) => w.heightAt(x, z)),
+      this.material,
+    );
     mesh.frustumCulled = false;
     this.root.add(mesh);
     this.wild.root.add(this.root);

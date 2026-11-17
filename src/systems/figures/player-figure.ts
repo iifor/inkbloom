@@ -37,6 +37,14 @@ export interface PlayerPose {
   readonly dying: number;
   /** Seconds, for breathing and trailing cloth. */
   readonly t: number;
+  /** 0..1 holding a weapon up along the line of sight (after firing, in the arena). */
+  readonly aim?: number;
+  /** 0..1 a shot's kick, easing off. */
+  readonly kick?: number;
+  /** 0..1 through a sword's sweep across the body, or -1 (or absent) for none. */
+  readonly swing?: number;
+  /** The weapon in hand while aiming or swinging, as its colour; absent for none. */
+  readonly held?: number;
 }
 
 /** Something that trails behind: it swings back with speed and sways at rest. */
@@ -60,6 +68,8 @@ interface Rig {
   readonly legR: THREE.Object3D;
   readonly shinL: THREE.Object3D;
   readonly shinR: THREE.Object3D;
+  /** The weapon in the right hand (shown only while aiming or swinging). */
+  readonly held: THREE.Object3D;
   readonly trails: readonly Trail[];
   readonly hipsY: number;
   readonly parts: Part[];
@@ -137,6 +147,8 @@ function body(b: RigBuilder, o: BodyOpts) {
   };
   const [armL, foreL] = arm(-1);
   const [armR, foreR] = arm(1);
+  // the weapon carries on from the right hand along the forearm, so pointing the arm aims it
+  const held = b.limb(foreR, 0, -0.29, 0, 0.62, 0.035, 'held', 0.03).joint;
   b.blob(torso, 0, 0.5, 0, 0.06, 0.06, 0.06, 'skin');
   const head = b.joint(torso, 0, 0.53, 0);
   b.blob(head, 0, 0.15, 0, 0.14, 0.16, 0.145, 'skin');
@@ -149,7 +161,7 @@ function body(b: RigBuilder, o: BodyOpts) {
     b.blob(head, sx * 0.052, 0.16, -0.132 - o.faceZ, 0.027, 0.038, 0.018, 'eye');
     b.blob(head, sx * 0.088, 0.105, -0.118 - o.faceZ, 0.032, 0.018, 0.014, 'blush');
   }
-  return { root, hips, torso, head, armL, armR, foreL, foreR, legL, legR, shinL, shinR };
+  return { root, hips, torso, head, armL, armR, foreL, foreR, legL, legR, shinL, shinR, held };
 }
 
 /** A joint that trails behind; parts hung from it swing with it. */
@@ -420,6 +432,32 @@ function pose(r: Rig, p: PlayerPose): void {
     r.armR.rotation.set(-0.3, 0, 0.6);
     lift = 0.6;
   }
+  // a weapon up: both arms forward along the line of sight (the right one holding it), the
+  // body turned a little side-on; each shot kicks the arms back
+  const aim = p.aim ?? 0;
+  const swingT = p.swing ?? -1;
+  if (aim > 0 && swingT < 0 && !p.swim && !p.glide) {
+    const kick = (p.kick ?? 0) * 0.3;
+    const up = 1.45 + p.pitch;
+    r.armR.rotation.set(THREE.MathUtils.lerp(r.armR.rotation.x, up - kick, aim), 0, -0.15 * aim);
+    r.armL.rotation.set(THREE.MathUtils.lerp(r.armL.rotation.x, up + 0.1 - kick, aim), 0, 0.55 * aim);
+    r.foreR.rotation.x = THREE.MathUtils.lerp(r.foreR.rotation.x, 0.1, aim);
+    r.foreL.rotation.x = THREE.MathUtils.lerp(r.foreL.rotation.x, 0.45, aim);
+    r.torso.rotation.y = -0.25 * aim;
+    r.torso.rotation.x += kick * 0.15;
+  }
+  if (swingT >= 0 && !p.swim && !p.glide) {
+    // a sword sweep: wound up over the right shoulder, then across and down to the left
+    const k = swingT < 0.25 ? swingT / 0.25 : 1;
+    const back = 1 - k;
+    r.armR.rotation.set(2.6 * back + 1.1 * k, 0, 0.9 * back - 0.7 * k);
+    r.foreR.rotation.x = 0.5 * back + 0.15 * k;
+    r.armL.rotation.set(0.8, 0, 0.3);
+    r.torso.rotation.y = 0.45 * back - 0.55 * k;
+  }
+  // the weapon shows only while it is up
+  const shown = p.held !== undefined && (aim > 0.05 || swingT >= 0) ? 1 : 0;
+  r.held.scale.setScalar(shown);
   if (p.hurt > 0) {
     r.torso.rotation.x += p.hurt * 0.35;
     r.head.rotation.x += p.hurt * 0.3;
@@ -496,6 +534,8 @@ export class PlayerFigures {
           return FACE.eye;
         case 'blush':
           return FACE.blush;
+        case 'held':
+          return p.held ?? INK;
         default:
           return fixed.get(part.paint) ?? INK;
       }

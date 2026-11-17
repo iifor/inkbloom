@@ -34,6 +34,13 @@ interface Remote {
   dying: number;
   /** A team colour over their own accent, or null. */
   accent: number | null;
+  /** Seconds left holding a weapon up, a shot's kick (1 easing to 0), and a sword sweep
+   * (0..1 through it, -1 for none). */
+  aimT: number;
+  kick: number;
+  swing: number;
+  /** The colour of the weapon in hand (shown while aiming or swinging). */
+  held: number | undefined;
   /** Where they are drawn this frame (feet), followed by hit markers and health bars. */
   readonly at: { x: number; y: number; z: number; yaw: number };
   drawn: boolean;
@@ -41,6 +48,9 @@ interface Remote {
 
 /** Seconds to go all the way down in ink. */
 const FALL = 1.2;
+/** Seconds a weapon stays up after a shot, and a sword sweep lasts. */
+const AIM_HOLD = 2.5;
+const SWING_TIME = 0.4;
 
 /** The motion between two samples at time t (positions and angles eased, flags from the later). */
 export function interpolate(samples: readonly Sample[], t: number): Motion | null {
@@ -97,6 +107,10 @@ export class RemotePlayers implements System {
         hurt: 0,
         dying: -1,
         accent: null,
+        aimT: 0,
+        kick: 0,
+        swing: -1,
+        held: undefined,
         at: { x: 0, y: 0, z: 0, yaw: 0 },
         drawn: false,
       });
@@ -112,6 +126,16 @@ export class RemotePlayers implements System {
   /** Who is drawn, standing, right now. */
   standing(): number[] {
     return [...this.players].filter(([, r]) => r.drawn && r.dying < 0).map(([id]) => id);
+  }
+
+  /** They attacked (the arena relays it): raise the weapon, kick, or sweep the sword. */
+  attack(id: number, weapon: number, kind: 'aim' | 'shoot' | 'swing'): void {
+    const r = this.players.get(id);
+    if (!r) return;
+    r.held = weapon;
+    r.aimT = AIM_HOLD;
+    if (kind === 'shoot') r.kick = 1;
+    if (kind === 'swing') r.swing = 0;
   }
 
   flinch(id: number): void {
@@ -167,6 +191,9 @@ export class RemotePlayers implements System {
         continue;
       }
       r.hurt = Math.max(0, r.hurt - dt * 4);
+      r.aimT = Math.max(0, r.aimT - dt);
+      r.kick = Math.max(0, r.kick - dt * 6);
+      if (r.swing >= 0) r.swing = r.swing + dt / SWING_TIME > 1 ? -1 : r.swing + dt / SWING_TIME;
       if (r.dying >= 0) r.dying = Math.min(1, r.dying + dt / FALL);
       r.at.x = m.p[0];
       r.at.y = m.p[1];
@@ -191,6 +218,11 @@ export class RemotePlayers implements System {
         hurt: r.hurt,
         dying: r.dying,
         t: this.t,
+        // up quickly, down over the last half second
+        aim: r.dying >= 0 ? 0 : Math.min(1, r.aimT / 0.5),
+        kick: r.kick,
+        swing: r.swing,
+        held: r.held,
       });
       if (r.dying >= 0) this.tags.remove(id);
       else

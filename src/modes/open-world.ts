@@ -49,6 +49,8 @@ export interface OpenWorld {
   readonly ctx: GameContext;
   readonly scenes: SceneManager;
   readonly belt: ToolBelt;
+  /** The weapons in hand (drawn with the player's own hands). */
+  readonly weapons: WeaponSlot;
   readonly save: SaveSystem;
   readonly loop: Loop;
   readonly audio: AudioSystem;
@@ -248,6 +250,7 @@ export function startOpenWorld(opts: {
     ctx,
     scenes,
     belt,
+    weapons,
     save,
     playtest,
     loop,

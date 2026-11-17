@@ -165,6 +165,8 @@ async function boot(): Promise<void> {
   apply(settings);
 
   let profile = loadProfile(kv);
+  // the hands holding the weapons are this character's
+  if (profile) game.weapons.setLook(profile.look);
   const preview = new CharacterPreview(game.ctx);
   const world = state;
   const input = game.ctx.input;
@@ -205,6 +207,7 @@ async function boot(): Promise<void> {
     saveProfile(p) {
       saveProfile(kv, p);
       profile = loadProfile(kv);
+      if (profile) game.weapons.setLook(profile.look);
     },
     preview: (look) => preview.show(look),
     accents: () => world.unlocked.filter((c) => PALETTE[c]?.paintable),
