@@ -8,6 +8,7 @@
 // leaves, spinning and tumbling on the wind.
 import * as THREE from 'three';
 import { SEASONS } from '@/content/seasons';
+import { shared } from './ink-material';
 
 /** Metres across the box of drops around the camera. */
 const BOX = 36;
@@ -36,8 +37,13 @@ uniform sampler2D uDepth;
 uniform vec2 uRes;
 uniform float uNear;
 uniform float uFar;
+uniform float uReversedDepth;
 varying float vDepth;
-float linDepth(float z) { float zn = z * 2.0 - 1.0; return 2.0 * uNear * uFar / (uFar + uNear - zn * (uFar - uNear)); }
+float linDepth(float z) {
+  if (uReversedDepth > 0.5) return uNear * uFar / (uNear + z * (uFar - uNear));
+  float zn = z * 2.0 - 1.0;
+  return 2.0 * uNear * uFar / (uFar + uNear - zn * (uFar - uNear));
+}
 /** 0 where something in the scene is in front of this fragment. */
 float visible() {
   float scene = linDepth(texture2D(uDepth, gl_FragCoord.xy / uRes).x);
@@ -235,6 +241,7 @@ export class Precipitation {
       uRes: { value: new THREE.Vector2(2, 2) },
       uNear: { value: 0.1 },
       uFar: { value: 500 },
+      uReversedDepth: shared.uReversedDepth,
     };
     const drops = (frag: string, vert: string, extra: Record<string, THREE.IUniform>): THREE.ShaderMaterial =>
       new THREE.ShaderMaterial({

@@ -5,7 +5,7 @@
 import * as THREE from 'three';
 import { TUNING } from '@/content/tuning';
 import { PhysicsWorld } from '@/engine/physics/world';
-import { SurfaceStateTexture, makeInkMaterial } from '@/engine/render/ink-material';
+import { SurfaceStateTexture, makeInkMaterial, shared } from '@/engine/render/ink-material';
 import { disposeTree } from '@/engine/resources';
 import type { GameContext, GameScene } from '@/game/types';
 import { type CityLayout, groundAt } from '@/world/city/layout';
@@ -68,10 +68,12 @@ export class CityScene implements GameScene {
     });
     this.texture = new SurfaceStateTexture(this.states);
     this.material = makeInkMaterial({ state: this.texture });
-    // the town's ground lies on the land's own triangles: draw it in front of them
+    // the town's ground lies on the land's own triangles: draw it in front of them (towards
+    // the eye is up the depth range when depth runs the other way)
+    const towards = shared.uReversedDepth.value ? 1 : -1;
     this.material.polygonOffset = true;
-    this.material.polygonOffsetFactor = -1;
-    this.material.polygonOffsetUnits = -2;
+    this.material.polygonOffsetFactor = towards;
+    this.material.polygonOffsetUnits = 2 * towards;
     // geometry and colliders worked out ahead of time in the city worker, when they are ready
     const built = ctx.cities.takeBuilt(layout.id);
     let geometry: THREE.BufferGeometry;

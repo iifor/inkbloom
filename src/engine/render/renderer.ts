@@ -33,6 +33,7 @@ uniform sampler2D tDepth;
 uniform vec2 uRes;
 uniform float uNear;
 uniform float uFar;
+uniform float uReversedDepth;
 uniform float uAspect;
 uniform vec3 uColors[${MAX_COLORS}];
 uniform float uSolid[${MAX_COLORS}];
@@ -89,7 +90,11 @@ float fbm(vec2 p) {
 /** Two octaves: enough for broad shapes (cloud warping, far ridges, fields of colour). The
  * constant stands in for the dropped octaves' average, so it centres where fbm does. */
 float fbm2(vec2 p) { return 0.5 * vnoise(p) + 0.24 * vnoise(p * 2.03 + 17.1) + 0.085; }
-float linDepth(float z) { float zn = z * 2.0 - 1.0; return 2.0 * uNear * uFar / (uFar + uNear - zn * (uFar - uNear)); }
+float linDepth(float z) {
+  if (uReversedDepth > 0.5) return uNear * uFar / (uNear + z * (uFar - uNear));
+  float zn = z * 2.0 - 1.0;
+  return 2.0 * uNear * uFar / (uFar + uNear - zn * (uFar - uNear));
+}
 // palette lookups index the uniform arrays directly (WebGL 2 allows it): one read, not a scan
 int indexOf(float code) { return clamp(int(floor(code + 0.0005)), 0, ${MAX_COLORS} - 1); }
 vec3 paletteColor(float code) { return uColors[indexOf(code)]; }
@@ -241,12 +246,16 @@ vec3 wakeLight(vec2 surface, float surfaceDist) {
 void main() {
   vec2 px = 1.0 / uRes;
   vec4 s = texture2D(tScene, vUv);
-  float z = texture2D(tDepth, vUv).x;
-  float d = linDepth(z);
-  bool sky = z >= 0.99999;
+  float raw = texture2D(tDepth, vUv).x;
+  float d = linDepth(raw);
+  bool sky = uReversedDepth > 0.5 ? raw <= 0.0 : raw >= 0.99999;
   vec2 pp = gl_FragCoord.xy;
-  vec4 cp = uInvProj * vec4(vUv * 2.0 - 1.0, z * 2.0 - 1.0, 1.0);
-  vec3 vpos = cp.xyz / cp.w;
+  // the view ray through this pixel, then out along it to the linear depth: unprojecting the
+  // stored depth instead would round far off, and the brushwork keyed to world positions
+  // would swim on distant houses
+  vec4 cn = uInvProj * vec4(vUv * 2.0 - 1.0, -1.0, 1.0);
+  vec3 ray = cn.xyz / cn.w;
+  vec3 vpos = sky ? ray : ray * (d / -ray.z);
   vec3 rd = normalize(mat3(uInvView) * normalize(vpos));
   float skySat = uSkySat * (1.0 - uGloom);
   vec3 col;
@@ -749,7 +758,23 @@ export class InkRenderer {
       antialias: false,
       powerPreference: 'high-performance',
       stencil: false,
+      // Depth runs from 1 at the eye to 0 far off, into a float buffer: precision then holds
+      // all the way out, so a window frame a centimetre off its wall does not flicker on a
+      // town a few hundred metres away. Where the browser cannot, depth runs the usual way.
+      reverseDepthBuffer: true,
     });
+    shared.uReversedDepth.value = this.renderer.capabilities.reverseDepthBuffer ? 1 : 0;
+    if (shared.uReversedDepth.value) {
+      // three (r170) turns depth round with the clip range and the clear value still set for
+      // the usual way: depth would land in 0.5..1 (no precision gained) and clear to the near
+      // end. Put both right: clip depth to 0..1, and clear to the far end through three's own
+      // state (a different value first, or it thinks nothing changed).
+      const ext = this.renderer.extensions.get('EXT_clip_control');
+      ext.clipControlEXT(ext.LOWER_LEFT_EXT, ext.ZERO_TO_ONE_EXT);
+      const depth = this.renderer.state.buffers.depth;
+      depth.setClear(0.5);
+      depth.setClear(1);
+    }
     if (!this.renderer.extensions.has('EXT_color_buffer_float')) {
       this.renderer.dispose();
       throw new Error('需要支持浮点渲染目标的 WebGL 2');
@@ -819,6 +844,7 @@ export class InkRenderer {
         uAspect: { value: 1 },
         uNear: { value: this.camera.near },
         uFar: { value: this.camera.far },
+        uReversedDepth: shared.uReversedDepth,
         uColors: { value: colors },
         uSolid: { value: perColor((c) => (c.solid ? 1 : 0), 0) },
         uTexture: { value: perColor((c) => c.texture ?? 0.25, 0.25) },
