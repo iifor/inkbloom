@@ -13,6 +13,7 @@ export const SOUNDS = {
   stepSnow: takes('footstep_snow'),
   stepStone: takes('footstep_concrete'),
   stepSoft: takes('footstep_carpet'),
+  stepWood: takes('footstep_wood'),
   // hits (Kenney, Impact Sounds)
   hitWall: takes('impactGeneric_light'),
   hitSoft: takes('impactSoft_medium'),

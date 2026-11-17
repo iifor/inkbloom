@@ -5,12 +5,10 @@ const dry = (footing: Ground['footing']): Ground => ({ footing, snow: 0, wet: 0,
 
 describe('footsteps', () => {
   it('each kind of ground sounds different', () => {
-    const sounds = (['grass', 'stone', 'sand', 'rock', 'shallows'] as const).map((f) =>
-      JSON.stringify(stepLayers(dry(f), 0)),
-    );
-    expect(new Set(sounds).size).toBe(5);
-    for (const f of ['grass', 'stone', 'sand', 'rock', 'shallows'] as const)
-      expect(stepLayers(dry(f), 0)).toHaveLength(1);
+    const all = ['grass', 'stone', 'sand', 'rock', 'trail', 'wood', 'shallows'] as const;
+    const sounds = all.map((f) => JSON.stringify(stepLayers(dry(f), 0)));
+    expect(new Set(sounds).size).toBe(all.length);
+    for (const f of all) expect(stepLayers(dry(f), 0)).toHaveLength(1);
   });
 
   it('left and right feet differ a little', () => {
@@ -41,6 +39,8 @@ describe('footsteps', () => {
     expect(stepRecording(dry('grass'), 0)!.key).toBe('stepGrass');
     expect(stepRecording(dry('stone'), 0)!.key).toBe('stepStone');
     expect(stepRecording(dry('sand'), 0)!.key).toBe('stepSoft');
+    expect(stepRecording(dry('wood'), 0)!.key).toBe('stepWood');
+    expect(stepRecording(dry('trail'), 0)!.key).toBe('stepSoft');
     expect(stepRecording(dry('shallows'), 0)).toBeNull();
     expect(stepRecording({ footing: 'grass', snow: 1, wet: 1, leaves: 1 }, 0)).toMatchObject({
       key: 'stepSnow',

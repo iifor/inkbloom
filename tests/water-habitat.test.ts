@@ -26,9 +26,10 @@ it('interpolates the sandy riverbed across terrain vertices and adjoining chunk 
       soil = mesh.getAttribute('aColor');
     const samples = new Map<number, number>();
     for (let i = 0; i < pos.count; i++) {
-      if (pos.getX(i) !== chunk.n * chunk.cell) continue;
       const z = pos.getZ(i),
         code = soil.getX(i);
+      // the terrain's own soil (blend codes are negative), not footpaths laid over it
+      if (pos.getX(i) !== chunk.n * chunk.cell || code >= 0) continue;
       if (samples.has(z)) expect(code).toBe(samples.get(z));
       samples.set(z, code);
     }

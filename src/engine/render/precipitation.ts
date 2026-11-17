@@ -32,7 +32,9 @@ export interface PrecipitationLook {
   readonly litterSeason: number;
 }
 
-const common = /* glsl */ `
+/** Depth test for things drawn over the finished frame: `visible()` is 0 where the scene is in
+ * front (walls, hills). Uniforms uDepth, uRes, uNear, uFar, uReversedDepth; varying vDepth. */
+export const OVERLAY_DEPTH = /* glsl */ `
 uniform sampler2D uDepth;
 uniform vec2 uRes;
 uniform float uNear;
@@ -79,7 +81,7 @@ void main() {
 
 const rainFrag = /* glsl */ `
 precision highp float;
-${common}
+${OVERLAY_DEPTH}
 uniform vec3 uColor;
 varying float vFade;
 void main() {
@@ -106,7 +108,7 @@ void main() {
 
 const snowFrag = /* glsl */ `
 precision highp float;
-${common}
+${OVERLAY_DEPTH}
 uniform vec3 uColor;
 varying float vFade;
 void main() {
@@ -142,7 +144,7 @@ void main() {
 
 const litterFrag = /* glsl */ `
 precision highp float;
-${common}
+${OVERLAY_DEPTH}
 uniform vec3 uColors[3];
 uniform float uLight;
 varying float vFade;
@@ -172,7 +174,7 @@ void main() {
 
 const boltFrag = /* glsl */ `
 precision highp float;
-${common}
+${OVERLAY_DEPTH}
 uniform float uAlpha;
 void main() {
   gl_FragColor = vec4(0.94, 0.92, 1.0, uAlpha * visible());
