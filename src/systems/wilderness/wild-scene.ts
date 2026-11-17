@@ -11,6 +11,7 @@ import { disposeTree } from '@/engine/resources';
 import type { GameContext, GameScene } from '@/game/types';
 import { calendarAt, grassCoverAt, seasonBlend } from '@/world/climate/calendar';
 import { chunkKey, generateWildChunk } from '@/world/wilderness/chunk';
+import { RIVER_LANE, RIVER_X } from '@/world/wilderness/generator';
 import { buildTerrainSteps, addChunkColliders } from './build-chunk';
 import { WildTrees } from './wild-trees';
 import { WildSources } from './pigment-sources';
@@ -27,6 +28,8 @@ interface Loaded {
 }
 
 const W = TUNING.world;
+/** The river table covers four of these bands of z, with the player in the third. */
+const RIVER_BAND = 256;
 /** Milliseconds a frame spent building the next chunk. */
 const BUILD_MS = 2;
 
@@ -49,6 +52,9 @@ export class WildScene implements GameScene {
   private readonly fish = new WildFish(this.root, (x, z) => this.ctx.renderer.ripple(x, z, false));
   private readonly weed = new Waterweed(this.root);
   private nextWake = 0;
+  /** Where the renderer's river table was last made for (see updateRivers). */
+  private riverLane = NaN;
+  private riverZ = NaN;
   private readonly offStroke: () => void;
 
   constructor(private readonly ctx: GameContext) {
@@ -126,6 +132,7 @@ export class WildScene implements GameScene {
       this.ctx.renderer.ripple(p.x, p.z, true);
       this.nextWake = t + 0.41;
     }
+    this.updateRivers(p);
     this.sources.update(dt);
     this.monsters.update(dt);
     this.ruins.update(dt);
@@ -134,6 +141,17 @@ export class WildScene implements GameScene {
       this.drainT = 0.5;
       this.updateDrain();
     }
+  }
+
+  /** The renderer's table of where the rivers run (for the water's current), redone when the
+   * player crosses into another river's lane or another stretch of a few hundred metres. */
+  private updateRivers(p: THREE.Vector3): void {
+    const lane = Math.round((p.x - W.chunkSize / 2 - RIVER_X) / RIVER_LANE) - 1;
+    const z0 = Math.floor(p.z / RIVER_BAND) * RIVER_BAND - RIVER_BAND * 2;
+    if (lane === this.riverLane && z0 === this.riverZ) return;
+    this.riverLane = lane;
+    this.riverZ = z0;
+    this.ctx.renderer.setRivers(lane, z0, 8, (l, z) => this.ctx.wilderness.riverAt(l, z));
   }
 
   /** Push nearby cities' progress into the shader so the wilderness greys around them. */

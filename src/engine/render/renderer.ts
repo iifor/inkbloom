@@ -10,7 +10,7 @@ import * as THREE from 'three';
 import { FXAAShader } from 'three/examples/jsm/shaders/FXAAShader.js';
 import { type ColorDef, MAX_COLORS, PALETTE, color } from '@/content/palette';
 import { SEASONS } from '@/content/seasons';
-import { BANK_HEIGHT, WATER_LEVEL } from '@/world/wilderness/generator';
+import { BANK_HEIGHT, RIVER_LANE, RIVER_X, WATER_LEVEL } from '@/world/wilderness/generator';
 import { TUNING } from '@/content/tuning';
 import { type Daylight, daylightAt } from './daylight';
 import { ResolutionGovernor } from './resolution';
@@ -23,6 +23,12 @@ const WAKE_COUNT = 18;
 
 /** Cells on a side of the value-noise lattice (see makeNoise); the pattern repeats this often. */
 const NOISE_SIZE = 256;
+/** The rivers' table: lanes around the player and samples along each. */
+const RIVER_ROWS = 3;
+const RIVER_SAMPLES = 129;
+/** A river's current mid-channel, metres a second, and the seconds of one flow phase. */
+const FLOW_SPEED = 1.3;
+const FLOW_CYCLE = 2;
 
 /** The value-noise lattice: a random value per cell, read with bilinear filtering and wrapped,
  * so one texture read is one octave of smooth noise. Seeded, so every run paints alike. */
@@ -58,6 +64,9 @@ uniform float uNear;
 uniform float uFar;
 uniform float uReversedDepth;
 uniform sampler2D uNoise;
+uniform sampler2D uRivers;
+uniform vec4 uRiverGrid;
+uniform vec2 uRiverLane;
 uniform float uAspect;
 uniform vec3 uColors[${MAX_COLORS}];
 uniform float uSolid[${MAX_COLORS}];
@@ -107,6 +116,32 @@ float hash21(vec2 p) { p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.3
 float vnoise(vec2 p) {
   vec2 i = floor(p); vec2 f = fract(p); f = f * f * (3.0 - 2.0 * f);
   return texture2D(uNoise, (i + f + 0.5) / ${NOISE_SIZE}.0).r;
+}
+/**
+ * The river current at p: xy its velocity (metres a second, downstream along +z), z how much
+ * of it is river (1 in mid-channel, 0 at the bank and in still water). The rivers' middles
+ * and half-widths come from a small table around the player (see setRivers).
+ */
+vec3 riverFlow(vec2 p) {
+  float lane = floor((p.x - uRiverLane.x) / uRiverLane.y + 0.5);
+  float row = lane - uRiverGrid.x;
+  float u = (p.y - uRiverGrid.y) / uRiverGrid.z;
+  if (row < 0.0 || row > ${RIVER_ROWS - 1}.0 || u < 0.0 || u > ${RIVER_SAMPLES - 2}.0) return vec3(0.0);
+  float v = (row + 0.5) / ${RIVER_ROWS}.0;
+  vec2 a = texture2D(uRivers, vec2((u + 0.5) / ${RIVER_SAMPLES}.0, v)).rg;
+  vec2 b = texture2D(uRivers, vec2((u + 1.5) / ${RIVER_SAMPLES}.0, v)).rg;
+  float middle = uRiverLane.x + lane * uRiverLane.y + a.x;
+  float across = abs(p.x - middle) / a.y;
+  float strength = 1.0 - smoothstep(0.55, 1.05, across);
+  vec2 dir = normalize(vec2((b.x - a.x) / uRiverGrid.z, 1.0));
+  // fastest mid-channel, slowing towards the banks
+  return vec3(dir * ${FLOW_SPEED.toFixed(2)} * (1.0 - 0.6 * across * across), strength);
+}
+/** Ripples stretched along the current. */
+float currentRipple(vec2 p, vec3 flow) {
+  vec2 dir = normalize(flow.xy + vec2(0.0, 1e-4));
+  vec2 q = vec2(dot(p, vec2(dir.y, -dir.x)), dot(p, dir));
+  return vnoise(vec2(q.x * 1.6, q.y * 0.35)) * 0.6 + vnoise(q * 2.3) * 0.4;
 }
 float fbm(vec2 p) {
   float v = 0.0, a = 0.5;
@@ -489,7 +524,17 @@ void main() {
       vec3 eye = uInvView[3].xyz;
       float t = clamp((eye.y - ${WATER_LEVEL}) / max(0.001, eye.y - wpos.y), 0.0, 1.0);
       vec2 rp = submerged ? mix(eye.xz, wpos.xz, t) : wpos.xz;
-      float rip = vnoise(vec2(rp.x * 0.35 + uTime * 0.25, rp.y * 1.6)) * 0.6 + vnoise(rp * 2.3 - uTime * 0.4) * 0.4;
+      // still water ripples in place; in a river the ripples stretch along the current and are
+      // carried downstream: two copies drifting half a cycle apart, each faded out as it
+      // starts over (the two-phase flow technique)
+      float still = vnoise(vec2(rp.x * 0.35 + uTime * 0.25, rp.y * 1.6)) * 0.6 + vnoise(rp * 2.3 - uTime * 0.4) * 0.4;
+      vec3 flow = riverFlow(rp);
+      float ph0 = fract(uTime / ${FLOW_CYCLE.toFixed(1)});
+      float ph1 = fract(ph0 + 0.5);
+      float swap = abs(ph0 - 0.5) * 2.0;
+      vec2 drift0 = flow.xy * ph0 * ${FLOW_CYCLE.toFixed(1)};
+      vec2 drift1 = flow.xy * ph1 * ${FLOW_CYCLE.toFixed(1)};
+      float rip = mix(still, mix(currentRipple(rp - drift0, flow), currentRipple(rp - drift1, flow), swap), flow.z);
       vec3 rdir = reflect(rd, normalize(vec3((rip - 0.5) * 0.12, 1.0, (rip - 0.5) * 0.06)));
       float grazing = 1.0 - clamp(-rd.y, 0.0, 1.0);
       vec3 reflected = skyPaint(rdir);
@@ -515,7 +560,9 @@ void main() {
       // broken lines of foam along the shore, where the water thins out over the bank
       if (submerged && !fish) {
         float shore = 1.0 - smoothstep(0.03, 0.32, waterDepth);
-        float lace = smoothstep(0.5, 0.78, vnoise(rp * 1.6 + vec2(uTime * 0.18, uTime * 0.31)));
+        vec2 sway = vec2(uTime * 0.18, uTime * 0.31);
+        float laced = mix(vnoise((rp - drift0) * 1.6 + sway), vnoise((rp - drift1) * 1.6 + sway), swap);
+        float lace = smoothstep(0.5, 0.78, mix(vnoise(rp * 1.6 + sway), laced, flow.z));
         vec3 foam = vec3(0.95, 0.97, 0.98) * mix(light, vec3(1.0), 0.4);
         col = mix(col, mix(drainedOf(foam), foam, sat), shore * lace * 0.55 * (1.0 - 0.6 * uNight));
       }
@@ -735,6 +782,12 @@ export class InkRenderer {
   private readonly shadowRt: THREE.WebGLRenderTarget;
   private readonly canopyBrush = makeCanopyBrush();
   private readonly noise = makeNoise();
+  /** River middles and half-widths around the player, for the water's current (setRivers). */
+  private readonly riverData = new Uint16Array(RIVER_SAMPLES * RIVER_ROWS * 2);
+  private readonly rivers = Object.assign(
+    new THREE.DataTexture(this.riverData, RIVER_SAMPLES, RIVER_ROWS, THREE.RGFormat, THREE.HalfFloatType),
+    { magFilter: THREE.LinearFilter, minFilter: THREE.LinearFilter },
+  );
   /** Frames counted for drawing shadows every other one, and where the last map was centred. */
   private shadowFrame = 0;
   private readonly shadowAt = new THREE.Vector3(Infinity, Infinity, Infinity);
@@ -885,6 +938,9 @@ export class InkRenderer {
         uFar: { value: this.camera.far },
         uReversedDepth: shared.uReversedDepth,
         uNoise: { value: this.noise },
+        uRivers: { value: this.rivers },
+        uRiverGrid: { value: new THREE.Vector4(1e9, 0, 8, RIVER_SAMPLES) },
+        uRiverLane: { value: new THREE.Vector2(TUNING.world.chunkSize / 2 + RIVER_X, RIVER_LANE) },
         uColors: { value: colors },
         uSolid: { value: perColor((c) => (c.solid ? 1 : 0), 0) },
         uTexture: { value: perColor((c) => c.texture ?? 0.25, 0.25) },
@@ -1086,6 +1142,30 @@ export class InkRenderer {
     return this.governor.scale;
   }
 
+  /**
+   * Where the rivers run around the player: `RIVER_ROWS` lanes from `lane`, sampled every
+   * `step` metres of z from `z0`; `at(lane, z)` gives a river's middle and half-width.
+   */
+  setRivers(
+    lane: number,
+    z0: number,
+    step: number,
+    at: (lane: number, z: number) => { x: number; half: number },
+  ): void {
+    const data = this.riverData;
+    const spawnX = TUNING.world.chunkSize / 2 + RIVER_X;
+    for (let r = 0; r < RIVER_ROWS; r++)
+      for (let k = 0; k < RIVER_SAMPLES; k++) {
+        const river = at(lane + r, z0 + k * step);
+        // relative to the lane's own line, so half floats keep centimetres
+        const i = (r * RIVER_SAMPLES + k) * 2;
+        data[i] = THREE.DataUtils.toHalfFloat(river.x - spawnX - (lane + r) * RIVER_LANE);
+        data[i + 1] = THREE.DataUtils.toHalfFloat(river.half);
+      }
+    this.rivers.needsUpdate = true;
+    this.post.uniforms.uRiverGrid!.value.set(lane, z0, step, RIVER_SAMPLES);
+  }
+
   setWildWater(enabled: boolean): void {
     this.post.uniforms.uWildWater!.value = enabled;
   }
@@ -1214,6 +1294,7 @@ export class InkRenderer {
   dispose(): void {
     this.canopyBrush.dispose();
     this.noise.dispose();
+    this.rivers.dispose();
     if (shared.uCanopyBrush.value === this.canopyBrush) shared.uCanopyBrush.value = null;
     this.precipitation.dispose();
     this.rt.dispose();

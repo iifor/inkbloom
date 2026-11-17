@@ -21,6 +21,7 @@ import { Heap } from '../nav/path';
 import type { SurfaceInfo, SurfaceKind } from '../paint/surfaces';
 import { type Entrance, type Wilderness, WATER_LEVEL } from '../wilderness/generator';
 import { type CitySkeleton, placeFeatures } from './features';
+import type { Tree } from '../wilderness/chunk';
 
 export const ROAD_NONE = 0;
 export const ROAD_ALLEY = 1;
@@ -76,6 +77,8 @@ export interface Building {
   /** Eaves above the floor. */
   readonly height: number;
   readonly template: number;
+  /** Depth of a fenced front garden before the door, metres; 0 for none. */
+  readonly garden: number;
   /** Surface ids, by face in the house's own frame (pz is the front). */
   readonly walls: Readonly<Record<Face, number>>;
   readonly roof: number;
@@ -113,6 +116,8 @@ export interface CityLayout extends CitySkeleton {
   readonly gates: readonly Gate[];
   readonly streets: readonly Street[];
   readonly square: Point & { readonly r: number };
+  /** Trees in the yards (as the wilderness's trees: ground height, size, leaf colour). */
+  readonly trees: readonly Tree[];
   /** A mill's waterwheel in the river beside a house, turning on an axle along x; null when
    * no river runs through. */
   readonly wheel: (Point & { readonly y: number; readonly r: number }) | null;
@@ -140,6 +145,10 @@ const WHEEL_RADIUS = 2.4;
 /** It stands where the river is at least this deep, at most this far from its mill's middle. */
 const WHEEL_DEPTH = 0.8;
 const WHEEL_REACH = 12;
+/** The shallowest front garden worth a fence, metres. */
+const GARDEN_MIN = 1.1;
+/** Yard trees stand at least this far apart, metres. */
+const TREE_SPACING = 9;
 
 type Land = Pick<CityLayout, 'ox' | 'oz' | 'n' | 'cell' | 'heights'>;
 
@@ -606,7 +615,8 @@ export function generateCity(
     const scale = tpl.key === 'barn' ? 1.3 : tpl.key === 'shop' ? 1.1 : 1;
     const hw = (range(H.width) * scale) / 2;
     const hd = (range(H.depth) * scale) / 2;
-    const back = roadHalf + range(H.setback) + hd;
+    const setback = range(H.setback);
+    const back = roadHalf + setback + hd;
     const x = p.x + out.x * back;
     const z = p.z + out.z * back;
     // the front looks back at the street
@@ -638,6 +648,18 @@ export function generateCity(
       hi = Math.max(hi, h);
     }
     if (hi - lo > H.maxRise) return 0;
+    // no corner out over the river either (the margin above only checks cells' middles)
+    for (const [u, v] of [
+      [-1, -1],
+      [1, -1],
+      [-1, 1],
+      [1, 1],
+    ] as const) {
+      const q = at(u * (hw + 1), v * (hd + 1));
+      const ix = Math.floor(q.x / cell);
+      const iz = Math.floor(q.z / cell);
+      if (ix < 0 || iz < 0 || ix >= n || iz >= n || water[idx(ix, iz)]) return 0;
+    }
     const id = buildings.length;
     for (const i of under) buildingOf[i] = id + 1;
     const floors = rng.int(tpl.paintFloors.min, tpl.paintFloors.max);
@@ -658,6 +680,15 @@ export function generateCity(
     const front = at(0, hd);
     const door = addSurface('door', chunk, rng.pick(tpl.doors), 1.6 * 2.4, front.x, front.z);
     const stepAt = at(0, hd + 1.2);
+    // a fenced front garden, filling the front yard up to just short of the street
+    const depth = setback - 0.6;
+    const plot = at(0, hd + depth / 2);
+    const garden =
+      depth >= GARDEN_MIN &&
+      rng.chance(tpl.key === 'cottage' ? 0.6 : 0.3) &&
+      clearOfStreets(plot.x, plot.z, c, s, hw + 0.5, depth / 2)
+        ? depth
+        : 0;
     const key = bucketKey(Math.floor(x / BUCKET), Math.floor(z / BUCKET));
     let near = placed.get(key);
     if (!near) placed.set(key, (near = []));
@@ -673,6 +704,7 @@ export function generateCity(
       step: ground(stepAt.x, stepAt.z),
       height: tpl.eaves + (floors - tpl.paintFloors.min) * 0.35,
       template: t,
+      garden,
       walls,
       roof,
       door,
@@ -765,6 +797,36 @@ export function generateCity(
     }
   }
 
+  // trees in the yards, spread out evenly (Poisson-disk: a dart lands only where no tree is
+  // within the spacing), clear of houses, streets and the river
+  const trees: Tree[] = [];
+  const treeRng = new Rng(hashInts(seed, 0x7ee5));
+  const spacing2 = TREE_SPACING * TREE_SPACING;
+  for (let tries = 0; tries < ((size * size) / spacing2) * 2; tries++) {
+    const x = treeRng.range(cell, size - cell);
+    const z = treeRng.range(cell, size - cell);
+    const ix = Math.floor(x / cell);
+    const iz = Math.floor(z / cell);
+    if (blockOf[idx(ix, iz)] === 0 || nearWater(ix, iz, 1)) continue;
+    // a cell clear of houses and streets all round
+    let clear = true;
+    for (let dz = -1; dz <= 1 && clear; dz++)
+      for (let dx = -1; dx <= 1 && clear; dx++) {
+        const j = idx(Math.min(n - 1, Math.max(0, ix + dx)), Math.min(n - 1, Math.max(0, iz + dz)));
+        if (buildingOf[j] !== 0 || roads[j] !== ROAD_NONE) clear = false;
+      }
+    if (!clear || trees.some((t) => (t.x - x) ** 2 + (t.z - z) ** 2 < spacing2)) continue;
+    if (!treeRng.chance(0.55)) continue;
+    trees.push({
+      x,
+      z,
+      y: ground(x, z) - 0.2,
+      height: treeRng.range(4.5, 7.5),
+      crown: treeRng.range(1.5, 2.4),
+      color: treeRng.chance(0.6) ? color('leaf') : color('canopy'),
+    });
+  }
+
   // a waterwheel beside the riverside house nearest the square, where the river is deep
   // enough for its paddles
   let wheel: CityLayout['wheel'] = null;
@@ -838,6 +900,7 @@ export function generateCity(
     gates,
     streets,
     square,
+    trees,
     wheel,
     buildings,
     surfaces,
@@ -857,6 +920,7 @@ export function placeCity(c: CityLayout, at: Point): CityLayout {
     streets: c.streets.map((s) => ({ ...s, points: s.points.map(move) })),
     square: move(c.square),
     wheel: c.wheel && move(c.wheel),
+    trees: c.trees.map(move),
     buildings: c.buildings.map(move),
     surfaces: c.surfaces.map(move),
     stains: c.stains.map(move),

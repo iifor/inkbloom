@@ -16,6 +16,7 @@ import {
   type Building,
   type CityLayout,
 } from '@/world/city/layout';
+import { appendTree, treeMatrix, treePalette } from '../wilderness/tree-geometry';
 import { buildCountryHouse } from './country-house';
 
 /** Where buildCity puts colliders: a PhysicsWorld, or a recorder in the city worker. */
@@ -34,6 +35,8 @@ const UP = { x: 0, y: 1, z: 0 };
 /** Bridges: how high the deck stands over the water at the least, how much it arches over a
  * long span, how thick the deck is, and its railings. */
 const BRIDGE = { clearance: 0.7, arch: 0.07, maxArch: 1.4, deck: 0.45, rail: 0.95 } as const;
+/** Garden fences: height, spacing of posts, and half the path's gap at the gate. */
+const FENCE = { height: 0.95, post: 1.1, gate: 1.3 } as const;
 /** Steps down to the river beside a bridge: rise and tread of each. */
 const STEP = { rise: 0.3, tread: 0.55 } as const;
 
@@ -203,6 +206,22 @@ export function buildCity(city: CityLayout, physics: ColliderSink): CityTile[] {
     buildHouse(t.full, t.far, city, b, group, physics);
   }
 
+  // yard trees: the wilderness's own, full near by and simplified far off; trunks block
+  for (const t of city.trees) {
+    const tile = tileAt(t.x, t.z);
+    const palette = treePalette(t);
+    const m = treeMatrix(t);
+    appendTree(tile.full, palette, m, false);
+    appendTree(tile.far, palette, m, true);
+    physics.addBox(
+      group,
+      { x: t.x - 0.3, y: t.y, z: t.z - 0.3 },
+      { x: t.x + 0.3, y: t.y + t.height * 0.6, z: t.z + 0.3 },
+    );
+  }
+
+  buildWell(tileAt(sq.x, sq.z).base, { x: sq.x, y: ground(sq.x, sq.z), z: sq.z }, group, physics);
+
   // a low dry-stone wall round the town, stepping with the land, open at the gates
   const wallColor = color('rock');
   const gateCells = new Set<number>();
@@ -292,6 +311,7 @@ function buildHouse(
     for (const k of [h, far]) k.box(min, max, all(stone));
     boxes.push({ min, max, data: {}, slice: 0.8 });
   }
+  if (b.garden > 0) fenceGarden(h, b, boxes);
   const turn = new THREE.Matrix4().makeRotationY(b.angle).setPosition(b.x, b.base, b.z);
   g.append(h, turn);
   shell.append(far, turn);
@@ -468,4 +488,84 @@ function buildBridge(
     );
     turnedBox({ x: at.x, y: 0, z: at.z, angle, hx: 0.8, hz: STEP.tread / 2 }, bottom, y, add, 0.8);
   }
+}
+
+/** A white picket fence round a house's front garden, in the house's own frame (front +z,
+ * floor at 0), standing on the ground before the door, open at the path. */
+function fenceGarden(
+  h: GeometryBuilder,
+  b: Building,
+  boxes: { min: Vec3Like; max: Vec3Like; data: ColliderData; slice: number }[],
+): void {
+  const paint = color('limewash');
+  const all = { px: paint, nx: paint, pz: paint, nz: paint, py: paint };
+  const foot = b.step - b.base;
+  const bottom = foot - 0.4;
+  const top = foot + FENCE.height;
+  const wide = b.hw + 0.4;
+  const front = b.hd + b.garden;
+  /** A straight run from (x0, z0) to (x1, z1): posts, two rails, one collider. */
+  const run = (x0: number, z0: number, x1: number, z1: number): void => {
+    const len = Math.hypot(x1 - x0, z1 - z0);
+    const posts = Math.max(1, Math.round(len / FENCE.post));
+    for (let k = 0; k <= posts; k++) {
+      const x = x0 + ((x1 - x0) * k) / posts;
+      const z = z0 + ((z1 - z0) * k) / posts;
+      h.box({ x: x - 0.05, y: bottom, z: z - 0.05 }, { x: x + 0.05, y: top, z: z + 0.05 }, all);
+    }
+    const lo = { x: Math.min(x0, x1) - 0.03, z: Math.min(z0, z1) - 0.03 };
+    const hi = { x: Math.max(x0, x1) + 0.03, z: Math.max(z0, z1) + 0.03 };
+    for (const y of [foot + 0.35, top - 0.15])
+      h.box({ x: lo.x, y: y - 0.04, z: lo.z }, { x: hi.x, y: y + 0.04, z: hi.z }, all);
+    boxes.push({
+      min: { x: lo.x, y: bottom, z: lo.z },
+      max: { x: hi.x, y: top, z: hi.z },
+      data: {},
+      slice: 0.8,
+    });
+  };
+  run(-wide, front, -FENCE.gate, front);
+  run(FENCE.gate, front, wide, front);
+  for (const x of [-wide, wide]) run(x, b.hd - 0.4, x, front);
+}
+
+/** A stone well in the middle of the square, with its little roof. */
+function buildWell(g: GeometryBuilder, at: Vec3Like, group: string, physics: ColliderSink): void {
+  const stone = color('rock');
+  const wood = color('bark');
+  const tile = color('clayTile');
+  const m = new THREE.Matrix4();
+  const ring = new THREE.CylinderGeometry(1.1, 1.2, 0.9, 14, 1, true);
+  g.mesh(ring, m.makeTranslation(at.x, at.y + 0.45, at.z), stone);
+  ring.dispose();
+  const lip = new THREE.TorusGeometry(1.12, 0.14, 4, 14).rotateX(Math.PI / 2);
+  g.mesh(lip, m.makeTranslation(at.x, at.y + 0.9, at.z), stone);
+  lip.dispose();
+  const all = (c: number) => ({ px: c, nx: c, pz: c, nz: c, py: c });
+  g.box(
+    { x: at.x - 1, y: at.y + 0.35, z: at.z - 1 },
+    { x: at.x + 1, y: at.y + 0.4, z: at.z + 1 },
+    all(color('water')),
+  );
+  for (const x of [-1.25, 1.25])
+    g.box(
+      { x: at.x + x - 0.09, y: at.y, z: at.z - 0.09 },
+      { x: at.x + x + 0.09, y: at.y + 2.5, z: at.z + 0.09 },
+      all(wood),
+    );
+  g.box(
+    { x: at.x - 1.3, y: at.y + 2.15, z: at.z - 0.06 },
+    { x: at.x + 1.3, y: at.y + 2.27, z: at.z + 0.06 },
+    all(wood),
+  );
+  // a pitched roof of two slabs over the windlass
+  const slab = new THREE.BoxGeometry(3, 0.08, 1.15);
+  for (const side of [-1, 1])
+    g.mesh(slab, m.makeRotationX(side * 0.55).setPosition(at.x, at.y + 2.75, at.z + side * 0.48), tile);
+  slab.dispose();
+  physics.addBox(
+    group,
+    { x: at.x - 1.25, y: at.y - 0.5, z: at.z - 1.25 },
+    { x: at.x + 1.25, y: at.y + 0.95, z: at.z + 1.25 },
+  );
 }
