@@ -1,7 +1,7 @@
 // Two real clients against the real WebSocket server, on a random port.
 import { afterEach, describe, expect, it } from 'vitest';
 import WebSocket from 'ws';
-import { serve, type Served } from '../server/serve';
+import { originAllowed, serve, type Served } from '../server/serve';
 import { defaultLook } from '@/content/characters';
 import { WorldHost } from '@/world/net/host';
 import { GROUNDED, PROTOCOL, type ServerMessage } from '@/world/net/protocol';
@@ -124,5 +124,70 @@ describe('world server over WebSockets', () => {
     clients.push(c);
     const r = await c.waitFor('refused');
     expect(r.t === 'refused' && r.reason).toContain('已满');
+  });
+});
+
+describe('world server: who may connect', () => {
+  it('lets in pages from this machine and private networks, not other web sites', () => {
+    expect(originAllowed(undefined)).toBe(true);
+    expect(originAllowed('http://localhost:5190')).toBe(true);
+    expect(originAllowed('http://127.0.0.1:5190')).toBe(true);
+    expect(originAllowed('http://192.168.1.20:5190')).toBe(true);
+    expect(originAllowed('https://evil.example')).toBe(false);
+    expect(originAllowed('https://my.site', ['https://my.site'])).toBe(true);
+  });
+
+  it('refuses a WebSocket from another web site', async () => {
+    const port = await start();
+    const ws = new WebSocket(`ws://127.0.0.1:${port}`, { origin: 'https://evil.example' });
+    const outcome = await new Promise<string>((done) => {
+      ws.on('open', () => done('open'));
+      ws.on('error', () => done('refused'));
+    });
+    expect(outcome).toBe('refused');
+  });
+
+  it('asks for the password, and lets in whoever gives it', async () => {
+    server = await serve(new WorldHost(createWorldState('it', SEED), new Map(), 10), {
+      port: 0,
+      bind: '127.0.0.1',
+      password: '开门',
+    });
+    const port = server.port;
+    const without = await client(port, '甲', 'token-aaaaaaaa');
+    clients.push(without);
+    const no = await without.waitFor('refused');
+    expect(no.t === 'refused' && no.password).toBe(true);
+
+    const ws = new WebSocket(`ws://127.0.0.1:${port}`);
+    const welcome = await new Promise<ServerMessage>((done) => {
+      ws.on('open', () =>
+        ws.send(
+          JSON.stringify({
+            t: 'hello',
+            v: PROTOCOL,
+            token: 'token-bbbbbbbb',
+            name: '乙',
+            look: LOOK,
+            password: '开门',
+          }),
+        ),
+      );
+      ws.on('message', (d) => done(JSON.parse(d.toString()) as ServerMessage));
+    });
+    ws.close();
+    expect(welcome.t).toBe('welcome');
+  });
+
+  it('the same player reconnecting replaces their old connection, which is closed', async () => {
+    const port = await start();
+    const old = await client(port, '甲', 'token-aaaaaaaa');
+    clients.push(old);
+    await old.waitFor('welcome');
+    const closed = new Promise<void>((done) => old.ws.on('close', () => done()));
+    const again = await client(port, '甲', 'token-aaaaaaaa');
+    clients.push(again);
+    await again.waitFor('welcome');
+    await closed;
   });
 });

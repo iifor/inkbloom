@@ -5,6 +5,7 @@ import type { Look } from '@/content/characters';
 import type { Patch } from '../patch';
 import { cleanName, validLook } from '../profile';
 import type { SceneRef } from '../state';
+import { validCity, validPatch, validScene } from './validate';
 
 export const PROTOCOL = 1;
 export const DEFAULT_PORT = 5195;
@@ -45,6 +46,8 @@ export type ClientMessage =
       readonly token: string;
       readonly name: string;
       readonly look: Look;
+      /** The server's password, if it has one. */
+      readonly password?: string;
     }
   /** Where the player is, 20 times a second; `town` is the town they are inside, if any. */
   | (Motion & { readonly t: 'move'; readonly scene: SceneRef; readonly town: string | null })
@@ -62,8 +65,9 @@ export type ServerMessage =
       readonly you: string;
       readonly players: readonly PlayerInfo[];
     }
-  /** The server will not take this player (full, or a different version). */
-  | { readonly t: 'refused'; readonly reason: string }
+  /** The server will not take this player (full, a different version, or the password: then
+   * `password` is set so the client can ask for it). */
+  | { readonly t: 'refused'; readonly reason: string; readonly password?: boolean }
   | { readonly t: 'joined'; readonly player: PlayerInfo }
   | { readonly t: 'left'; readonly id: number }
   /** The clock, nearby players' motion, and the towns this client runs the tide for. */
@@ -76,7 +80,13 @@ export type ServerMessage =
   /** Another player's patch, already judged: apply its effect on the shared world. */
   | { readonly t: 'applied'; readonly from: number; readonly patch: Patch }
   /** One of this client's patches failed on the server: here is their true slice. */
-  | { readonly t: 'rejected'; readonly seq: number; readonly reason: string; readonly you: string };
+  | {
+      readonly t: 'rejected';
+      readonly seq: number;
+      readonly kind: Patch['kind'];
+      readonly reason: string;
+      readonly you: string;
+    };
 
 /** Patches that change the shared world, so other players need them. The rest only touch the
  * sender's own things. */
@@ -93,25 +103,18 @@ export const SHARED_KINDS: ReadonlySet<Patch['kind']> = new Set([
   'complete',
 ]);
 
-/** Patches a client may not send: they hand out things without earning them. */
-const FORBIDDEN: ReadonlySet<string> = new Set(['grant']);
-
 const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
-function vec3(v: unknown): Vec3 | null {
-  if (!Array.isArray(v) || v.length !== 3 || !v.every(finite)) return null;
+/** Positions and speeds beyond these are not anywhere a player can be. */
+const MAX_COORD = 1_000_000;
+const MAX_SPEED = 500;
+function vec3(v: unknown, limit: number): Vec3 | null {
+  if (!Array.isArray(v) || v.length !== 3 || !v.every((x) => finite(x) && Math.abs(x) <= limit)) return null;
   const [x, y, z] = v as number[];
   return [x!, y!, z!];
 }
 
-function scene(v: unknown): SceneRef | null {
-  const s = v as { kind?: unknown; id?: unknown } | null;
-  if (s?.kind === 'wild') return { kind: 'wild' };
-  if (s?.kind === 'city' && typeof s.id === 'string' && s.id.length < 40) return { kind: 'city', id: s.id };
-  return null;
-}
-
-/** A message from a client, checked; null when it is not one. Patches are only checked for
- * shape here: applyPatch judges what they ask for. */
+/** A message from a client, checked; null when it is not one. Patches are rebuilt from their
+ * known fields (validPatch); applyPatch then judges what they ask for. */
 export function parseClientMessage(text: string): ClientMessage | null {
   if (text.length > 16_000) return null;
   let m: Record<string, unknown>;
@@ -125,21 +128,21 @@ export function parseClientMessage(text: string): ClientMessage | null {
     case 'hello': {
       const look = validLook(m.look);
       if (!finite(m.v) || typeof m.token !== 'string' || !/^[\w-]{8,64}$/.test(m.token) || !look) return null;
-      return { t: 'hello', v: m.v, token: m.token, name: cleanName(m.name), look };
+      const password = typeof m.password === 'string' ? m.password.slice(0, 128) : '';
+      return { t: 'hello', v: m.v, token: m.token, name: cleanName(m.name), look, password };
     }
     case 'move': {
-      const p = vec3(m.p);
-      const v = vec3(m.v);
-      const s = scene(m.scene);
+      const p = vec3(m.p, MAX_COORD);
+      const v = vec3(m.v, MAX_SPEED);
+      const s = validScene(m.scene);
       if (!p || !v || !s || !finite(m.yaw) || !finite(m.pitch) || !finite(m.f)) return null;
-      const town = typeof m.town === 'string' && m.town.length < 40 ? m.town : null;
-      return { t: 'move', p, v, yaw: m.yaw, pitch: m.pitch, f: m.f | 0, scene: s, town };
+      const town = validCity(m.town) ? m.town : null;
+      const pitch = Math.max(-1.6, Math.min(1.6, m.pitch));
+      return { t: 'move', p, v, yaw: m.yaw % (Math.PI * 2), pitch, f: m.f & 15, scene: s, town };
     }
     case 'patch': {
-      const patch = m.patch as { kind?: unknown } | null;
-      if (!finite(m.seq) || !patch || typeof patch.kind !== 'string' || FORBIDDEN.has(patch.kind))
-        return null;
-      return { t: 'patch', seq: m.seq, patch: patch as Patch };
+      const patch = validPatch(m.patch);
+      return finite(m.seq) && patch ? { t: 'patch', seq: m.seq, patch } : null;
     }
     default:
       return null;

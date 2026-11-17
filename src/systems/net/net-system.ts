@@ -4,8 +4,17 @@
 import * as THREE from 'three';
 import type { GameContext, NetApi, System } from '@/game/types';
 import type { Patch } from '@/world/patch';
-import { DASHING, GLIDING, GROUNDED, type PlayerInfo, SEND_HZ, SWIMMING } from '@/world/net/protocol';
+import {
+  DASHING,
+  GLIDING,
+  GROUNDED,
+  type PlayerInfo,
+  SEND_HZ,
+  type ServerMessage,
+  SWIMMING,
+} from '@/world/net/protocol';
 import { deserializeSlice, putSlice } from '@/world/net/slices';
+import { validPatch } from '@/world/net/validate';
 import type { Connection } from './connection';
 import type { RemotePlayers } from './remote-players';
 
@@ -25,8 +34,9 @@ export class NetSystem implements System, NetApi {
     private readonly ctx: GameContext,
     private readonly conn: Connection,
     private readonly remote: RemotePlayers,
-    /** Run another player's patch for its effect on the shared world. */
-    private readonly applyRemote: (patch: Patch) => void,
+    /** Other players' patches, for their effect on the shared world: `apply` as they come,
+     * `flush` once a frame for any that had to wait. */
+    private readonly remotePatches: { apply(patch: Patch): void; flush(): void },
   ) {
     for (const p of conn.welcome.players) remote.add(p);
     this.last.copy(ctx.player.position);
@@ -58,36 +68,58 @@ export class NetSystem implements System, NetApi {
 
   update(dt: number): void {
     for (const m of this.conn.take()) {
-      switch (m.t) {
-        case 'snap': {
-          const off = m.clock - this.ctx.state.clock;
-          this.ctx.state.clock += Math.abs(off) > CLOCK_SNAP ? off : off * 0.1;
-          for (const p of m.players) this.remote.push(p.id, p);
-          this.keeping = new Set(m.keeps);
-          break;
-        }
-        case 'applied':
-          this.applyRemote(m.patch);
-          break;
-        case 'joined':
-          this.remote.add(m.player);
-          this.ctx.events.emit('toast', { text: `${m.player.name} 进入了这个世界` });
-          break;
-        case 'left': {
-          const who = this.remote.list().find((p) => p.id === m.id)?.name;
-          this.remote.remove(m.id);
-          if (who) this.ctx.events.emit('toast', { text: `${who} 离开了` });
-          break;
-        }
-        case 'rejected':
-          // the server knows best: take its word for this player's own things
-          putSlice(this.ctx.state, deserializeSlice(m.you));
-          this.ctx.events.emit('toast', { text: `服务器没有接受：${m.reason}`, seconds: 3 });
-          break;
-        default:
-          break;
+      try {
+        this.handle(m);
+      } catch (e) {
+        // whatever a server sends, the game goes on
+        console.warn('ignored a message from the server', e);
       }
     }
+    this.remotePatches.flush();
+    this.sendMotion(dt);
+  }
+
+  private handle(m: ServerMessage): void {
+    switch (m.t) {
+      case 'snap': {
+        const off = m.clock - this.ctx.state.clock;
+        this.ctx.state.clock += Math.abs(off) > CLOCK_SNAP ? off : off * 0.1;
+        for (const p of m.players) this.remote.push(p.id, p);
+        this.keeping = new Set(m.keeps);
+        break;
+      }
+      case 'applied': {
+        // checked like any patch from the network: a server is not trusted to send sense
+        const patch = validPatch(m.patch);
+        if (patch) this.remotePatches.apply(patch);
+        break;
+      }
+      case 'joined':
+        this.remote.add(m.player);
+        this.ctx.events.emit('toast', { text: `${m.player.name} 进入了这个世界` });
+        break;
+      case 'left': {
+        const who = this.remote.list().find((p) => p.id === m.id)?.name;
+        this.remote.remove(m.id);
+        if (who) this.ctx.events.emit('toast', { text: `${who} 离开了` });
+        break;
+      }
+      case 'rejected':
+        // the server knows best: take its word for this player's own things
+        putSlice(this.ctx.state, deserializeSlice(m.you));
+        // the tide and erosion are the game's doing, not the player's: no message for those
+        if (m.kind !== 'drain' && m.kind !== 'tideHeld')
+          this.ctx.events.emit('toast', {
+            text: `服务器没有接受：${String(m.reason).slice(0, 60)}`,
+            seconds: 3,
+          });
+        break;
+      default:
+        break;
+    }
+  }
+
+  private sendMotion(dt: number): void {
     if (this.conn.closed && !this.told) {
       this.told = true;
       this.ctx.events.emit('toast', { text: `${this.conn.closed}（之后的进度不会保存）`, seconds: 8 });

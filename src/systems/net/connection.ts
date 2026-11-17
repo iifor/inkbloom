@@ -57,9 +57,23 @@ export function serverUrl(raw: string): string {
   return /:\d+$/.test(s) ? `ws://${s}` : `ws://${s}:${DEFAULT_PORT}`;
 }
 
-/** A random id this browser keeps, so the server gives a player their own things back. */
-export function playerToken(kv: KeyValue): string {
-  const key = 'inkbloom:token';
+/** The server would not take this player; `password` when it wants (another) password. */
+export class JoinRefused extends Error {
+  constructor(
+    message: string,
+    readonly password: boolean,
+  ) {
+    super(message);
+  }
+}
+
+/**
+ * A random id this browser keeps for one server, so it gives a player their own things back.
+ * One per server: a server only ever sees its own, so a stranger's server cannot learn the id
+ * a player uses elsewhere and pose as them there.
+ */
+export function playerToken(kv: KeyValue, url: string): string {
+  const key = `inkbloom:token:${url}`;
   let t = kv.getItem(key);
   if (!t || !/^[\w-]{8,64}$/.test(t)) {
     t = crypto.randomUUID();
@@ -70,17 +84,16 @@ export function playerToken(kv: KeyValue): string {
 
 /** Connect and join; rejects with a message for the player if it does not work. */
 export function connect(
-  raw: string,
-  hello: { readonly token: string; readonly name: string; readonly look: Look },
+  url: string,
+  hello: { readonly token: string; readonly name: string; readonly look: Look; readonly password: string },
   timeoutMs = 8000,
 ): Promise<Connection> {
-  const url = serverUrl(raw);
   return new Promise((resolve, reject) => {
     let ws: WebSocket;
     try {
       ws = new WebSocket(url);
     } catch {
-      reject(new Error(`地址不对：${raw}`));
+      reject(new Error(`地址不对：${url}`));
       return;
     }
     const timer = setTimeout(() => {
@@ -96,7 +109,7 @@ export function connect(
       const m = parseServerMessage(String(e.data));
       if (m?.t === 'refused') {
         clearTimeout(timer);
-        reject(new Error(m.reason));
+        reject(new JoinRefused(m.reason, m.password === true));
       } else if (m?.t === 'welcome') {
         clearTimeout(timer);
         resolve(new Connection(ws, url, m));

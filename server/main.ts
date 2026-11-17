@@ -2,6 +2,8 @@
 //
 //   npm run server                      # world "default" on port 5195
 //   npm run server -- --world mine --port 5195 --max 10 --host 0.0.0.0
+//   INKBLOOM_PASSWORD=secret npm run server   # players must enter the password to join
+//   npm run server -- --origin https://my.site  # also let the game served from there connect
 //
 // Players open the game in a browser and join with ?server=<this machine>:<port> (or the 联机
 // screen). The world and every player's own things are saved to world-data/<world>.json. The
@@ -23,6 +25,12 @@ const port = Number(arg('port', String(DEFAULT_PORT)));
 const max = Math.max(1, Math.min(32, Number(arg('max', String(DEFAULT_MAX_PLAYERS)))));
 const worldName = arg('world', 'default').replace(/[^\w-]/g, '') || 'default';
 const bind = arg('host', '0.0.0.0');
+// from the environment rather than the command line, which other users of the machine can see
+const password = process.env.INKBLOOM_PASSWORD ?? '';
+const origins = arg('origin', '')
+  .split(',')
+  .map((o) => o.trim())
+  .filter(Boolean);
 const file = resolve('world-data', `${worldName}.json`);
 
 function loadHost(): WorldHost {
@@ -52,12 +60,19 @@ function save(): void {
   renameSync(`${file}.tmp`, file);
 }
 
-await serve(host, { port, bind, save, log: (line) => console.log(line) });
-console.log(`inkbloom world "${worldName}" on ws://${bind}:${port} · up to ${max} players`);
+await serve(host, { port, bind, password, origins, save, log: (line) => console.log(line) });
+console.log(
+  `inkbloom world "${worldName}" on ws://${bind}:${port} · up to ${max} players` +
+    (password ? ' · password set' : ' · no password (anyone who can reach this port can join)'),
+);
 
 for (const signal of ['SIGINT', 'SIGTERM'] as const)
   process.on(signal, () => {
-    save();
-    console.log('saved; bye');
+    try {
+      save();
+      console.log('saved; bye');
+    } catch (e) {
+      console.error(`could not save: ${(e as Error).message}`);
+    }
     process.exit(0);
   });

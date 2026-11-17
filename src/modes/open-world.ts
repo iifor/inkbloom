@@ -142,11 +142,34 @@ export function startOpenWorld(opts: {
     // another player's patch, already judged by the server: only its effect on the shared world
     // lands here; what it pays goes to a stand-in and is thrown away
     const standIn = standInSlice();
-    const applyRemote = (patch: Patch): void => {
+    const run = (patch: Patch): void => {
       const r = withSlice(ctx.state, standIn, () => applyPatch(ctx.state, patch, patchContext));
       if (r.ok) ctx.events.emit('patch:applied', { patch });
     };
-    net = new NetSystem(ctx, opts.net, remote, applyRemote);
+    // a patch in a town this client has not worked out yet waits while the worker lays it out,
+    // rather than stalling the frame (in order; after a few seconds it is worked out here)
+    const waiting: { patch: Patch; since: number }[] = [];
+    const remotePatches = {
+      apply(patch: Patch): void {
+        if ('city' in patch && !ctx.cities.byId(patch.city)) {
+          const e = ctx.cities.entranceOf(patch.city);
+          if (!e) return;
+          ctx.cities.prefetch(e);
+          waiting.push({ patch, since: performance.now() });
+        } else if (waiting.length) waiting.push({ patch, since: performance.now() });
+        else run(patch);
+      },
+      flush(): void {
+        while (waiting.length) {
+          const w = waiting[0]!;
+          const ready = !('city' in w.patch) || ctx.cities.byId(w.patch.city);
+          if (!ready && performance.now() - w.since < 3000) break;
+          waiting.shift();
+          run(w.patch);
+        }
+      },
+    };
+    net = new NetSystem(ctx, opts.net, remote, remotePatches);
     ctx.net = net;
   }
 

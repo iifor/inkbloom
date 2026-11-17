@@ -7,13 +7,20 @@ import { startOpenWorld, type OpenWorld } from './modes/open-world';
 import { Menu } from './shell/menu';
 import { installDevTools } from './shell/dev-tools';
 import { CharacterPreview } from './systems/figures/preview';
-import { type Connection, NetStore, connect, playerToken } from './systems/net/connection';
+import {
+  type Connection,
+  JoinRefused,
+  NetStore,
+  connect,
+  playerToken,
+  serverUrl,
+} from './systems/net/connection';
 import { hashString } from './world/math/hash';
 import { deserializeSlice, putSlice } from './world/net/slices';
 import { DEFAULT_NAME, loadProfile, saveProfile } from './world/profile';
 import { loadSettings, saveSettings, type Settings } from './world/settings';
 import { SaveError, createWorldState, deserializeWorld, type WorldState } from './world/state';
-import { KeyValueStore, type WorldStore, browserKeyValue } from './world/store';
+import { type KeyValue, KeyValueStore, type WorldStore, browserKeyValue } from './world/store';
 
 const canvas = document.querySelector<HTMLCanvasElement>('#view')!;
 const hudRoot = document.querySelector<HTMLElement>('#hud')!;
@@ -46,15 +53,37 @@ function openServer(address: string | null): void {
   location.href = url.toString();
 }
 
-/** Could not join: say why, offer to try again or play alone. */
-function showJoinFailed(address: string, e: unknown): void {
+/** A server's password, as the player last typed it for that server. */
+const passwordKey = (url: string): string => `inkbloom:pw:${url}`;
+
+/** Could not join: say why, offer to try again (with a password, if it wants one) or play alone. */
+function showJoinFailed(kv: KeyValue, url: string, e: unknown): void {
+  const wantsPassword = e instanceof JoinRefused && e.password;
   overlay.hidden = false;
   overlay.querySelector('.menu-body')!.innerHTML = `<h2>没能加入联机</h2><p></p>
-    <button class="primary" id="retry">再试一次</button><button id="alone">单人游戏</button>`;
+    ${wantsPassword ? '<label>密码 <input type="password" id="pw" autocomplete="off"></label>' : ''}
+    <button class="primary" id="retry">${wantsPassword ? '加入' : '再试一次'}</button><button id="alone">单人游戏</button>`;
   overlay.querySelector('.menu-body p')!.textContent =
-    `${address}：${e instanceof Error ? e.message : String(e)}`;
-  overlay.querySelector<HTMLButtonElement>('#retry')!.onclick = () => location.reload();
+    `${url}：${e instanceof Error ? e.message : String(e)}`;
+  overlay.querySelector<HTMLButtonElement>('#retry')!.onclick = () => {
+    const pw = overlay.querySelector<HTMLInputElement>('#pw');
+    if (pw) kv.setItem(passwordKey(url), pw.value);
+    location.reload();
+  };
   overlay.querySelector<HTMLButtonElement>('#alone')!.onclick = () => openServer(null);
+}
+
+/** A link to a server this browser has not joined from its own menu: ask before connecting. */
+function confirmJoin(url: string): Promise<boolean> {
+  overlay.hidden = false;
+  overlay.querySelector('.menu-body')!.innerHTML = `<h2>加入联机世界？</h2><p></p>
+    <p class="hint">只加入你认识的人开的服务器。</p>
+    <button class="primary" id="join">加入</button><button id="alone">单人游戏</button>`;
+  overlay.querySelector('.menu-body p')!.textContent = url;
+  return new Promise((done) => {
+    overlay.querySelector<HTMLButtonElement>('#join')!.onclick = () => done(true);
+    overlay.querySelector<HTMLButtonElement>('#alone')!.onclick = () => done(false);
+  });
 }
 
 async function boot(): Promise<void> {
@@ -72,14 +101,26 @@ async function boot(): Promise<void> {
   const address = params.get('server');
   let net: Connection | undefined;
   if (address) {
-    const p = loadProfile(kv) ?? { name: DEFAULT_NAME, look: defaultLook('courier') };
-    try {
-      net = await connect(address, { token: playerToken(kv), name: p.name, look: p.look });
-    } catch (e) {
-      showJoinFailed(address, e);
+    const url = serverUrl(address);
+    // joining from a link someone sent: say where to, and let the player say no
+    if (kv.getItem('inkbloom:server') !== address && !(await confirmJoin(url))) {
+      openServer(null);
       return;
     }
+    // asked once is enough: a retry (a password, a hiccup) goes straight in
     kv.setItem('inkbloom:server', address);
+    const p = loadProfile(kv) ?? { name: DEFAULT_NAME, look: defaultLook('courier') };
+    try {
+      net = await connect(url, {
+        token: playerToken(kv, url),
+        name: p.name,
+        look: p.look,
+        password: kv.getItem(passwordKey(url)) ?? '',
+      });
+    } catch (e) {
+      showJoinFailed(kv, url, e);
+      return;
+    }
     state = deserializeWorld(net.welcome.world);
     putSlice(state, deserializeSlice(net.welcome.you));
     store = new NetStore();
@@ -174,6 +215,8 @@ async function boot(): Promise<void> {
     },
     lastServer: () => kv.getItem('inkbloom:server') ?? `${location.hostname || '127.0.0.1'}`,
     joinServer(addr) {
+      // chosen in this game's own menu: no need to ask again
+      kv.setItem('inkbloom:server', addr);
       void game.save.flush().then(() => openServer(addr));
     },
     leaveServer() {

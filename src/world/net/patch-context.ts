@@ -40,14 +40,19 @@ export function worldPatchContext(
   };
 }
 
-/** Layouts made on demand and kept (the server's way: it has no prefetching worker). */
-export function layoutCache(wilderness: Wilderness): (id: string) => CityLayout | null {
+/** Layouts made on demand, the most recently used kept (the server's way: it has no
+ * prefetching worker). Bounded, so asking about ever more towns cannot use up memory. */
+export function layoutCache(wilderness: Wilderness, keep = 24): (id: string) => CityLayout | null {
   const cache = new Map<string, CityLayout | null>();
   return (id) => {
-    if (!cache.has(id)) {
+    let l = cache.get(id);
+    if (l === undefined) {
       const e = entranceById(wilderness, id);
-      cache.set(id, e ? townLayout(e, wilderness) : null);
-    }
-    return cache.get(id)!;
+      l = e ? townLayout(e, wilderness) : null;
+    } else cache.delete(id);
+    // most recently used last; drop the least recently used past the limit
+    cache.set(id, l);
+    while (cache.size > keep) cache.delete(cache.keys().next().value!);
+    return l;
   };
 }
