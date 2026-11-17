@@ -74,7 +74,11 @@ function wallPoint({ x0, x1, z0, z1, base }: House) {
       : v(u, base + y, f === 'pz' ? z1 + offset : z0 - offset);
 }
 
-export function buildCountryHouse(g: GeometryBuilder, h: House, box: BoxSink): void {
+/**
+ * A country house: walls, facade, roof. `detail` false builds only its shell (walls and the
+ * roof's slopes and gables), for seeing it from far off where the rest is under a pixel.
+ */
+export function buildCountryHouse(g: GeometryBuilder, h: House, box: BoxSink, detail = true): void {
   const { x0, x1, z0, z1, front, base, height, surfaces } = h;
   const walls = surfaces?.walls,
     roof = surfaces?.roof ?? NO_SURFACE,
@@ -100,8 +104,8 @@ export function buildCountryHouse(g: GeometryBuilder, h: House, box: BoxSink): v
       : {},
   );
 
-  addFacade(g, h);
-  addRoof(g, h, box);
+  if (detail) addFacade(g, h);
+  addRoof(g, h, box, detail);
 }
 
 function addFacade(g: GeometryBuilder, h: House): void {
@@ -251,7 +255,7 @@ function addFacade(g: GeometryBuilder, h: House): void {
   }
 }
 
-function addRoof(g: GeometryBuilder, h: House, box: BoxSink): void {
+function addRoof(g: GeometryBuilder, h: House, box: BoxSink, detail: boolean): void {
   const { x0, x1, z0, z1, front, base, height, surfaces } = h;
   const walls = surfaces?.walls,
     roof = surfaces?.roof ?? NO_SURFACE;
@@ -281,11 +285,13 @@ function addRoof(g: GeometryBuilder, h: House, box: BoxSink): void {
     panel(g, [edgeA, edgeB, peakB, peakA], up, h.tile, roof);
     const innerA = axis(-along, eave, side * across),
       innerB = axis(along, eave, side * across);
-    const bottomA = axis(-end, edge - 0.18, side * run),
-      bottomB = axis(end, edge - 0.18, side * run);
-    panel(g, [bottomA, bottomB, innerB, innerA], v(0, -1, 0), wood, roof);
-    const outside = ridgeX ? v(0, 0, side) : v(side, 0, 0);
-    panel(g, [bottomA, bottomB, edgeB, edgeA], outside, wood, roof);
+    if (detail) {
+      const bottomA = axis(-end, edge - 0.18, side * run),
+        bottomB = axis(end, edge - 0.18, side * run);
+      panel(g, [bottomA, bottomB, innerB, innerA], v(0, -1, 0), wood, roof);
+      const outside = ridgeX ? v(0, 0, side) : v(side, 0, 0);
+      panel(g, [bottomA, bottomB, edgeB, edgeA], outside, wood, roof);
+    }
     const endFace: Face = ridgeX ? (side > 0 ? 'px' : 'nx') : side > 0 ? 'pz' : 'nz';
     const sid = walls?.[endFace] ?? NO_SURFACE,
       endNormal = normal(endFace);
@@ -302,6 +308,7 @@ function addRoof(g: GeometryBuilder, h: House, box: BoxSink): void {
         h.plaster,
         sid,
       );
+      if (!detail) continue;
       const mid = ridgeX ? cz : cx;
       panel(
         g,
@@ -337,6 +344,7 @@ function addRoof(g: GeometryBuilder, h: House, box: BoxSink): void {
   const block = (u0: number, u1: number, y0: number, y1: number, t0: number, t1: number, c: number) =>
     g.box(axis(u0, y0, t0), axis(u1, y1, t1), allFaces(c), allFaces(roof));
   block(-ridge - 0.08, ridge + 0.08, top - 0.1, top + 0.13, -0.14, 0.14, h.tile);
+  // the chimney stays in the shell: its shadow on the roof shows from far off
   if (h.style !== 'barn') {
     const u = -ridge * 0.48,
       t = across * 0.36,
@@ -344,7 +352,7 @@ function addRoof(g: GeometryBuilder, h: House, box: BoxSink): void {
     block(u - 0.35, u + 0.35, chimney - 2, chimney, t - 0.31, t + 0.31, stone);
     block(u - 0.44, u + 0.44, chimney - 0.16, chimney + 0.07, t - 0.4, t + 0.4, wood);
   }
-  if (h.style === 'cottage') {
+  if (detail && h.style === 'cottage') {
     // A little loft window pushed out of the front pitch. Its cheeks disappear
     // into the roof and its own eaves cast a shadow over the glazing.
     const side = front === 'px' || front === 'pz' ? 1 : -1;

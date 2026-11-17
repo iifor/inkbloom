@@ -1,5 +1,6 @@
 // The contracts every part of the game is written against. Read this file first.
 import type * as THREE from 'three';
+import type { GeometryData } from '@/engine/render/geometry-builder';
 import type { InkRenderer } from '@/engine/render/renderer';
 import type { Input } from '@/engine/input/input';
 import type { ColliderData, PhysicsWorld, Vec3Like } from '@/engine/physics/world';
@@ -95,8 +96,8 @@ export interface SceneApi {
 
 /** A city's geometry and colliders, built ahead of time (off the main thread). */
 export interface BuiltCity {
-  /** Vertex attributes by name (position, normal, aColor, aSurface), as GeometryBuilder makes. */
-  readonly attributes: Readonly<Record<string, { readonly array: Float32Array; readonly itemSize: number }>>;
+  /** Per district (see buildCity): in full, and with the houses as shells for far off. */
+  readonly tiles: readonly { readonly full: GeometryData; readonly far: GeometryData }[];
   /** addBox calls to replay into the city's physics world. */
   readonly boxes: readonly {
     readonly group: string;

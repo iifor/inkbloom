@@ -1,16 +1,20 @@
-// WildChunk data -> one mesh and its colliders. The ground is a smooth heightfield sampled
-// every MESH_STEP metres with normals from the height function, so hills shade as one soft
-// surface; steep ground shows the biome's slope colour. The ground needs no colliders: the
+// WildChunk data -> one mesh and its colliders. The ground is the height function's own
+// triangles (it is flat between the corners of its 4 m cells, split along the same diagonal),
+// so the mesh is exactly the ground bodies stand on, and a town's ground lies exactly over it.
+// Normals come from the height function, so hills shade as one soft surface; steep ground
+// shows the biome's slope colour. The ground needs no colliders: the
 // wild physics world stands bodies on the same height function. Trees get trunk colliders.
 import * as THREE from 'three';
+import { TUNING } from '@/content/tuning';
 import { appendTree, treeMatrix, treePalette } from './tree-geometry';
 import { GeometryBuilder } from '@/engine/render/geometry-builder';
 import type { PhysicsWorld } from '@/engine/physics/world';
 import type { WildChunk } from '@/world/wilderness/chunk';
 import { riverbedMeadow, type Wilderness } from '@/world/wilderness/generator';
 
-/** Metres between terrain mesh vertices. */
-const MESH_STEP = 2;
+/** Metres between terrain mesh vertices: the height function's own cell. Finer would only add
+ * triangles lying flat on the same planes. */
+const MESH_STEP = TUNING.world.cellSize;
 export function buildChunkGeometry(
   chunk: WildChunk,
   w: Wilderness,
@@ -87,33 +91,10 @@ export function* buildTerrainSteps(
     y: H(i, k),
     z: z0 + k * MESH_STEP,
   });
-  // In a town the land is drawn the way the town draws its ground, two triangles per terrain
-  // cell along the height function's own diagonal, so the town's ground lies exactly on it.
-  const towns = w
-    .entrancesNear(x0 + size / 2, z0 + size / 2, 1)
-    .filter((e) => e.ox < x0 + size && e.oz < z0 + size && e.ox + e.size > x0 && e.oz + e.size > z0);
-  const inTown = (x: number, z: number): boolean =>
-    towns.some((e) => x > e.ox && z > e.oz && x < e.ox + e.size && z < e.oz + e.size);
-  const r = cell / MESH_STEP;
-  for (let ck = 0; ck < n; ck++)
-    for (let ci = 0; ci < n; ci++) {
-      if (!inTown(x0 + (ci + 0.5) * cell, z0 + (ck + 0.5) * cell)) continue;
-      const [i, k] = [ci * r, ck * r];
-      const s = (a: number, b: number): number => soil[(ck + b) * (n + 1) + ci + a]!;
-      g.quadSmooth(
-        P(i + r, k),
-        P(i, k),
-        P(i, k + r),
-        P(i + r, k + r),
-        [N(i + r, k), N(i, k), N(i, k + r), N(i + r, k + r)],
-        [s(1, 0), s(0, 0), s(0, 1), s(1, 1)],
-      );
-    }
   yield;
   for (let k = 0; k < steps; k++) {
     if (k % ROWS_PER_STEP === ROWS_PER_STEP - 1) yield;
     for (let i = 0; i < steps; i++) {
-      if (inTown(x0 + (i + 0.5) * MESH_STEP, z0 + (k + 0.5) * MESH_STEP)) continue;
       // counter-clockwise seen from above
       g.quadSmooth(
         P(i, k + 1),

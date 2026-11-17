@@ -55,8 +55,17 @@ export class GeometryBuilder {
     color: number,
     surface = NO_SURFACE,
   ): void {
-    for (const p of [a, b, c, a, c, d])
-      this.vertex(p.x, p.y, p.z, normal.x, normal.y, normal.z, color, surface);
+    this.indexLooseVertices();
+    const o = this.vertexCount;
+    for (const p of [a, b, c, d]) this.vertex(p.x, p.y, p.z, normal.x, normal.y, normal.z, color, surface);
+    this.quadIndices(o);
+  }
+
+  /** Two triangles (a, b, c) and (a, c, d) over the four vertices from `o`: a quad shares its
+   * diagonal's two corners instead of repeating them. */
+  private quadIndices(o: number): void {
+    this.indices.push(o, o + 1, o + 2, o, o + 2, o + 3);
+    this.indexedThrough = this.vertexCount;
   }
 
   /** Quad with a normal per corner and an optional colour code per corner. */
@@ -70,11 +79,14 @@ export class GeometryBuilder {
     surface = NO_SURFACE,
   ): void {
     const pts = [a, b, c, d];
-    for (const k of [0, 1, 2, 0, 2, 3]) {
+    this.indexLooseVertices();
+    const o = this.vertexCount;
+    for (let k = 0; k < 4; k++) {
       const p = pts[k]!;
       const n = normals[k]!;
       this.vertex(p.x, p.y, p.z, n.x, n.y, n.z, typeof color === 'number' ? color : color[k]!, surface);
     }
+    this.quadIndices(o);
   }
 
   /** Axis-aligned box. Faces missing from `colors` are skipped. */
@@ -188,4 +200,55 @@ export class GeometryBuilder {
     g.computeBoundingBox();
     return g;
   }
+}
+
+/** A built geometry as plain arrays, to hand from a worker to the main thread. */
+export interface GeometryData {
+  /** Vertex attributes by name (position, normal, aColor, aSurface). */
+  readonly attributes: Readonly<Record<string, { readonly array: Float32Array; readonly itemSize: number }>>;
+  readonly index: Uint32Array | Uint16Array | null;
+  /** Bounds as the builder found them, so the main thread need not walk every vertex again. */
+  readonly sphere: readonly [number, number, number, number];
+  readonly box: readonly [number, number, number, number, number, number];
+}
+
+/** A geometry's arrays, and the buffers to transfer rather than copy. */
+export function geometryData(g: THREE.BufferGeometry): { data: GeometryData; transfer: ArrayBuffer[] } {
+  const attributes: Record<string, { array: Float32Array; itemSize: number }> = {};
+  const transfer: ArrayBuffer[] = [];
+  for (const [name, attr] of Object.entries(g.attributes)) {
+    const array = attr.array as Float32Array;
+    attributes[name] = { array, itemSize: attr.itemSize };
+    transfer.push(array.buffer as ArrayBuffer);
+  }
+  const index = (g.index?.array as Uint32Array | Uint16Array | undefined) ?? null;
+  if (index) transfer.push(index.buffer as ArrayBuffer);
+  if (!g.boundingSphere) g.computeBoundingSphere();
+  if (!g.boundingBox) g.computeBoundingBox();
+  const { center: c, radius } = g.boundingSphere!;
+  const { min, max } = g.boundingBox!;
+  return {
+    data: {
+      attributes,
+      index,
+      sphere: [c.x, c.y, c.z, radius],
+      box: [min.x, min.y, min.z, max.x, max.y, max.z],
+    },
+    transfer,
+  };
+}
+
+/** The geometry again, from its arrays. */
+export function fromGeometryData(d: GeometryData): THREE.BufferGeometry {
+  const g = new THREE.BufferGeometry();
+  for (const [name, a] of Object.entries(d.attributes))
+    g.setAttribute(name, new THREE.BufferAttribute(a.array, a.itemSize));
+  if (d.index) g.setIndex(new THREE.BufferAttribute(d.index, 1));
+  const [x, y, z, r] = d.sphere;
+  g.boundingSphere = new THREE.Sphere(new THREE.Vector3(x, y, z), r);
+  g.boundingBox = new THREE.Box3(
+    new THREE.Vector3(...d.box.slice(0, 3)),
+    new THREE.Vector3(...d.box.slice(3)),
+  );
+  return g;
 }

@@ -5,13 +5,14 @@
 import * as THREE from 'three';
 import { TUNING } from '@/content/tuning';
 import { PhysicsWorld } from '@/engine/physics/world';
+import { fromGeometryData } from '@/engine/render/geometry-builder';
 import { SurfaceStateTexture, makeInkMaterial, shared } from '@/engine/render/ink-material';
 import { disposeTree } from '@/engine/resources';
 import type { GameContext, GameScene } from '@/game/types';
 import { type CityLayout, groundAt } from '@/world/city/layout';
 import { isColored } from '@/world/paint/surfaces';
 import { blockState, type BlockState } from '@/world/city/blocks';
-import { cityStates } from '@/world/state';
+import { type TideSave, cityStates } from '@/world/state';
 import type { Entrance } from '@/world/wilderness/generator';
 import { buildCity, cityGroup } from './build-city';
 import { Erosion } from './erosion';
@@ -21,6 +22,10 @@ import { CityMonsters } from './city-monsters';
 import { Residents } from './residents';
 import { Studios } from './studios';
 
+/** Metres from a district's middle beyond which its houses are drawn as shells. A district is
+ * 128 m across, so its nearest houses are then over 100 m off: window frames are a few pixels. */
+const FAR_DETAIL = 200;
+
 export class CityScene implements GameScene {
   readonly ref: { readonly kind: 'city'; readonly id: string };
   readonly name: string;
@@ -29,18 +34,23 @@ export class CityScene implements GameScene {
   private readonly texture: SurfaceStateTexture;
   private readonly material: THREE.ShaderMaterial;
   private readonly release: (() => void)[] = [];
+  /** One per district: its geometry in full, and with the houses as shells. */
+  private readonly detail: THREE.LOD[] = [];
   /** Coloured / total surfaces per city chunk, kept current from patches. */
   private readonly colored: number[];
   private readonly totals: number[];
   private coloredAll = 0;
   /** True when the saved states belonged to an older layout and were discarded. */
   readonly wasReset: boolean;
-  readonly stains: InkStains;
-  readonly tide: InkTide;
-  private readonly studios: Studios;
-  private readonly erosion: Erosion;
-  readonly monsters: CityMonsters;
-  readonly residents: Residents;
+  // set while the town is put together over a few frames (see build); used once it is ready
+  stains!: InkStains;
+  tide!: InkTide;
+  private studios!: Studios;
+  private erosion!: Erosion;
+  monsters!: CityMonsters;
+  residents!: Residents;
+  /** The rest of putting the town together, a step at a time; null once it stands. */
+  private building: Generator<void, void, void> | null;
 
   constructor(
     private readonly ctx: GameContext,
@@ -74,23 +84,77 @@ export class CityScene implements GameScene {
     this.material.polygonOffset = true;
     this.material.polygonOffsetFactor = towards;
     this.material.polygonOffsetUnits = 2 * towards;
+    this.building = this.steps(stains, defeated, requestsDone, tide);
+  }
+
+  /** Whether the town is all there: enterable, its systems running. */
+  get ready(): boolean {
+    return this.building === null;
+  }
+
+  /** Put more of the town together, for about `ms` milliseconds. Returns whether it is done. */
+  build(ms: number): boolean {
+    const until = performance.now() + ms;
+    while (this.building && performance.now() < until) if (this.building.next().done) this.building = null;
+    return this.ready;
+  }
+
+  /** Put the rest of the town together now (the player is about to stand in it). */
+  finish(): void {
+    while (this.building) if (this.building.next().done) this.building = null;
+  }
+
+  /** Everything after the town's own state: its districts' geometry one at a time, then each
+   * of its systems, so standing a town up never stalls a frame for long. */
+  private *steps(
+    stains: Uint8Array,
+    defeated: Uint8Array,
+    requestsDone: Uint8Array,
+    tide: TideSave,
+  ): Generator<void, void, void> {
+    const { ctx, layout, states } = this;
     // geometry and colliders worked out ahead of time in the city worker, when they are ready
     const built = ctx.cities.takeBuilt(layout.id);
-    let geometry: THREE.BufferGeometry;
-    if (built) {
-      geometry = new THREE.BufferGeometry();
-      for (const [name, a] of Object.entries(built.attributes))
-        geometry.setAttribute(name, new THREE.BufferAttribute(a.array, a.itemSize));
-      geometry.computeBoundingSphere();
-      geometry.computeBoundingBox();
-      for (const b of built.boxes) this.physics.addBox(b.group, b.min, b.max, b.data);
-    } else geometry = buildCity(layout, this.physics).build();
-    this.root.add(new THREE.Mesh(geometry, this.material));
+    if (built) for (const b of built.boxes) this.physics.addBox(b.group, b.min, b.max, b.data);
+    const local = built ? null : buildCity(layout, this.physics);
+    yield;
+    // a district at a time, so what is out of view (or out of the sun's shadow square) is not
+    // drawn; its houses as shells once the district is far off
+    const per = layout.size / layout.chunks;
+    for (let i = 0; i < layout.chunks * layout.chunks; i++) {
+      const full = built ? fromGeometryData(built.tiles[i]!.full) : local![i]!.full.build();
+      const far = built ? fromGeometryData(built.tiles[i]!.far) : local![i]!.far.build();
+      const lod = new THREE.LOD();
+      const x = layout.ox + ((i % layout.chunks) + 0.5) * per;
+      const z = layout.oz + (Math.floor(i / layout.chunks) + 0.5) * per;
+      lod.position.set(x, groundAt(layout, x, z), z);
+      for (const [geometry, from] of [
+        [full, 0],
+        [far, FAR_DETAIL],
+      ] as const) {
+        const mesh = new THREE.Mesh(geometry, this.material);
+        // the geometry is in world space: undo the tile's own position
+        mesh.position.copy(lod.position).negate();
+        lod.addLevel(mesh, from, 0.08);
+      }
+      // levels follow the player's camera only (see updateDetail): the sun's camera stands far
+      // off and would otherwise always see shells, losing the near houses' smaller shadows
+      lod.autoUpdate = false;
+      this.detail.push(lod);
+      this.root.add(lod);
+      // a district a frame at most: its first draw also uploads it to the GPU
+      yield;
+    }
+    yield;
     this.stains = new InkStains(ctx, layout, stains, this.material, this.root);
+    yield;
     this.studios = new Studios(ctx, layout, states, (c) => this.progress(c), this.material, this.root);
     this.erosion = new Erosion(ctx, layout, states, this);
+    yield;
     this.monsters = new CityMonsters(ctx, layout, defeated, this.physics, this.root, this.material);
+    yield;
     this.residents = new Residents(ctx, layout, states, requestsDone, this.material, this.root);
+    yield;
     this.tide = new InkTide(ctx, layout, states, this, tide, this.root);
 
     this.release.push(
@@ -204,6 +268,11 @@ export class CityScene implements GameScene {
     return this.tide.curtainDistance(eye, forward);
   }
 
+  /** Pick each district's level of detail by its distance from the camera. */
+  updateDetail(camera: THREE.Camera): void {
+    for (const lod of this.detail) lod.update(camera);
+  }
+
   /** While the player is inside. */
   update(dt: number): void {
     this.stains.update();
@@ -215,10 +284,12 @@ export class CityScene implements GameScene {
   /** While the player is just outside the wall: the guards stay awake; everything else (the
    * tide's timers, erosion) waits for them to come in. */
   updateOutside(dt: number): void {
-    this.monsters.update(dt);
+    if (this.ready) this.monsters.update(dt);
   }
 
   dispose(): void {
+    // half put together: finish, so everything it registered is released below
+    this.finish();
     this.stains.dispose();
     this.studios.dispose();
     this.tide.dispose();

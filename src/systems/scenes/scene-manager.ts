@@ -24,6 +24,8 @@ const SHOW = 300;
 const SHOW_NOW = 120;
 /** ...and taken down again. */
 const HIDE = 480;
+/** Milliseconds a frame spends putting a town together that has just come into view. */
+const BUILD_MS = 3;
 /** The guards of a town stay awake while the player is this close to its wall. */
 const GUARDS_WAKE = 60;
 /** Metres past the wall the player must go before the town or the wilderness takes over, so
@@ -64,7 +66,8 @@ export class SceneManager implements SceneApi, System {
     this.ctx.events.emit('scene:entered', { ref: scene.ref, name: scene.name });
   }
 
-  /** Stand a town up: from its prebuilt work when ready, on the spot otherwise. */
+  /** Stand a town up: from its prebuilt work when ready, on the spot otherwise. It is put
+   * together over the next few frames (see update); `finish` it to have it all at once. */
   private show(e: Entrance): CityScene {
     let town = this.towns.get(e.cityId);
     if (town) return town;
@@ -107,6 +110,8 @@ export class SceneManager implements SceneApi, System {
       // a whole metre inside the wall, not just on it
       if (p.x < e.ox + THRESHOLD || p.z < e.oz + THRESHOLD) continue;
       if (p.x > e.ox + e.size - THRESHOLD || p.z > e.oz + e.size - THRESHOLD) continue;
+      // walked in faster than it went up: have the rest of it now
+      town.finish();
       this.city = town;
       this.switchTo(town);
       this.ctx.events.emit('title', {
@@ -121,13 +126,15 @@ export class SceneManager implements SceneApi, System {
   private place(at: { pos: THREE.Vector3; yaw: number }): void {
     this.wild.ensureAt(at.pos.x, at.pos.z);
     const town = this.ctx.wilderness.townAt(at.pos.x, at.pos.z, SHOW_NOW);
-    if (town) this.show(town);
+    if (town) this.show(town).finish();
     this.ctx.player.teleport(at.pos, at.yaw);
     this.follow();
   }
 
   enterCity(entrance: Entrance): void {
-    this.place(this.show(entrance).spawn());
+    const town = this.show(entrance);
+    town.finish();
+    this.place(town.spawn());
   }
 
   enterWild(at?: { pos: THREE.Vector3; yaw: number }): void {
@@ -251,6 +258,13 @@ export class SceneManager implements SceneApi, System {
     this.stream();
     this.follow();
     const p = this.ctx.player.position;
+    // one town a frame goes on being put together
+    for (const town of this.towns.values())
+      if (!town.ready) {
+        town.build(BUILD_MS);
+        break;
+      }
+    for (const town of this.towns.values()) town.updateDetail(this.ctx.renderer.camera);
     for (const town of this.towns.values())
       if (town === this.city) town.update(dt);
       else if (townDistance(town.entrance, p.x, p.z) < GUARDS_WAKE) town.updateOutside(dt);

@@ -77,9 +77,11 @@ describe('town layout', () => {
 
   it.each(SEEDS)('never puts a house on a street or on another house (seed %i)', (seed) => {
     const city = generateCity('x', seed, 3, 'pz', hills);
+    const clashes: string[] = [];
     for (const b of city.buildings) {
       for (const o of city.buildings)
-        if (o.id < b.id) expect(rectsOverlap(b, o), `houses ${b.id} and ${o.id}`).toBe(false);
+        if (o.id < b.id && Math.hypot(o.x - b.x, o.z - b.z) < 30 && rectsOverlap(b, o))
+          clashes.push(`houses ${b.id} and ${o.id}`);
       // no street's paving reaches into the house
       const c = Math.cos(b.angle);
       const s = Math.sin(b.angle);
@@ -87,10 +89,11 @@ describe('town layout', () => {
         for (const p of st.points) {
           const lx = (p.x - b.x) * c - (p.z - b.z) * s;
           const lz = (p.x - b.x) * s + (p.z - b.z) * c;
-          const inside = Math.abs(lx) < b.hw + st.width / 2 && Math.abs(lz) < b.hd + st.width / 2;
-          expect(inside, `house ${b.id}`).toBe(false);
+          if (Math.abs(lx) < b.hw + st.width / 2 && Math.abs(lz) < b.hd + st.width / 2)
+            clashes.push(`house ${b.id} on a street`);
         }
     }
+    expect(clashes).toEqual([]);
   });
 
   it.each(SEEDS)('turns every door to face a street just outside it (seed %i)', (seed) => {

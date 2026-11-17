@@ -5,6 +5,7 @@
 import type { BuiltCity } from '@/game/types';
 import { type CityLayout, townLayout } from '@/world/city/layout';
 import { type Entrance, type Wilderness, createWilderness } from '@/world/wilderness/generator';
+import { type GeometryBuilder, geometryData } from '@/engine/render/geometry-builder';
 import { buildCity } from './build-city';
 
 export interface CityJob {
@@ -27,16 +28,15 @@ self.addEventListener('message', (event: MessageEvent<CityJob>) => {
   const layout = townLayout(town, wilderness);
   const cityId = layout.id;
   const boxes: BuiltCity['boxes'][number][] = [];
-  const geometry = buildCity(layout, {
-    addBox: (group, min, max, data = {}) => boxes.push({ group, min: { ...min }, max: { ...max }, data }),
-  }).build();
-  const attributes: Record<string, { array: Float32Array; itemSize: number }> = {};
   const transfer: ArrayBuffer[] = [];
-  for (const [name, attr] of Object.entries(geometry.attributes)) {
-    const array = attr.array as Float32Array;
-    attributes[name] = { array, itemSize: attr.itemSize };
-    transfer.push(array.buffer as ArrayBuffer);
-  }
-  const result: CityResult = { cityId, layout, built: { attributes, boxes } };
+  const pack = (g: GeometryBuilder) => {
+    const packed = geometryData(g.build());
+    transfer.push(...packed.transfer);
+    return packed.data;
+  };
+  const tiles = buildCity(layout, {
+    addBox: (group, min, max, data = {}) => boxes.push({ group, min: { ...min }, max: { ...max }, data }),
+  }).map((t) => ({ full: pack(t.full), far: pack(t.far) }));
+  const result: CityResult = { cityId, layout, built: { tiles, boxes } };
   (self as unknown as Worker).postMessage(result, transfer);
 });
