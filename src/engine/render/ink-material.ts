@@ -3,6 +3,12 @@
 // in the way), G = colour code, BA = view normal. Grass has an upward normal, so it uses
 // BA for a grass marker and the fraction of the pixel covered by the leaf.
 // Fish store diffuse pigment instead of the view normal: G = green, B = -2 - red, A = blue.
+// A window pane (aPane, see GeometryBuilder.pane) stores where on the pane the pixel is in
+// place of its normal: B = 8 + across, A = the room behind it + up.
+// A footpath's quads carry how far each point is from the path's middle (aPane -3, edge): the
+// earth is cut away raggedly toward the edge, leaving the grass under it.
+// The meadow's painted plants (PLANTS: grass tufts and wildflowers from the plant atlas, see
+// painted-textures.ts) are cards that turn to face the eye, cut out by the painting.
 //
 // Colour code = paletteIndex + 0.9 * saturation. Saturation comes from:
 //   aSurface >= 0  per-surface state texture (0 drained, 1 original, 2+n graffiti colour n)
@@ -14,12 +20,15 @@
 import * as THREE from 'three';
 import { color, MAX_COLORS } from '@/content/palette';
 import { TUNING } from '@/content/tuning';
+import { PLANT_COLUMNS } from './painted-textures';
 
 /** Cleansed ink wells the drain shader knows about at once (the nearest). */
 export const MAX_WELLS = 4;
 
 export const shared = {
   uCanopyBrush: { value: null as THREE.Texture | null },
+  /** The meadow's painted plants (painted-textures.ts): grass tufts and wildflowers. */
+  uPlants: { value: null as THREE.Texture | null },
   uLightDir: { value: new THREE.Vector3(0, 1, 0) },
   /** xy = town centre, z = progress (0..1), w = half the town's side. */
   uCities: { value: Array.from({ length: TUNING.drain.maxCities }, () => new THREE.Vector4()) },
@@ -84,6 +93,7 @@ float derivedSat(vec3 wp) {
 const vert = /* glsl */ `
 attribute float aColor;
 attribute float aSurface;
+attribute vec2 aPane;
 uniform sampler2D uState;
 uniform int uStateWidth;
 ${wildernessDrainGLSL}
@@ -107,12 +117,17 @@ varying vec4 vShadow;
 varying vec2 vCardUv;
 varying float vTip;
 varying float vGust;
+varying vec2 vPane;
+varying vec2 vGroundAt;
 #ifdef TREE
 varying vec3 vTreePosition;
 varying vec3 vTreeView;
 #endif
 #ifdef CLOTH
 varying vec3 vCloth;
+#endif
+#ifdef PLANTS
+varying float vPlantCell;
 #endif
 #ifdef FIELD
 uniform vec3 uField;
@@ -177,6 +192,18 @@ void main() {
       vFieldCover = 1.0 - smoothstep(uFieldFade.x, uFieldFade.y, range);
       vPlantMark = instanceMatrix[3].xz + position.xz + position.y * vec2(0.41, 0.73);
     #endif
+    #ifdef PLANTS
+      // A painted plant is a square card standing on its root, as tall as its instance says,
+      // turned about the root to face the eye. Which of the row's pictures it is comes from
+      // its wind seed, so it never changes.
+      vec3 foot = instanceMatrix[3].xyz;
+      vec2 toEye = cameraPosition.xz - (modelMatrix * vec4(foot, 1.0)).xz;
+      vec2 facing = normalize(vec2(toEye.y, -toEye.x) + 1e-5);
+      float tall = instanceMatrix[1].y;
+      transformed = foot + vec3(facing.x * position.x, position.y, facing.y * position.x) * tall;
+      vCardUv = uv;
+      vPlantCell = floor(fract(instanceColor.b * 7.31) * ${PLANT_COLUMNS}.0);
+    #else
     transformed = (instanceMatrix * vec4(transformed, 1.0)).xyz;
     mat3 basis = mat3(instanceMatrix);
     #if defined(TREE) || (defined(FIELD) && !defined(BLADES))
@@ -184,6 +211,7 @@ void main() {
       objectNormal /= vec3(dot(basis[0], basis[0]), dot(basis[1], basis[1]), dot(basis[2], basis[2]));
     #endif
     objectNormal = basis * objectNormal;
+    #endif
   #endif
   vec4 world = modelMatrix * vec4(transformed, 1.0);
   #ifdef TREE
@@ -239,6 +267,8 @@ void main() {
     vGust = gust * speed / (3.0 + speed);
     #ifdef REEDS
       vTip = smoothstep(0.0, 1.2, height);
+    #elif defined(PLANTS)
+      vTip = uv.y;
     #else
       vTip = clamp(position.y / 0.4, 0.0, 1.0);
     #endif
@@ -250,7 +280,7 @@ void main() {
   #if defined(USE_INSTANCING_COLOR) && !defined(FISH)
     // instanced particles carry their palette index in the red channel
     idx = instanceColor.r;
-    #if defined(FIELD) && !defined(BLADES)
+    #if defined(FIELD) && !defined(BLADES) && !defined(PLANTS)
       // The petal template supplies a wash in the meadow range, the instance supplies its pigment.
       // The calyx, stalk and pollen carry ordinary palette colours.
       idx = aColor >= ${2 * MAX_COLORS}.0 ? aColor + idx : aColor;
@@ -271,6 +301,8 @@ void main() {
   // Petals carry their pigment above the palette and a wash strength in the fraction.
   vCode = idx < 0.0 || idx >= ${MAX_COLORS}.0 ? idx : idx + 0.9 * clamp(sat, 0.0, 1.0);
   vNormalV = normalize(normalMatrix * objectNormal);
+  vPane = aPane;
+  vGroundAt = world.xz;
   #ifdef BLADES
     vCardUv = uv;
   #endif
@@ -297,6 +329,8 @@ varying vec4 vShadow;
 varying vec2 vCardUv;
 varying float vTip;
 varying float vGust;
+varying vec2 vPane;
+varying vec2 vGroundAt;
 #if defined(TREE) || defined(CLOTH)
 uniform sampler2D uCanopyBrush;
 #endif
@@ -306,6 +340,10 @@ varying vec3 vTreeView;
 #endif
 #ifdef CLOTH
 varying vec3 vCloth;
+#endif
+#ifdef PLANTS
+uniform sampler2D uPlants;
+varying float vPlantCell;
 #endif
 
 /**
@@ -353,6 +391,25 @@ void main() {
       if (fract((h.x + h.y) * h.z) >= vFieldCover) discard;
     }
   #endif
+  if (vPane.x < -2.5) {
+    // A path's edge, broken up as a brush leaves it: broad tongues of earth and grass, and a
+    // finer raggedness along them. Nothing is cut from the middle half of the path.
+    vec2 q = vGroundAt * 1.9;
+    vec2 qi = floor(q), qf = fract(q);
+    qf = qf * qf * (3.0 - 2.0 * qf);
+    #define PATH_HASH(p) fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453)
+    float broad = mix(mix(PATH_HASH(qi), PATH_HASH(qi + vec2(1.0, 0.0)), qf.x),
+                      mix(PATH_HASH(qi + vec2(0.0, 1.0)), PATH_HASH(qi + vec2(1.0, 1.0)), qf.x), qf.y);
+    float fine = PATH_HASH(floor(vGroundAt * 14.0));
+    if (vPane.y > 0.5 + 0.42 * broad + 0.08 * fine) discard;
+  }
+  #ifdef PLANTS
+    // the painting: red how light, green how much it covers, blue what it is
+    vec4 plant = texture2D(uPlants, vec2(
+      (vPlantCell + clamp(vCardUv.x, 0.01, 0.99)) / ${PLANT_COLUMNS}.0,
+      (float(PLANT_ROW) + 1.0 - clamp(vCardUv.y, 0.01, 0.99)) * 0.5));
+    if (plant.g < 0.5) discard;
+  #endif
   #ifdef BLADES
     // Feather the outermost pixel of the ribbon. Interior colour and depth stay opaque.
     float halfWidth = 0.5 * clamp((1.0 - vCardUv.y) / 0.17, 0.0, 1.0);
@@ -367,8 +424,11 @@ void main() {
     float silhouette = abs(dot(n, normalize(vTreeView)));
     if (-vTreeView.z < 40.0 && silhouette < 0.67 && floor(vCode) != ${color('bark')}.0) {
       vec3 p = vTreePosition;
-      vec2 uv = vec2(p.x + 0.51 * p.z, p.y - 0.63 * p.z);
-      vec2 sprigs = texture2D(uCanopyBrush, uv * 0.64).rg;
+      // the leaf clusters face whoever is looking, so the crown's outline is cut into whole
+      // leaves from every side (it shifts a little as one walks round the tree, not as one turns)
+      vec2 toEye = cameraPosition.xz - p.xz;
+      vec2 uv = vec2(dot(p.xz, normalize(vec2(toEye.y, -toEye.x))), p.y);
+      vec2 sprigs = texture2D(uCanopyBrush, uv * 0.55).rg;
       float ink = floor(vCode) == ${color('cedar')}.0 ? sprigs.g : sprigs.r;
       float wash = texture2D(uCanopyBrush, vec2(p.z - 0.45 * p.x, p.y + 0.65 * p.x) * 0.81).b;
       float cut = clamp(0.22 + 0.86 * (0.51 - ink) + 0.72 * (0.51 - wash), 0.0, 0.65);
@@ -393,13 +453,19 @@ void main() {
     vec2 foldUv = vec2(vCloth.x + 0.6 * vCloth.z, vCloth.y * 0.35) * 3.2;
     vec2 dabUv = vec2(vCloth.z - 0.45 * vCloth.x, vCloth.y + 0.55 * vCloth.x) * 4.1;
     float folds = texture2D(uCanopyBrush, foldUv).b - 0.48;
-    float dabs = texture2D(uCanopyBrush, dabUv).r - 0.45;
+    float dabs = texture2D(uCanopyBrush, dabUv * 0.7 + 0.37).b - 0.46;
     float code = floor(vCode);
     bool skin = code == ${color('skinLight')}.0 || code == ${color('skinWarm')}.0 || code == ${color('skinDeep')}.0;
-    shade += (folds * 0.26 + dabs * 0.12) * (skin ? 0.3 : 1.0);
+    shade += (folds * 0.09 + dabs * 0.04) * (skin ? 0.3 : 1.0);
   #endif
-  // in the shadow of something: as dark as a face turned away from the sun
-  if (uShadowOn > 0.5) shade = mix(min(shade, 0.4), shade, sunlight());
+  // In the shadow of something: as dark as a face turned away from the sun. The paint pass
+  // draws a firm edge where the shade crosses a narrow band just above one half (see its
+  // light); a shadow's soft edge is spread over that band, so the whole of it shows as a
+  // smooth penumbra instead of the shadow map's steps.
+  if (uShadowOn > 0.5) {
+    float sun = sunlight();
+    if (sun < 1.0) shade = min(shade, 0.47 + 0.14 * sun);
+  }
   #ifdef WIND
     // a tuft is dark down among the stems and catches the light at the tips
     shade = clamp(shade * mix(0.62, 1.12, vTip), 0.0, 1.0);
@@ -409,7 +475,26 @@ void main() {
     // a gust turns the blades over and a wave of light runs across the meadow
     shade = clamp(shade + vGust * vTip * 0.18, 0.0, 1.0);
   #endif
-  #ifdef FISH
+  #ifdef PLANTS
+    float code = vCode;
+    #if PLANT_ROW == 1
+      // a wildflower: its instance's pigment washed into the petals (thin where the painting
+      // is pale, see the paint pass's petals), a yellow centre, the rest stem and leaf
+      float colour = fract(vCode);
+      if (plant.b > 0.75) code = ${color('yellow')}.0 + colour;
+      else if (plant.b > 0.25) code = ${2 * MAX_COLORS}.0 + floor(vCode) + clamp((plant.r - 0.5) * 1.2, 0.06, 0.55);
+      else {
+        code = ${color('sprout')}.0 + colour;
+        shade *= mix(0.8, 1.06, plant.r);
+      }
+      gl_FragColor = vec4(shade, code, n.x, n.y);
+    #else
+      // a tuft of grass: the painting's lights and darks over the blade's own shading, and
+      // its cut edge feathered like a blade's
+      shade = clamp(shade * mix(0.72, 1.0, plant.r), 0.0, 1.0);
+      gl_FragColor = vec4(shade, code, 2.0, smoothstep(0.5, 0.85, plant.g));
+    #endif
+  #elif defined(FISH)
     vec3 pigment = texture2D(uFishPaint, vCardUv).rgb;
     gl_FragColor = vec4(shade, pigment.g, -2.0 - pigment.r, pigment.b);
   #elif defined(BLADES)
@@ -419,7 +504,7 @@ void main() {
     // which keeps building treatments (painted walls, paving) off people
     gl_FragColor = vec4(shade, vCode, n.x + 4.0, n.y);
   #else
-    gl_FragColor = vec4(shade, vCode, n.x, n.y);
+    gl_FragColor = vPane.x > 0.5 ? vec4(shade, vCode, 7.0 + vPane.x, vPane.y) : vec4(shade, vCode, n.x, n.y);
   #endif
 }`;
 
@@ -450,6 +535,8 @@ export interface InkMaterialOptions {
   field?: FieldUniforms;
   /** Instanced figures in cloth (player characters): brush strokes painted on each part. */
   cloth?: boolean;
+  /** Painted plants from the plant atlas, as cards that face the eye: a row of the atlas. */
+  plants?: 'tufts' | 'flowers';
 }
 
 /** Shared, live uniforms for a field of plants (the owner updates the values each frame). */
@@ -486,6 +573,7 @@ export function makeInkMaterial(opts: InkMaterialOptions = {}): THREE.ShaderMate
         ? { uWind: shared.uWind, uWindDrift: shared.uWindDrift, uWindMap: { value: opts.wind } }
         : {}),
       uCanopyBrush: shared.uCanopyBrush,
+      ...(opts.plants ? { uPlants: shared.uPlants } : {}),
       uState: { value: opts.state?.texture ?? empty() },
       uStateWidth: { value: opts.state?.width ?? 1 },
       uShadeBias: { value: opts.shadeBias ?? 0 },
@@ -504,6 +592,7 @@ export function makeInkMaterial(opts: InkMaterialOptions = {}): THREE.ShaderMate
       ...(opts.field ? { FIELD: '' } : {}),
       ...(opts.field?.uBloom ? { SEA: '' } : {}),
       ...(opts.cloth ? { CLOTH: '' } : {}),
+      ...(opts.plants ? { PLANTS: '', PLANT_ROW: opts.plants === 'tufts' ? 0 : 1 } : {}),
     },
     side: opts.side ?? THREE.FrontSide,
   });

@@ -1,5 +1,7 @@
 // A repeating brush sheet. Red holds broad leaves, green holds cedar sprays, blue holds washes.
-// Both sample as linear values so the season and the scene's light supply the colour.
+// Both sample as linear values so the season and the scene's light supply the colour. The
+// sheet is drawn here in code at start-up; once the painted leaf clusters have loaded
+// (painted-textures.ts) they take the place of the red and green sheets.
 import * as THREE from 'three';
 
 export function makeCanopyBrush(): THREE.CanvasTexture {
@@ -71,4 +73,30 @@ export function makeCanopyBrush(): THREE.CanvasTexture {
   const texture = new THREE.CanvasTexture(canvas);
   texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
   return texture;
+}
+
+/**
+ * Lay the painted leaf clusters into the brush sheet: `painted` is RGBA pixels, `size` high and
+ * twice as wide, the broadleaf sheet on its left half and the cedar sheet on its right. The
+ * washes (blue) are kept, scaled to the new size.
+ */
+export function repaintCanopy(texture: THREE.CanvasTexture, painted: Uint8ClampedArray, size: number): void {
+  const canvas = texture.image as HTMLCanvasElement;
+  const washes = document.createElement('canvas');
+  washes.width = washes.height = size;
+  const w = washes.getContext('2d', { willReadFrequently: true })!;
+  w.drawImage(canvas, 0, 0, size, size);
+  const sheet = w.getImageData(0, 0, size, size);
+  for (let y = 0; y < size; y++)
+    for (let x = 0; x < size; x++) {
+      const i = (y * size + x) * 4;
+      const row = y * size * 2;
+      sheet.data[i] = painted[(row + x) * 4]!;
+      sheet.data[i + 1] = painted[(row + size + x) * 4]!;
+    }
+  // a texture's size is fixed once it is on the GPU: free it, and it is made again at the new
+  texture.dispose();
+  canvas.width = canvas.height = size;
+  canvas.getContext('2d')!.putImageData(sheet, 0, 0);
+  texture.needsUpdate = true;
 }

@@ -1,8 +1,11 @@
 // Painted renderer. The scene is drawn into a G-buffer (see ink-material.ts) plus depth, then a
-// full-screen pass paints it like a hand-painted animation background: soft sunlight and cool
-// sky-blue shadow, dappled brush texture (strong in grass and leaves, faint on plaster), soft
-// contact shadows in corners, a painted sky with cumulus clouds and blue-white haze in the
-// distance. There are no outlines. Saturation 0 is the same painting drained to grey;
+// full-screen pass paints it like a hand-painted animation background: sunlight and blue-violet
+// shade with a firm, brushed edge between them, hand-painted brushwork on every surface (tiles,
+// plaster, paving, timber and stone from painted textures, see painted-textures.ts; strong in
+// grass and leaves, faint on plaster), soft contact shadows in corners, a painted sky with
+// towering cumulus and blue-white haze in the distance. The background has no outlines; people are
+// cels with a thin warm line. Saturation 0 is the same picture as a pen drawing on paper (sepia
+// hatching and outlines, an unpainted comic page);
 // `atmosphere.gloom` (the ink tide) drains the whole view towards black and white and closes it
 // in with ink. A final FXAA pass smooths polygon edges, which nothing else hides.
 // Ported from doodle-game's render.js; the colour model and the look are new.
@@ -13,7 +16,7 @@ import { FXAAShader } from 'three/examples/jsm/shaders/FXAAShader.js';
 import { type Daylight, daylightAt } from './daylight';
 import { ResolutionGovernor } from './resolution';
 import { Critters } from './critters';
-import { Steam } from './steam';
+import { STEAM_SPRINGS, Steam } from './steam';
 import { Birds } from './birds';
 import { Precipitation } from './precipitation';
 import { makeCanopyBrush } from './canopy-brush';
@@ -21,7 +24,9 @@ import { disposeTree } from '../resources';
 import { NO_SHADOW_LAYER, shared } from './ink-material';
 import { makeBrushMaterial } from './brush-pass';
 import { GlowPass } from './glow';
+import { Lamps } from './lamps';
 import { makeNoise, makePaintMaterial } from './paint-pass';
+import { PaintedTextures } from './painted-textures';
 import { SEA_SLOTS } from './paint-shader';
 import { PassTimer } from './pass-timer';
 import { SunShadows } from './sun-shadows';
@@ -35,6 +40,7 @@ const PIXEL_BUDGET = { high: 3.2e6, low: 2.1e6 } as const;
 const PIXEL_RATIO = { high: { start: 1.5, most: 2 }, low: { start: 1, most: 1 } } as const;
 const _grey = new THREE.Vector3();
 const _avg = new THREE.Vector3();
+const _eye = new THREE.Vector3();
 /** What a lightning flash adds to the light: a cold white-violet. */
 const _flash = new THREE.Vector3(0.7, 0.72, 0.9);
 
@@ -56,7 +62,7 @@ export class InkRenderer {
   private readonly brush: THREE.ShaderMaterial;
   private readonly brushScene = new THREE.Scene();
   /** Pixels between brush-filter taps at 900 px tall (scaled with the frame); quality sets it. */
-  private brushSpread = 2.8;
+  private brushSpread = 2.1;
   private readonly postCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
   private readonly clearColor = new THREE.Color(1, 0, 0);
   private fishWake = 0;
@@ -74,6 +80,8 @@ export class InkRenderer {
   private readonly shadows = new SunShadows();
   private readonly canopyBrush = makeCanopyBrush();
   private readonly noise = makeNoise();
+  /** Hand-painted surface tiles and clouds for the paint pass; they load in the background. */
+  private readonly painted: PaintedTextures;
   /** River middles and half-widths around the player, for the water's current (setRivers). */
   private readonly rivers = new RiverTable();
   /** The player's field of view; tools zoom relative to it and return to it. */
@@ -121,6 +129,11 @@ export class InkRenderer {
   readonly critters: Critters;
   /** Steam off nearby hot springs (set by the atmosphere system). */
   readonly steam: Steam;
+  /** Lit windows and chimneys of the houses now loaded (scenes add their meshes): the
+   * nearest windows light the street at night, the nearest chimneys smoke. */
+  readonly lamps = new Lamps();
+  private readonly smoke: Steam;
+  private lampFrame = 0;
   /** Flocks of birds wheeling high over the land (moved by the atmosphere system). */
   readonly birds: Birds;
   /** The nearest hot spring (x, z, radius; radius 0 for none): no snow lies round it. */
@@ -189,6 +202,12 @@ export class InkRenderer {
       generateMipmaps: false,
     });
     shared.uCanopyBrush.value = this.canopyBrush;
+    this.painted = new PaintedTextures(
+      Math.min(4, this.renderer.capabilities.getMaxAnisotropy()),
+      this.canopyBrush,
+    );
+    shared.uPlants.value = this.painted.plants;
+    void this.painted.load();
     this.paintRt = new THREE.WebGLRenderTarget(2, 2, {
       minFilter: THREE.LinearFilter,
       magFilter: THREE.LinearFilter,
@@ -202,6 +221,9 @@ export class InkRenderer {
       noise: this.noise,
       rivers: this.rivers.texture,
       canopyBrush: this.canopyBrush,
+      surfaces: this.painted.surfaces,
+      clouds: this.painted.clouds,
+      interiors: this.painted.interiors,
       camera: this.camera,
       day: this.day,
       drift: this.drift,
@@ -214,6 +236,7 @@ export class InkRenderer {
     this.precipitation = new Precipitation(depthTexture);
     this.critters = new Critters(depthTexture);
     this.steam = new Steam(depthTexture);
+    this.smoke = new Steam(depthTexture);
     this.birds = new Birds(depthTexture);
     // the eye sees grass; the sun's shadow camera (default layer only) does not
     this.camera.layers.enable(NO_SHADOW_LAYER);
@@ -248,8 +271,8 @@ export class InkRenderer {
 
   setQuality(quality: 'high' | 'low'): void {
     this.pickResolution(quality);
-    // smaller strokes on the faster setting (the filter cost does not change, the look does)
-    this.brushSpread = quality === 'high' ? 2.8 : 2;
+    // smaller patches on the faster setting (the filter cost does not change, the look does)
+    this.brushSpread = quality === 'high' ? 2.1 : 1.6;
     // and a lighter paint pass: half the contact shadow's taps, no dabs on the ground
     const cheap = quality === 'low';
     if ('CHEAP' in this.post.defines !== cheap) {
@@ -303,6 +326,7 @@ export class InkRenderer {
     this.precipitation.setSize(rw, rh);
     this.critters.setSize(rw, rh);
     this.steam.setSize(rw, rh);
+    this.smoke.setSize(rw, rh);
     this.birds.setSize(rw, rh);
   }
 
@@ -472,6 +496,7 @@ export class InkRenderer {
     u.uFar!.value = this.camera.far;
     u.uInvProj!.value.copy(this.camera.projectionMatrixInverse);
     u.uInvView!.value.copy(this.camera.matrixWorld);
+    u.uViewProj!.value.multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse);
     u.uSkySat!.value = this.atmosphere.colour;
     u.uGloom!.value = this.atmosphere.gloom;
     u.uYear!.value = this.atmosphere.year;
@@ -494,6 +519,20 @@ export class InkRenderer {
     (u.uWarm!.value as THREE.Vector4).copy(this.warmSpot);
     u.uNight!.value = this.day.night;
     u.uTime!.value = shared.uTime.value;
+    // which windows and chimneys are nearest changes slowly: look every few frames
+    if (this.lampFrame++ % 6 === 0) {
+      const eye = this.camera.getWorldPosition(_eye);
+      this.lamps.lampsNear(eye, u.uLamps!.value as THREE.Vector4[]);
+      // hearths are lit where the town has its colour back; more smoke in the cold and at dusk
+      const chimneys = this.lamps.chimneysNear(eye, STEAM_SPRINGS, 90).map((c) => ({ ...c, r: 0.3 }));
+      const cold = THREE.MathUtils.smoothstep(this.atmosphere.seaTemp, 22, 4);
+      this.smoke.set(
+        chimneys,
+        this.atmosphere.colour * (0.45 + 0.35 * cold + 0.2 * this.day.night),
+        w.windX,
+        w.windZ,
+      );
+    }
     r.setRenderTarget(this.paintRt);
     r.render(this.postScene, this.postCam);
     this.pass('brush');
@@ -505,6 +544,7 @@ export class InkRenderer {
     this.precipitation.render(r, this.camera, { ...w, night: this.day.night }, u.uTime!.value);
     this.critters.render(r, this.camera, this.day.night);
     this.steam.render(r, this.camera, u.uTime!.value, this.day.night);
+    this.smoke.render(r, this.camera, u.uTime!.value, this.day.night);
     this.birds.render(r, this.camera, this.day.night);
     this.pass('fxaa');
     r.setRenderTarget(null);
@@ -522,11 +562,14 @@ export class InkRenderer {
   dispose(): void {
     this.canopyBrush.dispose();
     this.noise.dispose();
+    this.painted.dispose();
     this.rivers.dispose();
     if (shared.uCanopyBrush.value === this.canopyBrush) shared.uCanopyBrush.value = null;
+    if (shared.uPlants.value === this.painted.plants) shared.uPlants.value = null;
     this.precipitation.dispose();
     this.critters.dispose();
     this.steam.dispose();
+    this.smoke.dispose();
     this.birds.dispose();
     this.rt.dispose();
     this.shadows.dispose();

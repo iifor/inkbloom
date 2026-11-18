@@ -1,6 +1,8 @@
 // Grass and flowers are scattered in world-space cells. Each patch owns a compact
 // instance buffer; streaming and frustum culling work on patches, never on the
-// shape, density or scale of an individual plant.
+// shape, density or scale of an individual plant. The meadow is blades of grass close set,
+// broad painted tufts standing among them and painted wildflowers (cards from the plant
+// atlas), and, where a flower sea lies, its flowers packed over the whole field.
 import * as THREE from 'three';
 import { climateBiome } from '@/content/biomes';
 import { color, type ColorKey } from '@/content/palette';
@@ -12,7 +14,7 @@ import { BANK_HEIGHT, riverbedMeadow, WATER_LEVEL, type Wilderness } from '@/wor
 import { bloomOf, type FlowerSea, patchMask, SEA_FLOWERS, seasNear } from '@/world/wilderness/groves';
 import { springsNear } from '@/world/wilderness/landmarks';
 import { pathsOf } from '@/world/wilderness/paths';
-import { makeBladeClump } from './grass-card';
+import { makeBladeClump, makePlantCard } from './grass-card';
 import { meadowFlower } from './meadow-flower';
 
 const RADIUS = 48;
@@ -43,7 +45,7 @@ class Grid {
   lastI = Infinity;
   lastK = Infinity;
   constructor(
-    readonly kind: 'grass' | 'flower' | 'sea',
+    readonly kind: 'grass' | 'tuft' | 'flower' | 'sea',
     readonly step: number,
     readonly cells: number,
     readonly geometry: THREE.BufferGeometry,
@@ -91,14 +93,28 @@ export class GrassField {
           field: { ...this.field, uDensity: this.grassDensity },
         }),
       ),
+      // broad painted tufts standing over the blades, a few to every stride
+      new Grid(
+        'tuft',
+        0.9,
+        14,
+        makePlantCard(),
+        makeInkMaterial({
+          wind: this.windMap,
+          side: THREE.DoubleSide,
+          plants: 'tufts',
+          field: { ...this.field, uDensity: this.grassDensity },
+        }),
+      ),
       new Grid(
         'flower',
         1.1,
         12,
-        meadowFlower(),
+        makePlantCard(),
         makeInkMaterial({
           wind: this.windMap,
           side: THREE.DoubleSide,
+          plants: 'flowers',
           field: { ...this.field, uDensity: this.flowerDensity },
         }),
       ),
@@ -201,7 +217,9 @@ export class GrassField {
   private createPatch(grid: Grid): Patch {
     const count = grid.cells ** 2;
     const mesh = new THREE.InstancedMesh(grid.geometry, grid.material, count);
-    mesh.name = { grass: 'grass-tufts', flower: 'wildflowers', sea: 'flower-sea' }[grid.kind];
+    mesh.name = { grass: 'grass-tufts', tuft: 'painted-tufts', flower: 'wildflowers', sea: 'flower-sea' }[
+      grid.kind
+    ];
     mesh.layers.set(NO_SHADOW_LAYER);
     // A flat patch's sphere reaches far above its grass. Cull against its wind-padded box instead.
     mesh.frustumCulled = false;
@@ -216,7 +234,8 @@ export class GrassField {
   private fill(grid: Grid, { mesh, i: pi, k: pk }: Patch): void {
     const matrices = mesh.instanceMatrix.array as Float32Array;
     const colors = mesh.instanceColor!.array as Float32Array;
-    const seed = this.wilderness.seed ^ { grass: 0x6a55, flower: 0x1f3d, sea: 0x3c71 }[grid.kind];
+    const seed =
+      this.wilderness.seed ^ { grass: 0x6a55, tuft: 0x4be7, flower: 0x1f3d, sea: 0x3c71 }[grid.kind];
     const w = this.wilderness;
     const paths = pathsOf(w);
     let count = 0;
@@ -240,6 +259,8 @@ export class GrassField {
         // the meadow creeps in over a path's edges, thinning out toward the trodden middle
         const onPath = -paths.edgeDistance(x, z);
         if (onPath > 0.25 && r(11) < Math.min(1, (onPath - 0.25) / 0.7)) continue;
+        // (a painted tuft or flower is a card half a stride wide: it keeps clear of the path)
+        if (grid.kind !== 'grass' && onPath > -0.35) continue;
         // nor in a hot spring's pool
         if (springsNear(w, x, z, 8).some((s) => Math.hypot(s.x - x, s.z - z) < s.r + 0.3)) continue;
         const climate = w.climate(x, z);
@@ -248,7 +269,9 @@ export class GrassField {
         const meadow = riverbedMeadow(climate) * smoothstep(0, BANK_HEIGHT, y - WATER_LEVEL);
         // grass grows in clumps, thinner between them
         const clump = THREE.MathUtils.smoothstep(this.drifts(x / CLUMP + 41, z / CLUMP + 17), 0.2, 0.75);
-        if (r(2) >= cover.tuft * meadow * (grid.kind === 'grass' ? 0.72 + 0.28 * clump : 1)) continue;
+        const share =
+          grid.kind === 'grass' ? 0.72 + 0.28 * clump : grid.kind === 'tuft' ? 0.5 + 0.5 * clump : 1;
+        if (r(2) >= cover.tuft * meadow * share) continue;
         const dx = (w.heightAt(x + 0.4, z) - y) / 0.4,
           dz = (w.heightAt(x, z + 0.4) - y) / 0.4;
         if (Math.max(Math.abs(dx), Math.abs(dz)) > ROCKY) continue;
@@ -260,9 +283,16 @@ export class GrassField {
           const roll = r(7);
           if (roll >= chance) continue;
           const fs = 0.8 + 0.5 * r(8);
-          put(matrices, count, x, y, z, angle, fs, FLOWER_LIFT * size + 0.04, 0, 0);
+          // (a painted flower stands taller than its head is wide: the card is its whole height)
+          put(matrices, count, x, y - 0.01, z, angle, fs, 0.52 * (FLOWER_LIFT * size + 0.04) * fs, 0, 0);
           colors[count * 3] = color(this.flowerColour(x, z, r(9)));
           colors[count * 3 + 1] = roll / chance;
+        } else if (grid.kind === 'tuft') {
+          // as tall as the tallest blades round it, and its foot sunk a little into them
+          const tall = (0.3 + 0.22 * r(5)) * size;
+          put(matrices, count, x, y - 0.04 * tall, z, angle, tall, tall, 0, 0);
+          colors[count * 3] = color(cover.blades[Math.floor(r(6) * cover.blades.length)]!);
+          colors[count * 3 + 1] = r(7);
         } else {
           const tall = r(5);
           put(

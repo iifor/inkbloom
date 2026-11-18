@@ -79,3 +79,19 @@ export function makeBladeClump(): THREE.BufferGeometry {
   geo.setAttribute('aSurface', new THREE.BufferAttribute(new Float32Array(count).fill(-1), 1));
   return geo;
 }
+
+/** A square card standing on the middle of its foot, one unit tall: a painted plant from the
+ * plant atlas (the ink material's `plants`), which turns it to face the eye. */
+export function makePlantCard(): THREE.BufferGeometry {
+  const geo = new THREE.BufferGeometry();
+  geo.setIndex([0, 1, 2, 1, 3, 2]);
+  geo.setAttribute(
+    'position',
+    new THREE.Float32BufferAttribute([-0.5, 0, 0, 0.5, 0, 0, -0.5, 1, 0, 0.5, 1, 0], 3),
+  );
+  geo.setAttribute('normal', new THREE.Float32BufferAttribute([0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0], 3));
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute([0, 0, 1, 0, 0, 1, 1, 1], 2));
+  geo.setAttribute('aColor', new THREE.BufferAttribute(new Float32Array(4), 1));
+  geo.setAttribute('aSurface', new THREE.BufferAttribute(new Float32Array(4).fill(-1), 1));
+  return geo;
+}

@@ -55,12 +55,16 @@ const GATE_RUN = 16;
 /** The route search: grid step and how far either side of the straight line it may stray. */
 const GRID = 16;
 const CORRIDOR = 260;
+/** Deep water is crossed only along every second row of the search grid (which every path
+ * shares), so paths that cross a river near each other come to the same spot and one bridge
+ * serves them all, instead of each building its own a few strides from the last. */
+const CROSSING_ROWS = 2;
 /** Water deeper than this (metres) cannot be waded: a path crosses it by bridge. */
 const DEEP = 0.45;
 /** The longest bridge a path will have, metres. */
 const MAX_BRIDGE = 70;
-/** Points (2.5 m apart) either side of a crossing eased onto its straight line. */
-const EASE_PTS = 16;
+/** Points (2.5 m apart or closer) either side of a crossing eased onto its straight line. */
+const EASE_PTS = 28;
 
 type Pt = { x: number; z: number };
 /** Bucket size for the distance lookups, metres. */
@@ -125,8 +129,9 @@ function createNetwork(w: Wilderness): PathNetwork {
    * heavy price, so the way goes round lakes and over rivers at a bridge.
    */
   const route = (a: Pt, b: Pt, gateA: boolean, gateB: boolean): Pt[] | null => {
-    const x0 = Math.min(a.x, b.x) - CORRIDOR;
-    const z0 = Math.min(a.z, b.z) - CORRIDOR;
+    // (on the one grid every path searches, so two paths can come to the same crossing)
+    const x0 = Math.floor((Math.min(a.x, b.x) - CORRIDOR) / GRID) * GRID;
+    const z0 = Math.floor((Math.min(a.z, b.z) - CORRIDOR) / GRID) * GRID;
     const nx = Math.ceil((Math.max(a.x, b.x) + CORRIDOR - x0) / GRID) + 1;
     const nz = Math.ceil((Math.max(a.z, b.z) + CORRIDOR - z0) / GRID) + 1;
     const n = nx * nz;
@@ -179,10 +184,13 @@ function createNetwork(w: Wilderness): PathNetwork {
           const j = jz * nx + jx;
           if (!open(j)) continue;
           const hj = height(j);
-          const inDeep = hi < channel || hj < channel;
+          // (a stream narrower than the grid lies between two dry points: look between them too)
+          const between =
+            hi < channel || hj < channel ? 0 : w.heightAt((px(i) + px(j)) / 2, (pz(i) + pz(j)) / 2);
+          const inDeep = hi < channel || hj < channel || between < channel;
           const inWater = hi < ford || hj < ford;
           // over deep water only straight east–west, so a bridge can carry it
-          if (inDeep && dz) continue;
+          if (inDeep && (dz || Math.round(pz(i) / GRID) % CROSSING_ROWS !== 0)) continue;
           const run = GRID * (dx && dz ? Math.SQRT2 : 1);
           const slope = Math.abs(hj - hi) / run;
           const ease = 1 + 0.4 * (fbm(wobble, px(j) / 220, pz(j) / 220, 2) + 1);
@@ -198,9 +206,11 @@ function createNetwork(w: Wilderness): PathNetwork {
     const out: Pt[] = [];
     for (let i = goal; i !== -1 && i !== start; i = from[i]!) out.push({ x: px(i), z: pz(i) });
     out.reverse();
-    // the exact ends, not the grid points nearest them
-    out[out.length - 1] = b;
-    return [a, ...out];
+    // the exact ends, not the grid points nearest them (nor a grid point right beside an end,
+    // which would put a kink in the way there)
+    out.pop();
+    const clear = (p: Pt, e: Pt): boolean => Math.hypot(p.x - e.x, p.z - e.z) > GRID * 1.25;
+    return [a, ...out.filter((p) => clear(p, a) && clear(p, b)), b];
   };
 
   /** Chaikin corner cutting, ends kept. */
@@ -262,7 +272,9 @@ function createNetwork(w: Wilderness): PathNetwork {
       while (i > 0 && wet(pts[i - 1]!.x, pts[i - 1]!.z)) i--;
       const run = pts.slice(i, j + 1);
       const deepest = run.reduce((m, p) => (w.heightAt(p.x, p.z) < w.heightAt(m.x, m.z) ? p : m));
-      const z = deepest.z;
+      // (on the crossing row the search took, exactly: every path over it then has the same deck)
+      const row = Math.round(deepest.z / (GRID * CROSSING_ROWS)) * GRID * CROSSING_ROWS;
+      const z = Math.abs(row - deepest.z) < GRID / 2 ? row : deepest.z;
       // the deck runs along this line from bank to bank: walk out from the deepest water each way
       // till the ground is dry (the path's own points may wade along a bank instead)
       let lo = deepest.x;
@@ -271,19 +283,41 @@ function createNetwork(w: Wilderness): PathNetwork {
       while (wet(hi, z) && hi - deepest.x < MAX_BRIDGE) hi += 0.5;
       lo -= 2;
       hi += 2;
-      // only this crossing's own stretch of the path, not other parts at the same x
+      // The path comes onto the deck's line and leaves it again in a long easy curve: wholly
+      // on the line over the water and beside the deck, less and less so over the points either
+      // side (counted along the path, so it never jumps, and other parts of the path that
+      // happen to pass at the same x are left alone).
       for (let k = Math.max(0, i - EASE_PTS); k <= Math.min(pts.length - 1, j + EASE_PTS); k++) {
         const p = pts[k]!;
-        const d = Math.max(lo - 8 - p.x, p.x - hi - 8);
-        if (d < 25) p.z += (z - p.z) * (d <= 0 ? 1 : 1 - d / 25);
+        const out = Math.max(i - k, k - j, 0) / EASE_PTS;
+        const beside = p.x > lo - 4 && p.x < hi + 4 && out < 0.5;
+        const f = beside ? 1 : 1 - out * out * (3 - 2 * out);
+        p.z += (z - p.z) * f;
       }
+      // (pulling a bend onto the line tightens it: relax the approaches again, a few rounds of
+      // each point moving toward the middle of its neighbours, the deck's own stretch held)
+      for (let round = 0; round < 6; round++)
+        for (let k = Math.max(1, i - EASE_PTS); k <= Math.min(pts.length - 2, j + EASE_PTS); k++) {
+          const p = pts[k]!;
+          if (p.x > lo - 4 && p.x < hi + 4 && Math.abs(p.z - z) < 0.01) continue;
+          p.x = (pts[k - 1]!.x + 2 * p.x + pts[k + 1]!.x) / 4;
+          p.z = (pts[k - 1]!.z + 2 * p.z + pts[k + 1]!.z) / 4;
+        }
       // a long bridge over a lake would look built for a town, not a footpath: no path instead
       if (hi - lo > MAX_BRIDGE) return null;
       const y = Math.max(w.heightAt(lo, z), w.heightAt(hi, z), WATER_LEVEL + 0.6) + 0.15;
+      // the deck is level: on the lower bank it runs on until the ground comes up to meet it,
+      // rather than ending in the air
+      for (let k = 0; k < 30 && w.heightAt(lo, z) < y - 0.12; k++) lo -= 0.5;
+      for (let k = 0; k < 30 && w.heightAt(hi, z) < y - 0.12; k++) hi += 0.5;
       bridges.push({ x0: lo, x1: hi, z, y, half: width / 2 + 0.4 });
       i = j;
     }
-    const dense = pts.flatMap((p) => [p.x, p.z]);
+    // (easing onto a deck's line can bring neighbouring points together: one of each is enough)
+    const spaced = pts.filter(
+      (p, k) => k === 0 || k === pts.length - 1 || Math.hypot(p.x - pts[k - 1]!.x, p.z - pts[k - 1]!.z) > 0.4,
+    );
+    const dense = spaced.flatMap((p) => [p.x, p.z]);
     let minX = Infinity;
     let maxX = -Infinity;
     let minZ = Infinity;

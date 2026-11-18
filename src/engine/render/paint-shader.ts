@@ -4,8 +4,18 @@
 import { MAX_COLORS, PALETTE, color } from '@/content/palette';
 import { BANK_HEIGHT, WATER_LEVEL } from '@/world/wilderness/generator';
 import { wildernessDrainGLSL } from './ink-material';
+import { LAMP_COUNT, LAMP_REACH, LIT_ROOMS } from './lamps';
+import { surfaceLayer } from './painted-textures';
 import { skyGLSL } from './sky-paint';
-import { OWN_ARMS, WAKE_COUNT, rainRingsGLSL, riverGLSL, wakeGLSL, waterGLSL } from './water-paint';
+import {
+  OWN_ARMS,
+  WAKE_COUNT,
+  mirrorGLSL,
+  rainRingsGLSL,
+  riverGLSL,
+  wakeGLSL,
+  waterGLSL,
+} from './water-paint';
 
 /** Flower seas the paint pass washes in at once (the nearest). */
 export const SEA_SLOTS = 6;
@@ -39,6 +49,8 @@ uniform float uSolid[${MAX_COLORS}];
 uniform float uTexture[${MAX_COLORS}];
 uniform mat4 uInvProj;
 uniform mat4 uInvView;
+/** World to clip space, for finding where a reflected ray lands on the screen. */
+uniform mat4 uViewProj;
 uniform vec3 uSun;
 uniform vec3 uSunColor;
 uniform vec3 uShade;
@@ -55,6 +67,14 @@ uniform int uRock;
 uniform int uSnow;
 uniform int uCedar;
 uniform sampler2D uCanopyBrush;
+/** Hand-painted grey tiles of brushwork, a layer for each kind of surface (painted-textures.ts):
+ * 0.5 changes nothing. And the cumulus atlas the sky is painted from (sky-paint.ts). */
+uniform highp sampler2DArray uSurfaces;
+uniform sampler2D uClouds;
+/** Painted rooms seen through lit windows at night: six columns by four rows. */
+uniform sampler2D uInteriors;
+/** Lit windows near by (lamps.ts): where each lamp is, and how strongly it shines (0 none). */
+uniform vec4 uLamps[${LAMP_COUNT}];
 uniform float uSeasonKind[${MAX_COLORS}];
 uniform vec4 uMeadow[4];
 uniform vec4 uLeaf[4];
@@ -103,6 +123,9 @@ float fbm(vec2 p) {
 /** Two octaves: enough for broad shapes (cloud warping, far ridges, fields of colour). The
  * constant stands in for the dropped octaves' average, so it centres where fbm does. */
 float fbm2(vec2 p) { return 0.5 * vnoise(p) + 0.24 * vnoise(p * 2.03 + 17.1) + 0.085; }
+/** A painted tile at uv (one repeat a unit), as the change it makes: about -0.4..0.4, and 0
+ * far off, where the tile has settled into its mid-grey. */
+float tileOf(int layer, vec2 uv) { return texture(uSurfaces, vec3(uv, float(layer))).r - 0.5; }
 float linDepth(float z) {
   if (uReversedDepth > 0.5) return uNear * uFar / (uNear + z * (uFar - uNear));
   float zn = z * 2.0 - 1.0;
@@ -163,10 +186,27 @@ float dabs(vec2 p) {
 }
 float satOf(float code) { return clamp(fract(code + 0.0005) / 0.9, 0.0, 1.0); }
 vec3 greyOf(vec3 c) { return vec3(dot(c, vec3(0.3, 0.59, 0.11))) * vec3(0.97, 0.98, 1.0); }
-/** A drained colour: a pale grey wash of it, lighter than its plain luminance. */
-vec3 drainedOf(vec3 c) { return greyOf(c) * 0.72 + vec3(0.2); }
-/** Drained, as the light allows: by day the pale wash; by night the grey stays dark and takes
- * the moonlight's blue, instead of lifting into a flat, muddy grey. */
+/** The page under this pixel (set in main before anything is drained): the pen hatching here
+ * (1 bare paper .. 0 a line), the paper's grain, and how heavily this part of the picture is
+ * drawn (the sky is drawn lightly). */
+float pageHatch = 1.0;
+float pageGrain = 0.0;
+float pageWeight = 1.0;
+const vec3 PEN = vec3(0.26, 0.17, 0.12);
+/**
+ * A drained colour: the same picture as a page of an unpainted comic. Warm paper, a thin wash
+ * for its tones, pen hatching where it is dark (denser the darker, solid ink in the deepest
+ * shade), all in sepia. Painting a place lays its colours over this drawing.
+ */
+vec3 drainedOf(vec3 c) {
+  float dark = (1.0 - dot(c, vec3(0.3, 0.59, 0.11))) * pageWeight;
+  // (kept under the brightness that glows, or a sunlit street would bloom to white)
+  vec3 paper = vec3(0.86, 0.8, 0.69) * (1.0 + pageGrain * 0.5) * mix(1.0, 0.7, smoothstep(0.12, 0.8, dark));
+  float ink = (1.0 - pageHatch) * smoothstep(0.26, 0.6, dark) * 1.5 + smoothstep(0.78, 0.95, dark) * 0.7;
+  return mix(paper, PEN, clamp(ink, 0.0, 1.0));
+}
+/** Drained, as the light allows: by day the pen drawing on its paper; by night a dark grey that
+ * takes the moonlight's blue, instead of a page that glows in the dark. */
 vec3 drainedAt(vec3 c) {
   vec3 night = greyOf(c) * vec3(0.8, 0.92, 1.25) + vec3(0.012, 0.02, 0.05);
   return mix(drainedOf(c), night, uNight);
@@ -176,12 +216,16 @@ ${skyGLSL}
 
 ${wakeGLSL}
 
+${mirrorGLSL}
+
 ${rainRingsGLSL}
 
 void main() {
   vec2 px = 1.0 / uRes;
   vec4 s = texture2D(tScene, vUv);
   float raw = texture2D(tDepth, vUv).x;
+  // (what the G-buffer held, before it is read apart below: the pen's outlines compare it)
+  vec4 held = s;
   float d = linDepth(raw);
   bool sky = uReversedDepth > 0.5 ? raw <= 0.0 : raw >= 0.99999;
   vec2 pp = gl_FragCoord.xy;
@@ -196,6 +240,11 @@ void main() {
   vec3 col;
   float paintAlpha = 1.0;
   if (sky) {
+    // the page here (see drainedOf): the sky is hatched only lightly, by where one looks
+    vec2 skyAt = rd.xz / (abs(rd.y) + 0.4) * 1.3;
+    pageHatch = tileOf(${surfaceLayer('hatching')}, skyAt) + 0.5;
+    pageGrain = tileOf(${surfaceLayer('paper')}, skyAt * 1.7);
+    pageWeight = 0.8;
     vec3 painted = skyPaint(rd);
     vec4 ranges = farRanges(rd);
     painted = mix(painted, ranges.rgb, ranges.w * (1.0 - uNight * 0.5));
@@ -211,9 +260,22 @@ void main() {
       wob *= smoothstep(0.0, 0.04, ${WATER_LEVEL} - wpos.y);
       if (linDepth(texture2D(tDepth, vUv + wob).x) < ${OWN_ARMS.toFixed(1)}) s = texture2D(tScene, vUv + wob);
     }
+    // a window pane carries where on the pane this is instead of its normal (ink-material.ts):
+    // its normal is found from the lie of the surface
+    bool pane = s.b > 7.0;
+    vec2 paneAt = vec2(s.b - 8.0, fract(s.a));
+    float room = floor(s.a);
+    if (pane) {
+      vec3 flat_ = normalize(cross(dFdx(vpos), dFdy(vpos)));
+      s.ba = (flat_.z < 0.0 ? -flat_ : flat_).xy;
+    }
     // people in cloth carry their normal's x lifted out of range (ink-material.ts CLOTH)
     bool figure = s.b > 3.0;
-    if (figure) s.b -= 4.0;
+    if (figure) {
+      s.b -= 4.0;
+      // people are cels laid over the painting: flat colour that the brush pass leaves alone
+      paintAlpha = 0.92;
+    }
     bool fish = s.b < -1.5;
     vec3 fishPaint = vec3(-2.0 - s.b, s.g, s.a);
     if (fish) {
@@ -239,31 +301,8 @@ void main() {
     float tex = fish ? 0.0 : textureOf(s.g);
     float seasonKind = seasonKindOf(s.g);
     vec3 base = seasonal(paletteColor(s.g), seasonKind, wpos.xz);
-    // Overlapping rows of hand-laid tiles. Fade the joints when several tiles
-    // cover one pixel so distant roofs read as a single wash without shimmer.
     int pigment = indexOf(s.g);
-    if (!petal && (pigment == ${color('clayTile')} || pigment == ${color('slateTile')}) && wn.y > 0.15) {
-      float across = abs(wn.x) > abs(wn.z) ? wpos.z : wpos.x;
-      vec2 tile = vec2(across * 1.6, wpos.y * 3.4);
-      vec2 footprint = fwidth(tile);
-      float fade = 1.0 - smoothstep(0.18, 0.65, max(footprint.x, footprint.y));
-      tile.y += 0.055 * sin(across * 1.7);
-      tile.x += 0.5 * mod(floor(tile.y), 2.0);
-      vec2 f = fract(tile);
-      vec2 joints = 1.0 - smoothstep(vec2(0.02), vec2(0.06) + footprint, min(f, 1.0-f));
-      float wash = hash21(floor(tile)) - 0.5;
-      base *= 1.0 + fade * (0.11 * wash + 0.06 * sin(6.283 * f.x) - 0.21 * joints.y - 0.10 * joints.x);
-      // old roofs carry moss in their joints and pale lichen in patches across the tiles
-      // patches of faded and darker tiles that still read from across the street
-      float patchy = fbm2(wpos.xz * 0.6 + across * 0.3);
-      base *= 0.86 + 0.28 * patchy;
-      base = mix(base, vec3(dot(base, vec3(0.3, 0.59, 0.11))) * vec3(1.05, 1.0, 0.93), 0.22);
-      float moss = smoothstep(0.55, 0.72, fbm2(wpos.xz * 0.4 + 7.0) + wash * 0.25);
-      base = mix(base, base * vec3(0.66, 0.92, 0.46) + vec3(0.03, 0.06, 0.0), moss * (0.5 + 0.35 * joints.y * fade));
-      float lichen = step(0.82, hash21(floor(tile) + 2.7)) * fade;
-      base = mix(base, base * vec3(1.18, 1.16, 0.92), lichen * 0.35);
-    }
-    bool cedar = indexOf(s.g) == uCedar;
+    bool cedar = pigment == uCedar;
     bool crown = cedar || seasonKind > 1.5;
 
     // brush texture, anchored to the world (held tools ride with the camera: keep them clean)
@@ -275,49 +314,89 @@ void main() {
     float big = fbm(bp * 0.18);
     float leaf = fbm(bp * 1.3 + 7.0);
     float stroke = vnoise(vec2(bp.x * 2.5, bp.y * 0.6));
+    // The painted tiles. Every surface takes the dry brush; built things also wear the tile of
+    // what they are made of, laid along the surface: roofs in rows up the slope, walls and
+    // doors upright, paving and decks flat. Both are read here, once for every pixel and
+    // outside any branch, so the GPU can tell how far apart its samples lie.
+    bool built = !figure && !petal && !ground && !grassBlade && !fish;
+    float across = an.x > an.z ? wpos.z : wpos.x;
+    bool roof = built && (pigment == ${color('clayTile')} || pigment == ${color('slateTile')}) && wn.y > 0.15;
+    bool wall = built && (pigment < ${PAINTABLE_COUNT} || pigment == ${color('limewash')}) && an.y < 0.6;
+    bool paving = built && pigment == ${color('stone')} && wn.y > 0.8;
+    bool deck = built && (pigment == ${color('bark')} || pigment == ${color('brown')}) && wn.y > 0.75;
+    bool joinery = built && pigment == ${color('brown')} && an.y < 0.7;
+    bool boulder = built && pigment == ${color('rock')};
+    int tile = 0;
+    vec2 tileAt = vec2(0.0);
+    float tileOn = 1.0;
+    if (roof) {
+      tile = pigment == ${color('clayTile')} ? ${surfaceLayer('roof_clay')} : ${surfaceLayer('roof_slate')};
+      // rows climb the slope (a flat roof is laid like a floor)
+      tileAt = wn.y > 0.93 ? wpos.xz / 3.0 : vec2(across, -wpos.y / max(sqrt(1.0 - wn.y * wn.y), 0.35)) / 3.0;
+    } else if (wall) { tile = ${surfaceLayer('plaster')}; tileAt = vec2(across, -wpos.y) / 3.2; }
+    else if (paving) { tile = ${surfaceLayer('paving')}; tileAt = wpos.xz / 3.4; }
+    // (bridges run east and west, so their planks lie along z)
+    else if (deck) { tile = ${surfaceLayer('timber')}; tileAt = wpos.xz / 2.4; }
+    else if (joinery) { tile = ${surfaceLayer('timber')}; tileAt = vec2(across, -wpos.y) / 2.4; }
+    else if (boulder) { tile = ${surfaceLayer('stone')}; tileAt = bp / 2.8; }
+    else tileOn = 0.0;
+    float laid = tileOf(tile, tileAt) * tileOn;
+    float brush = fish ? 0.0 : tileOf(${surfaceLayer('drybrush')}, bp / 2.7);
+    // the page here (see drainedOf): hatching and paper lie on the surfaces, like the brush
+    pageHatch = tileOf(${surfaceLayer('hatching')}, bp / 2.4) + 0.5;
+    pageGrain = tileOf(${surfaceLayer('paper')}, bp / 1.9);
+    // far off the drawing thins to bare paper, as the far side of a sketch is left unfinished
+    // (its tones alone, without their hatching, turn to mud in the haze)
+    pageWeight = mix(1.0, 0.45, smoothstep(35.0, 150.0, d));
+
+    // Overlapping rows of hand-laid tiles, each its own tone, dark where one laps the next.
+    // Far off the rows settle into a single wash, with no shimmer.
+    if (roof) {
+      float joint = smoothstep(-0.1, -0.28, laid);
+      base *= 1.0 + laid * 1.5;
+      // patches of faded and darker tiles that still read from across the street
+      float patchy = fbm2(wpos.xz * 0.6 + across * 0.3);
+      base *= 0.86 + 0.28 * patchy;
+      base = mix(base, vec3(dot(base, vec3(0.3, 0.59, 0.11))) * vec3(1.05, 1.0, 0.93), 0.22);
+      // old roofs carry moss in patches, thickest where the tiles lap
+      float moss = smoothstep(0.55, 0.72, fbm2(wpos.xz * 0.4 + 7.0) + laid * 0.6);
+      base = mix(base, base * vec3(0.66, 0.92, 0.46) + vec3(0.03, 0.06, 0.0), moss * (0.5 + 0.35 * joint));
+    }
     // A coloured wall is a wash over plaster, not a flat block: long strokes run down it,
     // the plaster shows through where the wash is thin, and the colour is a little softer.
     // Far off it settles into one colour again.
-    if (!figure && !petal && !ground && !grassBlade && pigment < ${PAINTABLE_COUNT} && an.y < 0.6) {
-      float across = an.x > an.z ? wpos.z : wpos.x;
+    if (wall) {
       float streak = vnoise(vec2(across * 4.5, wpos.y * 0.6)) * 0.6 + vnoise(vec2(across * 11.0, wpos.y * 1.4)) * 0.4;
       float wallNear = near * (1.0 - smoothstep(45.0, 130.0, d));
       float thin = smoothstep(0.5, 0.78, big + (leaf - 0.5) * 0.4 + (streak - 0.5) * 0.25);
       base = mix(base, paletteColor(${color('limewash')}.0), 0.3 * thin * wallNear);
       base *= 1.0 + (streak - 0.5) * 0.28 * wallNear;
+      // the plaster under it, laid on in overlapping patches
+      base *= 1.0 + laid * 0.55 * near;
       // rain has run down it in long darker streaks from sills and eaves, fading as they go
       float column = smoothstep(0.6, 0.85, vnoise(vec2(across * 3.1, 7.3)));
       float run = vnoise(vec2(across * 3.1, wpos.y * 0.45 + 3.0));
       base *= 1.0 - 0.13 * column * smoothstep(0.35, 0.7, run) * wallNear;
-      // a painter's mix, not a tube colour: a little greyer and warmer than the pigment
-      base = mix(vec3(dot(base, vec3(0.3, 0.59, 0.11))) * vec3(1.04, 1.0, 0.92), base, 0.78);
+      // a painter's mix, not a tube colour: greyer and warmer than the pigment, with some of
+      // the plaster's own colour in it, so a street of painted houses sits together
+      base = mix(vec3(dot(base, vec3(0.3, 0.59, 0.11))) * vec3(1.04, 1.0, 0.92), base, 0.64);
+      base = mix(base, paletteColor(${color('limewash')}.0), 0.12);
     }
     // Bark in long broken strokes up the trunk, cooler and a little mossy in the furrows
     if (!figure && pigment == ${color('bark')} && an.y < 0.7) {
-      float across = an.x > an.z ? wpos.z : wpos.x;
       float furrow = vnoise(vec2(across * 9.0, wpos.y * 0.9)) * 0.65 + vnoise(vec2(across * 23.0, wpos.y * 2.1)) * 0.35;
       base *= 1.0 + (furrow - 0.5) * 0.4 * near;
       base = mix(base, base * vec3(0.82, 0.98, 0.86), smoothstep(0.55, 0.3, furrow) * 0.6 * near);
     }
-    // Paved streets and squares: hand-laid stones in staggered rows, showing in patches and
-    // worn smooth between them, gone into one wash where they would be under a pixel.
-    if (!figure && !petal && pigment == ${color('stone')} && wn.y > 0.8) {
-      // rows of different depths, stones of different lengths in each
-      vec2 q = wpos.xz * vec2(1.05, 1.45);
-      float row = floor(q.y);
-      q.x = q.x * (0.75 + 0.5 * hash21(vec2(row, 3.1))) + hash21(vec2(row, 7.7)) * 4.0;
-      q.y += 0.08 * sin(q.x * 1.7);
-      vec2 footprint = fwidth(q);
-      // laid all over, worn smoother in places; gone into a wash where under a pixel
-      float paving = (1.0 - smoothstep(0.1, 0.4, max(footprint.x, footprint.y)))
-        * mix(0.55, 1.0, smoothstep(0.42, 0.72, big + (leaf - 0.5) * 0.7));
-      vec2 f = fract(q);
-      vec2 joints = 1.0 - smoothstep(vec2(0.02), vec2(0.13) + footprint, min(f, 1.0 - f));
-      float stoneWash = hash21(floor(q)) - 0.5;
-      base *= 1.0 + paving * (0.16 * stoneWash - 0.14 * max(joints.x, joints.y));
+    // Paved streets and squares: hand-laid stones in staggered rows, each its own tone, worn
+    // smoother in places.
+    if (paving) {
+      float worn = mix(0.55, 1.0, smoothstep(0.42, 0.72, big + (leaf - 0.5) * 0.7));
+      float joint = smoothstep(-0.1, -0.28, laid) * worn;
+      base *= 1.0 + laid * 1.5 * worn;
       // and grimy where many feet and cartwheels go, mossy in the joints at the edges
       base = mix(base, base * vec3(0.84, 0.82, 0.76), smoothstep(0.45, 0.7, big) * 0.4);
-      base = mix(base, base * vec3(0.78, 0.92, 0.66), max(joints.x, joints.y) * paving * smoothstep(0.55, 0.75, leaf) * 0.6);
+      base = mix(base, base * vec3(0.78, 0.92, 0.66), joint * smoothstep(0.55, 0.75, leaf) * 0.6);
     }
     // Trodden earth (footpaths, yards): gritty, with small stones pressed into it, darker in
     // damp patches; the stones go into the grit where they would be under a pixel.
@@ -337,23 +416,16 @@ void main() {
       base *= 1.0 + ((grit - 0.5) * 0.16 * (1.0 - smoothstep(4.0, 25.0, d)) + (big - 0.5) * 0.22) * near;
       base = mix(base, base * vec3(0.8, 0.76, 0.7), smoothstep(0.58, 0.75, big + (leaf - 0.5) * 0.5) * 0.45);
     }
-    // Wood laid flat (decks, boards): grain running along the plank, each plank its own tone,
-    // the odd knot. Bridges run east and west, so their planks lie along z.
-    if (!figure && !petal && (pigment == ${color('bark')} || pigment == ${color('brown')}) && wn.y > 0.75) {
-      float plank = floor(wpos.x / 0.3);
-      float grain = vnoise(vec2(wpos.x * 38.0, wpos.z * 1.4 + plank * 3.1)) * 0.6
-        + vnoise(vec2(wpos.x * 90.0, wpos.z * 3.0)) * 0.4;
-      float fineFade = 1.0 - smoothstep(3.0, 18.0, d);
-      base *= 1.0 + (grain - 0.5) * 0.3 * fineFade + (hash21(vec2(plank, 1.7)) - 0.5) * 0.24;
-      vec2 knotAt = vec2(fract(wpos.x / 0.3) - 0.5, fract(wpos.z * 0.6 + hash21(vec2(plank, 4.2))) - 0.5) * vec2(0.3, 1.67);
-      float knot = step(0.55, hash21(vec2(plank, floor(wpos.z * 0.6 + hash21(vec2(plank, 4.2))))));
-      base *= 1.0 - 0.35 * knot * (1.0 - smoothstep(0.012, 0.03, length(knotAt))) * fineFade;
-      // grey where the weather gets at it
+    // Wood (decks and boards laid flat, doors and posts upright): grain along the plank, each
+    // plank its own tone, the odd knot; grey where the weather gets at it
+    if (deck || joinery) {
+      base *= 1.0 + laid * 1.5;
       base = mix(base, vec3(dot(base, vec3(0.3, 0.59, 0.11))) * vec3(1.0, 0.98, 0.95), 0.18 + 0.2 * (big - 0.5));
     }
-    // Stone (boulders, cairns, rims, old walls): pale lichen on the faces that catch the rain,
-    // and dark cracks; both fade out with distance
-    if (!figure && !petal && pigment == ${color('rock')}) {
+    // Stone (boulders, cairns, rims, old walls): broken into planes by the brush, pale lichen
+    // on the faces that catch the rain, and dark cracks; both fade out with distance
+    if (boulder) {
+      base *= 1.0 + laid * 0.6 * near;
       float lichen = smoothstep(0.66, 0.74, vnoise(bp * 2.6 + 4.0) + 0.25 * wn.y + (leaf - 0.5) * 0.3);
       base = mix(base, mix(base, vec3(0.86, 0.87, 0.78), 0.45), lichen * 0.4 * near);
       // fine cracks, broken into short runs rather than one line wandering over the stone
@@ -434,7 +506,19 @@ void main() {
       float bare = ground ? 1.0 - meadow : (seasonKindOf(s.g) < 0.5 ? 1.0 : 0.0);
       if (!petal) puddle = bare * soaked * smoothstep(0.96, 0.99, wn.y) * smoothstep(0.55, 0.65, big + (leaf - 0.5) * 0.15) * near;
     }
+    // the bank is dark and wet for a hand's breadth above the water
+    if (uWildWater && !fish && !grassBlade && !petal)
+      base *= 1.0 - 0.22 * (1.0 - smoothstep(0.0, 0.16, wpos.y - (${WATER_LEVEL}))) * step(${WATER_LEVEL}, wpos.y);
     float mott = ((big - 0.5) * 0.3 + (leaf - 0.5) * 0.35) * tex + (stroke - 0.5) * 0.06;
+    // and the dry brush over everything: strongest in leaves and grass, faint on cloth
+    mott += brush * (figure ? 0.04 : mix(0.22, 0.5, tex));
+    // Open ground is laid in with a broad brush: big strokes a stride or two across, each a
+    // little lighter or darker and leaning warm or cool, so a meadow or a path is worked paint
+    // like the sky and the trees round it and never one flat field of colour.
+    float broadBrush = fish || figure ? 0.0 : tileOf(${surfaceLayer('drybrush')}, bp / 9.5 + 0.31);
+    float open = (ground || grassBlade || pigment == ${color('sand')}) ? 1.0 : 0.35 * tex;
+    mott += broadBrush * 1.2 * open;
+    base = mix(base, base * (broadBrush > 0.0 ? vec3(1.1, 1.05, 0.84) : vec3(0.9, 0.98, 1.06)), min(abs(broadBrush) * 5.0, 1.0) * 0.5 * open * near);
     base *= 1.0 + mott * near;
     // leaves and grass are painted in dabs: each clump its own stroke, blending into the next;
     // they blur into plain mottling far away where single dabs would only flicker
@@ -446,9 +530,15 @@ void main() {
     float canopyWash = 0.0;
     if (!grassBlade && dabFade > 0.001) {
       if (crown) {
+        // The leaf clusters, laid on from three sides and blended by which way the bough
+        // faces: a single projection drags the leaves into streaks where it lies along the
+        // surface (over the top of the crown, and round one flank).
         vec3 brush = texture2D(uCanopyBrush, bp * 0.41 + big * 0.12).rgb;
         vec3 sideBrush = texture2D(uCanopyBrush, vec2(wpos.z - 0.45 * wpos.x, wpos.y + 0.65 * wpos.x) * 0.41).rgb;
-        brush = mix(sideBrush, brush, smoothstep(0.25, 0.75, abs(dot(wn, vec3(-0.39, 0.48, 0.78)))));
+        vec3 topBrush = texture2D(uCanopyBrush, vec2(wpos.x + 0.3 * wpos.y, wpos.z + 0.2 * wpos.y) * 0.41).rgb;
+        vec3 facing = abs(vec3(dot(wn, vec3(-0.39, 0.48, 0.78)), dot(wn, vec3(0.78, -0.51, 0.35)), dot(wn, vec3(-0.28, 0.94, -0.19))));
+        facing = pow(facing, vec3(6.0));
+        brush = (brush * facing.x + sideBrush * facing.y + topBrush * facing.z) / (facing.x + facing.y + facing.z + 1e-4);
         dab = (cedar ? brush.g : brush.r) - 0.45;
         canopyWash = (brush.b - 0.46) * dabFade;
       }
@@ -461,25 +551,42 @@ void main() {
     // big fields of colour across meadows and hills: warm yellow-green here, cool blue-green there
     float field = fbm2(wpos.xz * 0.011 + 3.0);
     vec3 warm = base * vec3(1.12, 1.07, 0.8);
-    vec3 cool = base * vec3(0.88, 0.99, 1.06);
+    // (in grass and leaves the cool fields are also deeper: emerald against the sunny yellow-green)
+    vec3 cool = base * mix(vec3(0.88, 0.99, 1.06), vec3(0.78, 0.93, 0.92), smoothstep(0.5, 1.0, tex));
     // (on smooth things too, a little: no surface in a painting is one flat colour)
     float fieldAmt = figure ? tex : max(tex, 0.4);
     base = mix(base, mix(cool, warm, smoothstep(0.32, 0.68, field)), fieldAmt * near);
     // sunlit dapples in foliage turn yellow-green
     base = mix(base, base * vec3(1.18, 1.14, 0.78), tex * smoothstep(0.55, 0.75, leaf) * 0.55 * near);
 
-    // light: sun with a soft, slightly broken terminator; shadow takes the sky's cool blue
+    // Light, in the steps of a painted cel: shade, the thing's own colour in the light, and
+    // full sun on what faces it squarely. The edge between shade and light is firm, and broken
+    // by the brush, as a painter leaves it.
     float ndl = s.r * 2.0 - 1.0;
     // each dab catches the light a little differently, so a crown reads as many clumps
-    float lit = smoothstep(-0.12, 0.38, ndl + (leaf - 0.5) * 0.25 * tex + dab * 0.55 * dabFade);
+    float turned = ndl + (leaf - 0.5) * 0.25 * tex + dab * 0.55 * dabFade + brush * (figure ? 0.08 : 0.45);
+    // (meadows keep a soft turn: a blade from its shaded foot to its lit tip, and the ground
+    // under it over the roll of a hill, so the two stay in step when the sun is low)
+    float lit = (grassBlade || ground) ? smoothstep(-0.12, 0.38, turned) : smoothstep(0.0, 0.15, turned);
+    // (a person's shade keeps a slightly softer edge: the shadow of an arm across a chest is
+    // only a few of the shadow map's steps wide, and a hard edge would show them)
+    if (figure) lit = smoothstep(-0.04, 0.24, turned);
+    float full = smoothstep(0.5, 0.72, turned);
     if (fish) {
       base = fishPaint;
       lit = mix(0.25, 0.90, smoothstep(-0.85, 0.90, ndl));
+      full = 0.0;
     }
-    vec3 shadowTint = uShade * mix(0.9, 1.08, 0.5 + 0.5 * wn.y);
-    // leaves and grass go deeper and bluer in shade
-    shadowTint = mix(shadowTint, uShade * vec3(0.76, 0.88, 0.8), tex * 0.6);
-    vec3 light = mix(shadowTint, uSunColor, lit);
+    // shade is the sky's blue leaning to violet, and deeper by day than the fill light alone
+    float byDay = 1.0 - 0.6 * uNight;
+    vec3 shadowTint = uShade * mix(vec3(1.0), vec3(0.82, 0.79, 0.96), byDay) * mix(0.9, 1.08, 0.5 + 0.5 * wn.y);
+    // leaves and grass go deeper and blue-green in shade
+    shadowTint = mix(shadowTint, uShade * mix(vec3(0.76, 0.88, 0.8), vec3(0.52, 0.8, 0.78), byDay), tex * 0.7);
+    // (wood in shade is warm and never near black: light comes back up off the ground, and a
+    // bridge or a post should sit in the picture's key, not be its darkest thing)
+    bool timber = built && (pigment == ${color('bark')} || pigment == ${color('brown')}) && !crown;
+    if (timber) shadowTint = shadowTint * 1.3 + vec3(0.09, 0.06, 0.03) * byDay;
+    vec3 light = mix(shadowTint, uSunColor * (0.96 + 0.08 * full), lit);
     // on a broken-cloud day the clouds' shadows sail across the land with the wind
     if (uCloudShade > 0.0) {
       float cs = fbm2((wpos.xz - uDrift) * 0.006 + 11.0);
@@ -512,11 +619,26 @@ void main() {
     float ao = 1.0 - (occ / float(AO_TAPS)) * 0.45;
 
     vec3 painted = base * light * ao;
+    // at night the lit windows shine on the walls and the street round them: warm lamplight,
+    // falling off within a few strides, and only where the street has its colour back
+    if (uNight > 0.01 && sat > 0.01) {
+      float lampLight = 0.0;
+      for (int i = 0; i < ${LAMP_COUNT}; i++) {
+        vec4 lampAt = uLamps[i];
+        if (lampAt.w <= 0.0) continue;
+        vec3 to = lampAt.xyz - wpos;
+        float dd = dot(to, to);
+        float fall = max(0.0, 1.0 - dd / ${(LAMP_REACH * LAMP_REACH).toFixed(1)});
+        // (wrapped: a wall beside the window warms though it faces along the light)
+        lampLight += lampAt.w * fall * fall * max(0.0, dot(wn, to * inversesqrt(dd + 0.01)) * 0.6 + 0.4);
+      }
+      painted += base * vec3(1.0, 0.6, 0.28) * min(lampLight, 1.6) * 0.85 * uNight * sat * ao;
+    }
     // weathering: dirt and moss gather where surfaces meet (the contact shadow finds them):
     // at the foot of a wall, under the eaves, in corners and joints
     if (!figure && !petal && !ground && !grassBlade && !crown && !fish) {
       float grime = smoothstep(0.93, 0.62, ao) * (0.7 + 0.6 * (big - 0.5));
-      painted = mix(painted, painted * vec3(0.7, 0.74, 0.58), grime * 0.65);
+      painted = mix(painted, painted * vec3(0.7, 0.74, 0.58), grime * (timber ? 0.25 : 0.65));
     }
     if (petal) {
       // Dense colour at the throat, a thin irregular wash at the lip. Let skylight fill
@@ -545,11 +667,62 @@ void main() {
     // the ink: no paint, a wet sheen where the light catches it
     float solid = solidOf(s.g) * sat;
     vec3 wet = mix(paletteColor(s.g), vec3(0.36, 0.37, 0.44), pow(clamp(ndl, 0.0, 1.0), 6.0) * 0.55);
+    // (and along its edges, seen against the light: the line that draws an ink monster's shape,
+    // which a dark outline could not)
+    wet += vec3(0.22, 0.27, 0.4) * pow(1.0 - abs(dot(wn, -rd)), 3.0) * 0.7 * mix(0.35, 1.0, lit);
     col = mix(col, wet, solid * 0.97);
+    // A person's outline: a thin warm-brown line round the figure and wherever one part of it
+    // stands in front of another or turns sharply away, as an animator inks a cel. It is drawn
+    // on the figure's own edge pixels, so the silhouette keeps its size, and thins out with
+    // distance until only the shape is left.
+    if (figure) {
+      float wide = max(1.0, uRes.y / 900.0) * 1.3 * (1.0 - smoothstep(22.0, 45.0, d));
+      float line = 0.0;
+      for (int k = 0; k < 4; k++) {
+        vec2 o = (k == 0 ? vec2(1.0, 0.0) : k == 1 ? vec2(-1.0, 0.0) : k == 2 ? vec2(0.0, 1.0) : vec2(0.0, -1.0)) * wide * px;
+        vec4 beside = texture2D(tScene, vUv + o);
+        float besideDepth = linDepth(texture2D(tDepth, vUv + o).x);
+        if (beside.b < 3.0 || beside.b > 7.0 || besideDepth - d > 0.05 + 0.02 * d) line = 1.0;
+        else line = max(line, smoothstep(0.95, 1.35, distance(vec2(beside.b - 4.0, beside.a), s.ba)));
+      }
+      col = mix(col, vec3(0.3, 0.19, 0.14) * mix(light, vec3(1.0), 0.3), line * 0.85 * min(wide, 1.0));
+    }
     // at night, lamps are lit behind some windows of the streets that have their colour back
-    if (indexOf(s.g) == uGlass) {
-      float on = step(0.4, hash21(floor(wpos.xz * 0.45) + floor(wpos.y / 3.2) * 7.3));
-      col = mix(col, vec3(1.0, 0.76, 0.4), on * uNight * sat * 0.92);
+    // (each window is lit or dark as a whole, and shows its own room: by day only a hint of
+    // it behind the glass, at night the whole of it in lamplight, bright enough to glow)
+    if (pane) {
+      vec2 street = floor(wpos.xz / 40.0);
+      float lamp = step(room, ${LIT_ROOMS}.0 - 0.5);
+      float which = floor(hash21(street * 2.3 + room * 5.1 + 7.5) * 23.99);
+      // the rooms are painted upright; a window shows the middle of one
+      vec2 at = vec2(paneAt.x, mix(0.78, 0.24, paneAt.y));
+      vec3 inside = texture2D(uInteriors, (vec2(mod(which, 6.0), floor(which / 6.0)) + at) / vec2(6.0, 4.0)).rgb;
+      col = mix(col, inside * 0.55, 0.22 * sat * (1.0 - uNight));
+      col = mix(col, inside * 1.5 + vec3(0.16, 0.09, 0.02), lamp * uNight * sat * 0.95);
+    }
+
+    // Where a place is drained it is a pen drawing: an outline wherever one thing ends against
+    // another (a step in depth, a turn of the surface, a change of what it is made of). The
+    // lines fade as the colour comes back and thin away with distance.
+    if (sat < 0.98 && !grassBlade && !fish && !petal) {
+      float wide = max(1.0, uRes.y / 900.0) * 1.1;
+      float mine = held.g < 0.0 ? -1.0 : floor(held.g + 0.04);
+      bool plain = held.b < 1.5 && held.b > -1.5;
+      float line = 0.0;
+      for (int k = 0; k < 4; k++) {
+        vec2 o = (k == 0 ? vec2(1.0, 0.0) : k == 1 ? vec2(-1.0, 0.0) : k == 2 ? vec2(0.0, 1.0) : vec2(0.0, -1.0)) * wide * px;
+        vec4 beside = texture2D(tScene, vUv + o);
+        float besideDepth = linDepth(texture2D(tDepth, vUv + o).x);
+        // (drawn on the nearer side of a step, so a thing is outlined on itself)
+        line = max(line, smoothstep(0.04 + 0.03 * d, 0.08 + 0.06 * d, besideDepth - d));
+        // (grass blades cross the ground everywhere: they are not outlined against it)
+        if (beside.b > 1.5 && beside.b < 3.0) continue;
+        float its = beside.g < 0.0 ? -1.0 : floor(beside.g + 0.04);
+        if (its != mine && its < ${MAX_COLORS}.0) line = max(line, 0.8);
+        if (plain && beside.b < 1.5 && beside.b > -1.5) line = max(line, smoothstep(0.7, 1.1, distance(beside.ba, held.ba)));
+      }
+      line *= (1.0 - sat) * (1.0 - smoothstep(50.0, 130.0, d));
+      col = mix(col, PEN * mix(1.0, 0.45, uNight), line * 0.95);
     }
 
 ${waterGLSL}

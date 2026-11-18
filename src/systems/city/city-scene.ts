@@ -163,6 +163,8 @@ export class CityScene implements GameScene {
         [far, FAR_DETAIL],
       ] as const) {
         const mesh = new THREE.Mesh(geometry, this.material);
+        // its lit windows shine on the street and its chimneys smoke (the shells mark the same)
+        if (geometry === full) this.release.push(ctx.renderer.lamps.add(geometry));
         // the geometry is in world space: undo the tile's own position
         mesh.position.copy(lod.position).negate();
         lod.addLevel(mesh, from, 0.08);

@@ -40,7 +40,15 @@ const roll = (h: House, k: number): number => {
 const LEAF = new THREE.SphereGeometry(1, 7, 5);
 
 /** Orient a polygon towards its outside irrespective of the house's compass bearing. */
-function panel(g: GeometryBuilder, points: Vec3Like[], out: Vec3Like, tint: number, surface: number): void {
+function panel(
+  g: GeometryBuilder,
+  points: Vec3Like[],
+  out: Vec3Like,
+  tint: number,
+  surface: number,
+  /** For window glass: which room shows behind it (see GeometryBuilder.pane). */
+  pane?: number,
+): void {
   const [a, b, c] = points as [Vec3Like, Vec3Like, Vec3Like];
   const ux = b.x - a.x,
     uy = b.y - a.y,
@@ -59,6 +67,19 @@ function panel(g: GeometryBuilder, points: Vec3Like[], out: Vec3Like, tint: numb
   }
   const len = Math.hypot(nx, ny, nz);
   if (!len) return;
+  if (pane !== undefined) {
+    g.pane(
+      points[0]!,
+      points[1]!,
+      points[2]!,
+      points[3]!,
+      v(nx / len, ny / len, nz / len),
+      tint,
+      surface,
+      pane,
+    );
+    return;
+  }
   g.quad(
     points[0]!,
     points[1]!,
@@ -153,18 +174,55 @@ function addFacade(g: GeometryBuilder, h: House): void {
     const sid = walls?.[f] ?? NO_SURFACE,
       n = normal(f);
     const [lo, hi] = xFace(f) ? [z0, z1] : [x0, x1];
-    const rect = (u0: number, u1: number, y0: number, y1: number, o: number, tint: number, s = sid) =>
+    const rect = (
+      u0: number,
+      u1: number,
+      y0: number,
+      y1: number,
+      o: number,
+      tint: number,
+      s = sid,
+      pane?: number,
+    ) =>
       panel(
         g,
         [onFace(f, u0, y0, o), onFace(f, u1, y0, o), onFace(f, u1, y1, o), onFace(f, u0, y1, o)],
         n,
         tint,
         s,
+        pane,
       );
-    rect(lo, hi, 0, 0.48, 0.012, stone);
-    rect(lo, hi, 0.48, 0.63, 0.02, wood);
-    rect(lo, hi, height - 0.24, height, 0.02, wood);
-    for (const u of [lo + 0.15, hi - 0.15]) rect(u - 0.09, u + 0.09, 0.5, height, 0.025, wood);
+    const room = (k: number) => Math.floor(roll(h, 200 + faces.indexOf(f) * 10 + k) * 16);
+    // A piece that stands proud of the wall by `o`: its face and its four edges back to the
+    // wall, so it throws a shadow and shows its thickness from the side.
+    const slab = (u0: number, u1: number, y0: number, y1: number, o: number, tint: number, s = sid) => {
+      rect(u0, u1, y0, y1, o, tint, s);
+      const [a, b] = [onFace(f, u0, y0, 0), onFace(f, u1, y0, 0)];
+      const side = v(a.x - b.x, 0, a.z - b.z);
+      const edge = (p: Vec3Like, q: Vec3Like, r: Vec3Like, t: Vec3Like, out: Vec3Like) =>
+        panel(g, [p, q, r, t], out, tint, s);
+      edge(onFace(f, u0, y1, 0), onFace(f, u1, y1, 0), onFace(f, u1, y1, o), onFace(f, u0, y1, o), up);
+      edge(
+        onFace(f, u0, y0, 0),
+        onFace(f, u1, y0, 0),
+        onFace(f, u1, y0, o),
+        onFace(f, u0, y0, o),
+        v(0, -1, 0),
+      );
+      edge(onFace(f, u0, y0, 0), onFace(f, u0, y1, 0), onFace(f, u0, y1, o), onFace(f, u0, y0, o), side);
+      edge(
+        onFace(f, u1, y0, 0),
+        onFace(f, u1, y1, 0),
+        onFace(f, u1, y1, o),
+        onFace(f, u1, y0, o),
+        v(-side.x, 0, -side.z),
+      );
+    };
+    // the stone footing stands out under the sill beam; posts and beams are proud of the plaster
+    slab(lo, hi, 0, 0.48, 0.09, stone);
+    slab(lo, hi, 0.48, 0.63, 0.06, wood);
+    slab(lo, hi, height - 0.24, height, 0.06, wood);
+    for (const u of [lo + 0.15, hi - 0.15]) slab(u - 0.09, u + 0.09, 0.63, height - 0.24, 0.075, wood);
     if (h.style === 'barn') {
       rect(lo, hi, 0.57, 1.0, 0.023, wood);
       // Exposed diagonal braces in the two outer bays of the timber frame.
@@ -192,15 +250,20 @@ function addFacade(g: GeometryBuilder, h: House): void {
       const u = lo + ((hi - lo) * (i + 0.5)) / bays;
       if (f === front && Math.abs(u - h.doorAt) < winHalf + 0.92) continue;
       const y = Math.min(2.6, height - 0.38);
-      rect(u - winHalf - 0.12, u + winHalf + 0.12, 1.08, y, 0.035, wood);
-      rect(u - winHalf, u + winHalf, 1.22, y - 0.13, 0.05, glass);
-      rect(u - 0.045, u + 0.045, 1.22, y - 0.13, 0.065, wood);
-      rect(u - winHalf, u + winHalf, y - 0.55, y - 0.48, 0.065, wood);
-      rect(u - winHalf - 0.18, u + winHalf + 0.18, 1.03, 1.16, 0.09, wood);
+      // a frame standing out round the glass, which lies back in it; glazing bars over the
+      // glass, and a sill deep enough to throw its shadow down the wall
+      slab(u - winHalf - 0.12, u - winHalf, 1.08, y, 0.11, wood);
+      slab(u + winHalf, u + winHalf + 0.12, 1.08, y, 0.11, wood);
+      slab(u - winHalf, u + winHalf, y - 0.13, y, 0.11, wood);
+      slab(u - winHalf, u + winHalf, 1.08, 1.22, 0.11, wood);
+      rect(u - winHalf, u + winHalf, 1.22, y - 0.13, 0.025, glass, sid, room(i));
+      rect(u - 0.045, u + 0.045, 1.22, y - 0.13, 0.05, wood);
+      rect(u - winHalf, u + winHalf, y - 0.55, y - 0.48, 0.05, wood);
+      slab(u - winHalf - 0.18, u + winHalf + 0.18, 1.03, 1.16, 0.19, wood);
       if (h.style === 'cottage') {
         const side = f === front && u > h.doorAt ? 1 : -1;
         const shutter = u + side * (winHalf + 0.34);
-        rect(shutter - 0.2, shutter + 0.2, 1.22, y - 0.1, 0.045, h.doorColor);
+        slab(shutter - 0.2, shutter + 0.2, 1.22, y - 0.1, 0.06, h.doorColor);
         if (f === front) {
           // The trough projects from the wall; the leaves and little ochre heads
           // are silhouettes in the same mesh, visible even when the village drains.
@@ -242,11 +305,14 @@ function addFacade(g: GeometryBuilder, h: House): void {
     }
     if (f !== front) continue;
     const u = h.doorAt;
-    rect(u - 0.95, u + 0.95, 0, DOOR_HEIGHT + 0.17, 0.04, wood);
-    rect(u - 0.8, u + 0.8, 0, DOOR_HEIGHT, 0.06, h.doorColor, door);
-    rect(u - 0.52, u + 0.52, 1.47, 2.11, 0.075, glass, door);
-    rect(u - 0.035, u + 0.035, 1.47, 2.11, 0.09, wood, door);
-    rect(u + 0.54, u + 0.65, 0.97, 1.16, 0.08, wood, door);
+    // the door hangs back in a frame that stands out round it
+    slab(u - 0.95, u - 0.8, 0, DOOR_HEIGHT + 0.17, 0.13, wood);
+    slab(u + 0.8, u + 0.95, 0, DOOR_HEIGHT + 0.17, 0.13, wood);
+    slab(u - 0.8, u + 0.8, DOOR_HEIGHT, DOOR_HEIGHT + 0.17, 0.13, wood);
+    rect(u - 0.8, u + 0.8, 0, DOOR_HEIGHT, 0.035, h.doorColor, door);
+    rect(u - 0.52, u + 0.52, 1.47, 2.11, 0.05, glass, door, room(9));
+    rect(u - 0.035, u + 0.035, 1.47, 2.11, 0.065, wood, door);
+    rect(u + 0.54, u + 0.65, 0.97, 1.16, 0.07, wood, door);
     // A separate little shed roof casts a shadow over the entrance. Shop curtains
     // hang in three panels with actual gaps along the hem.
     const aw = Math.min(h.style === 'shop' ? 2.8 : 1.7, (hi - lo) / 2 - 0.18);
@@ -425,6 +491,16 @@ function addRoof(g: GeometryBuilder, h: House, box: BoxSink, detail: boolean): v
       chimney = top - rise * 0.36 + 1.33;
     block(u - 0.35, u + 0.35, chimney - 2, chimney, t - 0.31, t + 0.31, stone);
     block(u - 0.44, u + 0.44, chimney - 0.16, chimney + 0.07, t - 0.4, t + 0.4, wood);
+    // its sooty mouth, where the smoke comes from
+    const y = chimney + 0.075;
+    g.chimney(
+      axis(u - 0.2, y, t + 0.2),
+      axis(u + 0.2, y, t + 0.2),
+      axis(u + 0.2, y, t - 0.2),
+      axis(u - 0.2, y, t - 0.2),
+      color('charcoal'),
+      roof,
+    );
   }
   if (detail && h.style === 'cottage') {
     // A little loft window pushed out of the front pitch. Its cheeks disappear
@@ -462,6 +538,7 @@ function addRoof(g: GeometryBuilder, h: House, box: BoxSink, detail: boolean): v
         n,
         glass,
         roof,
+        Math.floor(roll(h, 260) * 16),
       );
       panel(
         g,

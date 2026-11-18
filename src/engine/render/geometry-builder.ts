@@ -1,5 +1,5 @@
 // Accumulates triangles with the attributes the ink material expects (position, normal,
-// aColor, aSurface) and produces one merged BufferGeometry. Every static mesh in the game is
+// aColor, aSurface, and aPane where there are window panes) and produces one merged BufferGeometry. Every static mesh in the game is
 // built this way so a whole chunk or city is a single draw call.
 import * as THREE from 'three';
 
@@ -16,6 +16,8 @@ export class GeometryBuilder {
   private readonly nor: number[] = [];
   private readonly col: number[] = [];
   private readonly srf: number[] = [];
+  /** Two numbers a vertex, once the first window pane is added (see `pane`); zero elsewhere. */
+  private panes: number[] | null = null;
   private readonly indices: number[] = [];
   private indexedThrough = 0;
 
@@ -43,6 +45,68 @@ export class GeometryBuilder {
     this.nor.push(nx, ny, nz);
     this.col.push(color);
     this.srf.push(surface);
+    this.panes?.push(0, 0);
+  }
+
+  /**
+   * A window pane: an upright quad (corners as for `quad`) that also tells the renderer where
+   * on the pane each point is, so a lit room can be painted behind the glass at night. `kind`
+   * (0..15) picks the room and whether its lamp is lit. aPane is (1 + across, kind + up), across
+   * and up running 0..1 over the pane (kept just inside, so `kind` survives interpolation).
+   */
+  pane(
+    a: THREE.Vector3Like,
+    b: THREE.Vector3Like,
+    c: THREE.Vector3Like,
+    d: THREE.Vector3Like,
+    normal: THREE.Vector3Like,
+    color: number,
+    surface: number,
+    kind: number,
+  ): void {
+    const pts = [a, b, c, d];
+    this.panes ??= new Array<number>(this.vertexCount * 2).fill(0);
+    const o = this.vertexCount;
+    this.quad(a, b, c, d, normal, color, surface);
+    // across: along the pane's level direction; up: by height
+    const tx = -normal.z,
+      tz = normal.x;
+    const along = pts.map((p) => p.x * tx + p.z * tz);
+    const heights = pts.map((p) => p.y);
+    const [u0, u1] = [Math.min(...along), Math.max(...along)];
+    const [v0, v1] = [Math.min(...heights), Math.max(...heights)];
+    for (let k = 0; k < 4; k++) {
+      this.panes[(o + k) * 2] = 1.02 + (0.96 * (along[k]! - u0)) / Math.max(u1 - u0, 1e-6);
+      this.panes[(o + k) * 2 + 1] = kind + 0.02 + (0.96 * (heights[k]! - v0)) / Math.max(v1 - v0, 1e-6);
+    }
+  }
+
+  /** Mark the last four vertices added (a quad) as trodden path: `edge` is how far each lies
+   * from the path's middle, 0 to 1 at its edge. The material breaks the edge up raggedly, so
+   * earth gives way to grass as a brush would leave it (aPane -3, edge). */
+  pathEdge(edge: readonly [number, number, number, number]): void {
+    this.panes ??= new Array<number>(this.vertexCount * 2).fill(0);
+    const o = this.vertexCount - 4;
+    for (let k = 0; k < 4; k++) {
+      this.panes[(o + k) * 2] = -3;
+      this.panes[(o + k) * 2 + 1] = edge[k]!;
+    }
+  }
+
+  /** A chimney's top, as a quad across its mouth: drawn like any quad, and marked (aPane
+   * below zero) so smoke can be set rising from it (see lamps.ts). */
+  chimney(
+    a: THREE.Vector3Like,
+    b: THREE.Vector3Like,
+    c: THREE.Vector3Like,
+    d: THREE.Vector3Like,
+    color: number,
+    surface: number,
+  ): void {
+    this.panes ??= new Array<number>(this.vertexCount * 2).fill(0);
+    const o = this.vertexCount;
+    this.quad(a, b, c, d, { x: 0, y: 1, z: 0 }, color, surface);
+    for (let k = 0; k < 4; k++) this.panes[(o + k) * 2] = -1;
   }
 
   /** Quad from four corners in counter-clockwise order seen from the normal side. */
@@ -179,6 +243,10 @@ export class GeometryBuilder {
       this.col.push(other.col[i]!);
       this.srf.push(other.srf[i]!);
     }
+    if (other.panes) {
+      this.panes ??= new Array<number>(offset * 2).fill(0);
+      for (const p of other.panes) this.panes.push(p);
+    } else if (this.panes) for (let i = 0; i < other.vertexCount * 2; i++) this.panes.push(0);
     if (other.indices.length) {
       other.indexLooseVertices();
       for (const k of other.indices) this.indices.push(offset + k);
@@ -196,6 +264,7 @@ export class GeometryBuilder {
     g.setAttribute('normal', new THREE.Float32BufferAttribute(this.nor, 3));
     g.setAttribute('aColor', new THREE.Float32BufferAttribute(this.col, 1));
     g.setAttribute('aSurface', new THREE.Float32BufferAttribute(this.srf, 1));
+    if (this.panes) g.setAttribute('aPane', new THREE.Float32BufferAttribute(this.panes, 2));
     g.computeBoundingSphere();
     g.computeBoundingBox();
     return g;

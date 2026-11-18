@@ -165,11 +165,12 @@ export function generateWildChunk(w: Wilderness, cx: number, cz: number): WildCh
     for (const b of t.bridges) {
       const mx = (b.x0 + b.x1) / 2;
       if (mx < x0 || mx >= x0 + size || b.z < z0 || b.z >= z0 + size) continue;
-      // two paths out of the same gate may cross the river at the same spot: one bridge serves
-      const overlaps = bridges.some(
+      // paths that cross the river at the same spot share one bridge: the widest of theirs
+      const at = bridges.findIndex(
         (o) => b.x0 < o.x1 && o.x0 < b.x1 && Math.abs(b.z - o.z) < b.half + o.half + 1,
       );
-      if (!overlaps) bridges.push(b);
+      if (at < 0) bridges.push(b);
+      else if (b.half > bridges[at]!.half) bridges[at] = b;
     }
   return {
     cx,

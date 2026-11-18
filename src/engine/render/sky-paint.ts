@@ -1,7 +1,9 @@
 // The painted sky the paint pass (paint-shader.ts) draws behind everything and mirrors in
-// water and puddles: a deep turquoise overhead fading to a pale horizon, cumulus clouds that
-// sail with the wind, stars at night, and far mountain ranges along the horizon. A GLSL chunk:
-// it reads the paint pass's sun and sky uniforms and its noise (hash21, fbm, fbm2).
+// water and puddles: a deep turquoise overhead fading to a pale horizon, towering cumulus
+// standing round the horizon (painted clouds from an atlas, see painted-textures.ts) that sail
+// with the wind, a grey deck that closes over them in bad weather, stars at night, and far
+// mountain ranges along the horizon. A GLSL chunk: it reads the paint pass's sun and sky
+// uniforms, its cloud atlas (uClouds) and its noise (hash21, hash22, fbm, fbm2).
 
 export const skyGLSL = /* glsl */ `
 /** Sky colour near the horizon, which is also the colour of distant haze. */
@@ -11,8 +13,37 @@ vec3 horizonOf(vec3 rd) {
   return uHorizon + (uSunColor - vec3(0.9)) * 0.12 * toward * (1.0 - uNight);
 }
 
+/**
+ * One ring of painted cumulus standing round the horizon. The ring is cut into \`count\` cells
+ * and a cell holds one cloud from the atlas (two columns by three rows) or none: \`amount\` is
+ * the share of cells that hold one. \`turn\` is the way the ray looks, in turns round the
+ * horizon, and \`el\` how high, in radians; a cloud's foot stands about \`base\` radians up.
+ * Each is turned so the side it was painted lit on faces the sun (\`sunTurn\`). Returns its
+ * light in x (grey underneath .. white on top) and how much of the sky it covers in y.
+ */
+vec2 cumulusRing(float turn, float el, float count, float base, float seed, float amount, float sunTurn) {
+  float x = turn * count;
+  float cell = floor(x);
+  float id = mod(cell, count);
+  float chance = hash21(vec2(seed + 3.1, id * 2.11 + 0.5));
+  if (chance > amount) return vec2(0.0);
+  vec2 h = hash22(vec2(id * 1.37 + 0.5, seed));
+  // narrower than its cell and set anywhere inside it, so it never crosses into the next
+  float w = 0.7 + 0.3 * h.x;
+  float off = (h.y - 0.5) * (1.0 - w);
+  float u = (fract(x) - 0.5 - off) / w + 0.5;
+  float v = (el - base * (0.75 + 0.5 * h.y)) / (w * 6.2832 / count * 0.667);
+  if (u <= 0.0 || u >= 1.0 || v <= 0.0 || v >= 1.0) return vec2(0.0);
+  float pick = floor(hash21(vec2(id + 11.0, seed * 1.7)) * 5.999);
+  // the atlas's first, third and fourth clouds were painted lit from the right
+  float litRight = (pick < 0.5 || (pick > 1.5 && pick < 3.5)) ? 1.0 : 0.0;
+  float sunRight = step(0.0, sin((sunTurn - (cell + 0.5 + off) / count) * 6.2832));
+  if (sunRight != litRight) u = 1.0 - u;
+  return texture2D(uClouds, vec2((mod(pick, 2.0) + u) * 0.5, (floor(pick * 0.5) + 1.0 - v) / 3.0)).rg;
+}
+
 /** Painted sky along a world-space ray: a deep turquoise overhead fading to a pale horizon,
- * with big cumulus clouds, white on the sunny side and blue-grey underneath. */
+ * with big cumulus clouds, white on the sunny side and blue-violet underneath. */
 vec3 skyPaint(vec3 rd) {
   float e = rd.y;
   vec3 c = mix(horizonOf(rd), mix(uHorizon, uZenith, 0.55), smoothstep(-0.02, 0.2, e));
@@ -30,7 +61,8 @@ vec3 skyPaint(vec3 rd) {
   float n = fbm(cuv);
   float above = smoothstep(-0.01, 0.1, e);
   // the weather's cloud cover fills the gaps until the sky is one grey deck
-  float thr = mix(0.6, 0.52, smoothstep(0.05, 0.55, e)) - uCloud * 0.34;
+  // (in fair weather only a few high wisps: the cumulus below are the day's clouds)
+  float thr = mix(0.6, 0.52, smoothstep(0.05, 0.55, e)) - uCloud * 0.34 + 0.2 * (1.0 - smoothstep(0.2, 0.6, uCloud));
   // soft edges, like a cloud painted wet into wet
   float body = smoothstep(thr - 0.01, thr + 0.06 + uCloud * 0.06, n) * above;
   // lit where the cloud thins towards the sun, shadowed underneath
@@ -39,13 +71,32 @@ vec3 skyPaint(vec3 rd) {
   lit = mix(lit, 1.0, smoothstep(0.05, 0.0, n - thr) * 0.5);
   // moonlit clouds are a cool blue-grey, not a dimmed white
   vec3 cloudLit = mix(mix(vec3(1.0, 0.99, 0.96), clamp(uSunColor, 0.0, 1.0), 0.35), vec3(0.2, 0.24, 0.36), uNight);
-  vec3 cloudShade = mix(uShade, uZenith, 0.3) * 1.15;
+  vec3 cloudShade = mix(uShade, uZenith, 0.3) * vec3(1.2, 1.1, 1.16);
   // rain clouds are heavy and grey, darker underneath
   vec3 rainGrey = vec3(0.6, 0.62, 0.67) * mix(1.0, 0.3, uNight);
   cloudLit = mix(cloudLit, rainGrey, uOvercast * 0.75 + uCloud * 0.15);
   cloudShade = mix(cloudShade, rainGrey * 0.72, uOvercast * 0.8);
   vec3 cloud = mix(cloudShade, cloudLit, lit);
   c += vec3(star * 0.8);
+  // The painted cumulus: three rings round the horizon, the far ones small, low and pale with
+  // haze, the near ones towering. More of them as the weather clouds over, until the grey deck
+  // covers them. They sail round with the wind, the near ones fastest.
+  float turn = atan(rd.z, rd.x) / 6.2832;
+  float sunTurn = atan(uSun.z, uSun.x) / 6.2832;
+  float el = asin(clamp(e, -1.0, 1.0));
+  float sail = dot(uDrift, vec2(0.8, 0.6)) * 0.00003;
+  vec3 haze = horizonOf(rd);
+  for (int ring = 0; ring < 3; ring++) {
+    float far = 1.0 - float(ring) * 0.5;
+    float count = ring == 0 ? 19.0 : ring == 1 ? 11.0 : 6.0;
+    float base = ring == 0 ? 0.035 : ring == 1 ? 0.085 : 0.17;
+    float amount = (ring == 0 ? 0.62 : ring == 1 ? 0.46 : 0.3) + uCloud * 0.9;
+    float moved = sail * (1.0 + float(ring));
+    vec2 k = cumulusRing(turn + moved, el, count, base, 17.0 + 9.0 * float(ring), amount, sunTurn + moved);
+    vec3 heap = mix(cloudShade, cloudLit, smoothstep(0.56, 0.9, k.x));
+    heap = mix(heap, haze, 0.5 * far);
+    c = mix(c, heap, k.y * above);
+  }
   return mix(c, cloud, body);
 }
 

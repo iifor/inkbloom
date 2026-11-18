@@ -312,6 +312,7 @@ export class WildScene implements GameScene {
     release.push(this.weed.add(chunk, this.ctx.wilderness));
     yield;
     const mesh = new THREE.Mesh(g.build(), this.material);
+    release.push(this.ctx.renderer.lamps.add(mesh.geometry));
     mesh.name = group;
     this.root.add(mesh);
     this.loaded.set(key, { mesh, release });

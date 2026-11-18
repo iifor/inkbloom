@@ -1,5 +1,7 @@
-// The brush pass, after the paint pass: turns the painted frame into strokes of paint and grades
-// it like a painting (smooth Kuwahara filter, brush streaks, warm grade, vignette, canvas).
+// The brush pass, after the paint pass: softens the painted frame into patches of gouache and
+// grades it like a painting (a light smooth Kuwahara filter, faint brush streaks, warm grade,
+// vignette, grain). The brushwork itself is painted on the surfaces, in the paint pass; this
+// pass only takes the hard computer edge off it, so it is kept small.
 import * as THREE from 'three';
 import { postVert } from './paint-shader';
 
@@ -8,7 +10,7 @@ import { postVert } from './paint-shader';
  * painting. A smooth Kuwahara filter looks at six wedges of a circle around each pixel and
  * keeps the colour of the calmest ones, so areas break into rounded patches of paint with soft
  * edges while outlines stay sharp. Then: warm lift and a gentle S-curve, a little more colour, a
- * warm vignette, and a canvas weave with fine grain over everything.
+ * warm vignette, and fine grain over everything.
  */
 export const brushFrag = /* glsl */ `
 precision highp float;
@@ -99,7 +101,7 @@ void main() {
     float streak = vnoise(vec2(dot(pp0, along) * 0.07, dot(pp0, across) * 0.9));
     float hatch = vnoise(vec2(dot(pp0, across) * 0.07, dot(pp0, along) * 0.9) + 57.0);
     streak = mix(0.5 * (streak + hatch), streak, edge);
-    col *= 1.0 + (streak - 0.5) * mix(0.03, 0.12, edge);
+    col *= 1.0 + (streak - 0.5) * mix(0.015, 0.06, edge);
   }
 
   // grade like a painting: warm lift, gentle S-curve, a little more colour
@@ -110,12 +112,10 @@ void main() {
   // warm vignette
   vec2 q = vUv - 0.5;
   q.x *= uAspect;
-  col *= mix(vec3(0.8, 0.76, 0.72), vec3(1.0), smoothstep(0.95, 0.38, length(q)));
-  // canvas weave and fine grain
+  col *= mix(vec3(0.9, 0.87, 0.84), vec3(1.0), smoothstep(0.95, 0.38, length(q)));
+  // fine grain
   vec2 pp = gl_FragCoord.xy;
-  float weave = sin(pp.x * 1.7) * sin(pp.y * 1.7) * 0.012 + (hash(floor(pp / 3.0)) - 0.5) * 0.02;
-  float grain = (hash(pp + fract(uTime * 7.0) * 113.0) - 0.5) * 0.025;
-  col *= 1.0 + weave + grain;
+  col *= 1.0 + (hash(pp + fract(uTime * 7.0) * 113.0) - 0.5) * 0.02;
   gl_FragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
 }`;
 

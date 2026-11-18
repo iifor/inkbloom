@@ -11,16 +11,16 @@ import { WATER_LEVEL, type Wilderness } from '@/world/wilderness/generator';
 import { type Bridge, pathsOf } from '@/world/wilderness/paths';
 import { BOULDER } from './stone-shape';
 
-/** How high the trodden middle of a path stands over the ground, metres. Its edges sink into
- * the ground by a wandering few centimetres, so where earth meets grass is a ragged line where
- * the two surfaces cross, not the hard edge of a ribbon. */
+/** How high the trodden middle of a path stands over the ground, metres. Its edges lie just on
+ * the ground and are marked as edges (GeometryBuilder.pathEdge): the material breaks them up, so
+ * where earth meets grass is a ragged painted line, not the hard edge of a ribbon. */
 const CROWN = 0.045;
 /** Longest stretch of path between cross-sections, metres: short enough for the edges to wander. */
 const STEP = 0.6;
 /** Where the path's cross-section has its points, from one edge (-1) to the other (1), and the
  * height of each over the ground (the edges' own wander is added to theirs). */
 const ACROSS = [-1, -0.55, 0, 0.55, 1] as const;
-const LIFTS = [-0.03, CROWN, CROWN * 0.8, CROWN, -0.03] as const;
+const LIFTS = [0.012, CROWN, CROWN * 0.8, CROWN, 0.012] as const;
 const ROCK = BOULDER;
 
 /** 0..1 from a position and a salt: smooth enough along a path to read as one wavering edge. */
@@ -74,15 +74,14 @@ export function appendPaths(chunk: WildChunk, w: Wilderness, g: GeometryBuilder)
       return { x, z, sx: -dz / l, sz: dx / l, half: half * wander * taper };
     };
     /** A cross-section's points (ACROSS order), each edge pushed in or out a little on its own. */
-    const section = (k: number): Vec3Like[] => {
+    const section = (k: number): (Vec3Like & { edge: number })[] => {
       const c = at(k);
       return ACROSS.map((u, j) => {
         const edge = j === 0 || j === ACROSS.length - 1;
-        const reach = c.half * (edge ? 0.72 + 0.5 * wobble(c.x, c.z, j) : 1) * u;
+        const reach = c.half * (edge ? 1.15 + 0.35 * wobble(c.x, c.z, j) : 1) * u;
         const x = c.x + c.sx * reach;
         const z = c.z + c.sz * reach;
-        const lift = LIFTS[j]! + (edge ? 0.05 * wobble(z, x, j + 3) - 0.01 : 0);
-        return { x, y: w.heightAt(x, z) + lift, z };
+        return { x, y: w.heightAt(x, z) + LIFTS[j]!, z, edge: Math.abs(u) };
       });
     };
     for (let k = 0; k < count - 1; k++) {
@@ -115,6 +114,7 @@ export function appendPaths(chunk: WildChunk, w: Wilderness, g: GeometryBuilder)
             ],
             earth,
           );
+          g.pathEdge([order[0].edge, order[1].edge, order[2].edge, order[3].edge]);
         }
         prev = next;
       }

@@ -1,7 +1,51 @@
 // Sun shadows: a depth map from the sun's side, covering a square of ground a little ahead of
-// the camera, which ink-material.ts reads to darken what the sun cannot see.
+// the camera, which ink-material.ts reads to darken what the sun cannot see. A tree's crown
+// lets the sun through the gaps between its leaf clusters, so its shade is dappled.
 import * as THREE from 'three';
+import { color } from '@/content/palette';
 import { shared } from './ink-material';
+
+/** Everything as the sun sees it: depth only. Posed like the ink material's meshes (instanced,
+ * skinned), without what never throws a shadow (grass sways on its own layer). */
+const shadowVert = /* glsl */ `
+#include <common>
+#include <skinning_pars_vertex>
+attribute float aColor;
+varying float vPigment;
+varying vec3 vWorld;
+void main() {
+  #include <skinbase_vertex>
+  #include <begin_vertex>
+  #include <skinning_vertex>
+  vec4 world = vec4(transformed, 1.0);
+  #ifdef USE_INSTANCING
+    world = instanceMatrix * world;
+  #endif
+  world = modelMatrix * world;
+  vWorld = world.xyz;
+  vPigment = aColor;
+  gl_Position = projectionMatrix * viewMatrix * world;
+}`;
+const shadowFrag = /* glsl */ `
+precision highp float;
+uniform sampler2D uCanopyBrush;
+uniform vec3 uSunDir;
+varying float vPigment;
+varying vec3 vWorld;
+void main() {
+  float pigment = floor(vPigment + 0.5);
+  bool cedar = pigment == ${color('cedar')}.0;
+  if (cedar || pigment == ${color('leaf')}.0 || pigment == ${color('canopy')}.0) {
+    // The gaps between the leaf clusters (the dark of the brush sheet: the gaps and the
+    // clusters' shaded undersides), laid out on the
+    // ground along the sun's rays: every leaf on one ray agrees whether it is a gap, so the
+    // light comes all the way down through the crown and lies in spots under the tree.
+    vec2 ground = vWorld.xz - uSunDir.xz * (vWorld.y / max(uSunDir.y, 0.2));
+    vec2 sheet = texture2D(uCanopyBrush, ground * 0.29).rg;
+    if ((cedar ? sheet.g : sheet.r) < 0.54) discard;
+  }
+  gl_FragColor = vec4(1.0);
+}`;
 
 /** Half the side of the square of ground that gets sun shadows, metres. */
 const SHADOW_REACH = 70;
@@ -27,7 +71,10 @@ export class SunShadows {
     1,
     500,
   );
-  private readonly material = new THREE.MeshBasicMaterial({
+  private readonly material = new THREE.ShaderMaterial({
+    uniforms: { uCanopyBrush: shared.uCanopyBrush, uSunDir: { value: new THREE.Vector3(0, 1, 0) } },
+    vertexShader: shadowVert,
+    fragmentShader: shadowFrag,
     colorWrite: false,
     side: THREE.DoubleSide,
   });
@@ -77,6 +124,7 @@ export class SunShadows {
     sc.updateMatrixWorld();
     shared.uShadowMatrix.value.multiplyMatrices(BIAS, sc.projectionMatrix).multiply(sc.matrixWorldInverse);
     shared.uShadowOn.value = 1;
+    this.material.uniforms.uSunDir!.value.copy(dir);
     this.draw(gl, scene, cam);
   }
 

@@ -22,6 +22,10 @@
 
 在 [src/content/palette.ts](../src/content/palette.ts) 的 `PALETTE` **末尾**追加一项。不要插在中间或重排：存档和几何里存的是下标。`paintable: true` 才会出现在涂鸦笔刷里。`solid: true` 的颜色画成实心的湿墨（不透出纸，受光面有一点反光），目前只有墨潮用的 `ink`。上限 32 色。
 
+## 换一张手绘贴图
+
+源图放在 `art/textures/`（PNG，不发布）。改完跑 `python3 tools/bake_textures.py`（需要 Pillow 和 numpy），它把表面贴图归一到中灰、统一强度，连同积云图集写到 `public/textures/`；游戏只读烘焙后的文件。表面贴图必须是四方连续的灰度图，不带颜色和光影：颜色由调色板给。加一种新的表面：烘焙脚本的 `SURFACES`、[painted-textures.ts](../src/engine/render/painted-textures.ts) 的 `SURFACE_LAYERS`，再在 [paint-shader.ts](../src/engine/render/paint-shader.ts) 里"The painted tiles"那一段决定哪种表面用它、怎么铺。
+
 ## 加一个群系
 
 1. [src/content/biomes.ts](../src/content/biomes.ts)：`BIOMES` 加一项（地面色、崖面色、树密度…）

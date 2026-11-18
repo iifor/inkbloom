@@ -64,7 +64,7 @@ renderer.render()
 
 ## 渲染
 
-所有静态网格用 `GeometryBuilder` 合并成每区块 / 每城一个网格，一个材质（`ink-material.ts`）。顶点带 `aColor`（原色）和 `aSurface`（表面编号，`-1` 表示跟随派生颜色）。材质写 G-buffer（R 受光，已乘上太阳阴影；G 颜色码；BA 法线），后处理（`renderer.ts` 排各遍的先后；上色一遍是 `paint-shader.ts` / `paint-pass.ts`，天空和水在 `sky-paint.ts`、`water-paint.ts`，笔触一遍 `brush-pass.ts`，泛光 `glow.ts`，太阳阴影 `sun-shadows.ts`）把它画成手绘动画背景：暖色日光、天空色的冷阴影、按世界坐标的笔触斑驳（草和树叶强，墙面弱，见调色板的 `texture`）、角落的柔和接触阴影、天空和积云、远处的雾，没有描边；最后一遍 FXAA 抗锯齿。饱和度 0 是同一幅画褪成灰色，1 是彩色。
+所有静态网格用 `GeometryBuilder` 合并成每区块 / 每城一个网格，一个材质（`ink-material.ts`）。顶点带 `aColor`（原色）和 `aSurface`（表面编号，`-1` 表示跟随派生颜色）。材质写 G-buffer（R 受光，已乘上太阳阴影；G 颜色码；BA 法线），后处理（`renderer.ts` 排各遍的先后；上色一遍是 `paint-shader.ts` / `paint-pass.ts`，天空和水在 `sky-paint.ts`、`water-paint.ts`，笔触一遍 `brush-pass.ts`，泛光 `glow.ts`，太阳阴影 `sun-shadows.ts`）把它画成手绘动画背景：暖色日光、天空色的冷阴影、按世界坐标的笔触斑驳（草和树叶强，墙面弱，见调色板的 `texture`）、角落的柔和接触阴影、天空和积云、远处的雾，背景没有描边，人物是带细描边的赛璐璐；最后一遍 FXAA 抗锯齿。饱和度 0 是同一幅画的褐色钢笔稿（纸、排线和轮廓线），1 是彩色。
 
 一帧三遍：太阳阴影图（玩家前方 140 米见方，按纹素对齐，草不投影）→ G-buffer → 上色 + FXAA。光照随一天的时间变化（`daylight.ts`：太阳位置、日光 / 阴影 / 天空颜色按时刻插值，夜里出星星、有色街道的窗户亮灯），时刻由 `AtmosphereSystem` 从世界时钟算出，`TUNING.day` 调一天多长。
 

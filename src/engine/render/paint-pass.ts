@@ -8,6 +8,7 @@ import { TUNING } from '@/content/tuning';
 import { RIVER_LANE, RIVER_X } from '@/world/wilderness/generator';
 import type { Daylight } from './daylight';
 import { shared } from './ink-material';
+import { LAMP_COUNT } from './lamps';
 import { NOISE_SIZE, postFrag, postVert } from './paint-shader';
 import { RIVER_SAMPLES, WAKE_COUNT } from './water-paint';
 
@@ -38,6 +39,11 @@ export interface PaintInputs {
   readonly noise: THREE.Texture;
   readonly rivers: THREE.Texture;
   readonly canopyBrush: THREE.Texture;
+  /** The painted surface tiles and the cumulus atlas (painted-textures.ts). */
+  readonly surfaces: THREE.Texture;
+  readonly clouds: THREE.Texture;
+  /** Painted rooms behind lit windows. */
+  readonly interiors: THREE.Texture;
   readonly camera: THREE.PerspectiveCamera;
   /** Sun, sky and shade; its vectors become the pass's uniforms. */
   readonly day: Daylight;
@@ -78,6 +84,7 @@ export function makePaintMaterial(o: PaintInputs): THREE.ShaderMaterial {
       uTexture: { value: perColor((c) => c.texture ?? 0.25, 0.25) },
       uInvProj: { value: new THREE.Matrix4() },
       uInvView: { value: new THREE.Matrix4() },
+      uViewProj: { value: new THREE.Matrix4() },
       uSun: { value: o.day.dir },
       uSunColor: { value: o.day.sun },
       uShade: { value: o.day.shade },
@@ -102,6 +109,10 @@ export function makePaintMaterial(o: PaintInputs): THREE.ShaderMaterial {
       uSnow: { value: color('snow') },
       uCedar: { value: color('cedar') },
       uCanopyBrush: { value: o.canopyBrush },
+      uSurfaces: { value: o.surfaces },
+      uClouds: { value: o.clouds },
+      uInteriors: { value: o.interiors },
+      uLamps: { value: Array.from({ length: LAMP_COUNT }, () => new THREE.Vector4()) },
       uSeasonKind: { value: perColor((c) => (c.season === 'meadow' ? 1 : c.season === 'leaf' ? 2 : 0), 0) },
       uMeadow: { value: SEASONS.map(({ meadow: m }) => new THREE.Vector4(...m.rgb, m.amount)) },
       uLeaf: { value: SEASONS.map(({ leaf: l }) => new THREE.Vector4(...l.rgb, l.amount)) },
