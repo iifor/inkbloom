@@ -1,6 +1,6 @@
 // Hot springs and summit lookouts as chunk geometry (see world/wilderness/landmarks.ts for
 // where they stand). A spring is a still pool in a low stone basin, ringed with rocks; its
-// steam, warmth and bubbling come from the atmosphere and ambience systems. A lookout is a
+// steam and warmth come from the atmosphere system. A lookout is a
 // cairn of stacked stones with a pole and a cloth flag, visible from the next hill over.
 import * as THREE from 'three';
 import { color } from '@/content/palette';
@@ -10,6 +10,7 @@ import type { WildChunk } from '@/world/wilderness/chunk';
 import type { Wilderness } from '@/world/wilderness/generator';
 import { type Lookout, type Spring, springLevel } from '@/world/wilderness/landmarks';
 import { BOULDER } from './stone-shape';
+import type { FlagSpec } from '@/engine/render/wind-flags';
 
 const ROCK = BOULDER;
 /** Segments round a pool's rim. */
@@ -113,12 +114,26 @@ function appendLookout(l: Lookout, w: Wilderness, g: GeometryBuilder): void {
     { x: px + 0.05, y: top, z: l.z + 0.05 },
     { px: wood, nx: wood, pz: wood, nz: wood, py: wood },
   );
-  const flag = { px: l.flag, nx: l.flag, py: l.flag, ny: l.flag, pz: l.flag, nz: l.flag };
-  g.box(
-    { x: px + 0.05, y: top - 0.55, z: l.z - 0.015 },
-    { x: px + 0.95, y: top - 0.05, z: l.z + 0.015 },
-    flag,
-  );
+}
+
+/** Same seeded stone stack as appendLookout; the cloth is separate from the static pole. */
+export function lookoutFlag(l: Lookout, w: Wilderness): FlagSpec {
+  let y = w.heightAt(l.x, l.z) - 0.1,
+    lean = 0;
+  for (let i = 0; i < 6; i++) {
+    const size = (0.85 - i * 0.1) * (0.8 + 0.4 * roll(l.seed, i + 30));
+    y += size * (0.32 + 0.2 * roll(l.seed, i + 40)) * 1.55;
+    lean += (roll(l.seed, i + 20) - 0.5) * 0.14;
+  }
+  return {
+    x: l.x + lean,
+    y: y + 1.55,
+    z: l.z,
+    width: 0.9,
+    height: 0.5,
+    color: l.flag,
+    phase: roll(l.seed, 110) * Math.PI * 2,
+  };
 }
 
 /** The chunk's hot springs and lookouts, laid onto `g`. */

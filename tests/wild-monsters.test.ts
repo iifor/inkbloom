@@ -82,10 +82,12 @@ describe('wilderness monsters', () => {
     // the chunk just outside the town's east wall
     const cx = Math.floor((e.ox + e.size) / TUNING.world.chunkSize);
     const cz = Math.floor(e.z / TUNING.world.chunkSize);
-    const grey = chunkSaturation(w, cx + 1, cz, () => 0);
-    const bright = chunkSaturation(w, cx + 1, cz, () => 1);
+    // Use the actual neighbouring chunk, not one an extra 128 m away (which used
+    // to be drained by another village when every settlement cell was occupied).
+    const grey = chunkSaturation(w, cx, cz, () => 0);
+    const bright = chunkSaturation(w, cx, cz, () => 1);
     expect(grey).toBeLessThan(W.drainedBelow);
     expect(bright).toBe(1);
-    expect(wildMonstersInChunk(w, cx + 1, cz, bright)).toHaveLength(0);
+    expect(wildMonstersInChunk(w, cx, cz, bright)).toHaveLength(0);
   });
 });

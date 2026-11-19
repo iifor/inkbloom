@@ -13,6 +13,8 @@ import { GeometryBuilder } from '@/engine/render/geometry-builder';
 import type { PhysicsWorld, Vec3Like } from '@/engine/physics/world';
 import type { Tree, WildChunk } from '@/world/wilderness/chunk';
 import { riverbedMeadow, type Wilderness } from '@/world/wilderness/generator';
+import { appendSpawnCircle } from './build-spawn-circle';
+import { buildFarmstead } from './build-farmstead';
 
 /** Metres between terrain mesh vertices: the height function's own cell. Finer would only add
  * triangles lying flat on the same planes. */
@@ -40,6 +42,7 @@ export function* buildChunkSteps(
   g: GeometryBuilder,
 ): Generator<void, void, void> {
   yield* buildTerrainSteps(chunk, w, g);
+  if (chunk.farmstead) buildFarmstead(g, w, chunk.farmstead, () => {});
   for (const [i, tree] of chunk.trees.entries()) {
     if (i > 0 && i % (ROWS_PER_STEP * 2) === 0) yield;
     appendTree(g, treePalette(tree), treeMatrix(tree), false, tree.kind);
@@ -109,8 +112,31 @@ export function* buildTerrainSteps(
     }
   }
   yield;
+  // A distant tile omits road earthworks. Close the seam when a raised roadbed
+  // meets it; loaded neighbours share the same height and conceal these skirts.
+  const skirt = (i: number, k: number, di: number, dk: number) => {
+    const a = P(i, k),
+      b = P(i + di, k + dk);
+    const ay = Math.min(a.y, w.terrainHeightAt(a.x, a.z)) - 0.3;
+    const by = Math.min(b.y, w.terrainHeightAt(b.x, b.z)) - 0.3;
+    g.quadSmooth(
+      a,
+      b,
+      { ...b, y: by },
+      { ...a, y: ay },
+      [N(i, k), N(i + di, k + dk), N(i + di, k + dk), N(i, k)],
+      [soilAt(i, k), soilAt(i + di, k + dk), soilAt(i + di, k + dk), soilAt(i, k)],
+    );
+  };
+  for (let k = 0; k < steps; k++) {
+    skirt(0, k, 0, 1);
+    skirt(steps, k + 1, 0, -1);
+    skirt(k + 1, 0, -1, 0);
+    skirt(k, steps, 1, 0);
+  }
   // footpaths over the ground, and their bridges
   appendPaths(chunk, w, g);
+  if (chunk.cx === 0 && chunk.cz === 0) appendSpawnCircle(w, g);
   // hot springs and summit lookouts
   appendLandmarks(chunk, w, g);
 }

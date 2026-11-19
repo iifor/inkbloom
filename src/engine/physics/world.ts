@@ -42,6 +42,8 @@ export interface ColliderData {
   readonly decals?: readonly Decal[];
   /** Not hit by brush or line-of-sight rays. */
   readonly seeThrough?: boolean;
+  /** A horizontal collision with this prop cannot be climbed by automatic stepping. */
+  readonly noAutoStep?: boolean;
   readonly tag?: string;
 }
 
@@ -96,6 +98,8 @@ export interface Body {
   hitCeiling: boolean;
   wallNormal: THREE.Vector3;
   landVel: number;
+  /** Total vertical correction from climbing/snap-down this move (not jumps or slopes). */
+  groundStep: number;
   noSnap: boolean;
   bx: number;
   bz: number;
@@ -113,6 +117,7 @@ export function makeBody(pos: THREE.Vector3, halfW: number, height: number, step
     hitCeiling: false,
     wallNormal: new THREE.Vector3(),
     landVel: 0,
+    groundStep: 0,
     noSnap: false,
     bx: 0,
     bz: 0,
@@ -207,6 +212,7 @@ export class PhysicsWorld {
   private qid = 0;
   /** Set when an axis resolve met a turned box, so moveHoriz knows to push out of it. */
   private turnedNear = false;
+  private stepBlocked = false;
   /** Push out of turned walls in the last horizontal move; a unit normal once it ends. */
   private readonly slide = new THREE.Vector3();
   /** Smooth ground height at (x, z), or null for a world of boxes only. */
@@ -347,6 +353,7 @@ export class PhysicsWorld {
       if (_out.length === 0) break;
       let best = 0;
       for (const b of _out) {
+        if (axis !== 1 && b.data.noAutoStep) this.stepBlocked = true;
         if (b.turn) {
           // turned boxes push out along their own normals (resolveTurned); up and down they are
           // like any box
@@ -409,6 +416,7 @@ export class PhysicsWorld {
     this.slide.set(0, 0, 0);
     if (dx === 0 && dz === 0) return;
     this.turnedNear = false;
+    this.stepBlocked = false;
     p.x += dx;
     const rx = this.resolveAxis(body, 0, dx);
     p.z += dz;
@@ -420,7 +428,7 @@ export class PhysicsWorld {
     const sx = this.slide.x;
     const sz = this.slide.z;
     let stepped = false;
-    if (canStep && body.stepHeight > 0) {
+    if (canStep && body.stepHeight > 0 && !this.stepBlocked) {
       p.x = ox;
       p.z = oz;
       p.y = oy + body.stepHeight;
@@ -494,6 +502,7 @@ export class PhysicsWorld {
     const maxStep = Math.max(0.2, body.halfW * 0.8);
     const n = Math.max(1, Math.ceil((sp * dt) / maxStep));
     if (n > 512) throw new RangeError('Physics movement exceeds substep budget');
+    body.groundStep = 0;
     let landVel = 0;
     let hitWall = false;
     let hitCeiling = false;
@@ -525,7 +534,9 @@ export class PhysicsWorld {
     const wasGround = body.onGround;
     const ox = p.x;
     const oz = p.z;
+    const oy = p.y;
     this.moveHoriz(body, v.x * dt, v.z * dt, wasGround);
+    body.groundStep += p.y - oy;
     this.slopeLimit(body, ox, oz);
     if (body.bx !== 0) v.x = 0;
     if (body.bz !== 0) v.z = 0;
@@ -550,8 +561,10 @@ export class PhysicsWorld {
     }
     if (!body.onGround && wasGround && v.y <= 0 && !body.noSnap) {
       const probe = body.stepHeight;
+      const before = p.y;
       p.y -= probe;
       if (this.resolveAxis(body, 1, -probe) > 0) {
+        body.groundStep += p.y - before;
         body.onGround = true;
         v.y = 0;
       } else p.y += probe;

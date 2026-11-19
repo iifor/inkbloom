@@ -13,8 +13,10 @@ describe('deer herds', () => {
       expect(h.count).toBeGreaterThanOrEqual(3);
       expect(w.climate(h.x, h.z).moisture).toBeLessThan(0.15);
       let woods = false;
-      for (let k = 0; k < 8; k++)
-        if (w.climate(h.x + Math.cos(k) * 45, h.z + Math.sin(k) * 45).moisture >= 0.15) woods = true;
+      for (let k = 0; k < 8; k++) {
+        const angle = (k * Math.PI) / 4;
+        if (w.climate(h.x + Math.cos(angle) * 45, h.z + Math.sin(angle) * 45).moisture >= 0.15) woods = true;
+      }
       expect(woods).toBe(true);
       expect(w.townAt(h.x, h.z, 60)).toBeNull();
       expect(pathsOf(w).edgeDistance(h.x, h.z)).toBeGreaterThan(9);

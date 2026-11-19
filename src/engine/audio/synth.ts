@@ -52,8 +52,8 @@ export interface SampleOptions {
 
 /** A long recording streamed from a file (a looping ambience bed, or a music track). */
 export interface Stream {
-  /** Fade to `level` (0..1 of the stream's gain) over `seconds`. */
-  set(level: number, seconds?: number): void;
+  /** Fade to `level` over `seconds`; spatial streams can also pan left (-1) or right (1). */
+  set(level: number, seconds?: number, pan?: number): void;
   /** Fade out and stop for good. */
   stop(seconds?: number): void;
   /** Whether it is actually sounding: false while loading, after an error, or once ended. */
@@ -64,7 +64,7 @@ export interface Stream {
 
 export interface Loop {
   /** 0..1, smoothed. */
-  set(level: number): void;
+  set(level: number, pan?: number): void;
   stop(): void;
 }
 
@@ -195,7 +195,10 @@ export class Synth {
    * is never decoded into memory). It starts silent: fade it in with `set`. A file that fails
    * to load never reports `playing`, so callers keep their synthesised version.
    */
-  stream(url: string, o: { loop: boolean; gain: number; bus: 'music' | 'ambience' }): Stream {
+  stream(
+    url: string,
+    o: { loop: boolean; gain: number; bus: 'music' | 'ambience'; spatial?: boolean },
+  ): Stream {
     const ctx = this.ctx;
     const state = { playing: false, over: false };
     if (!ctx) return { set: () => {}, stop: () => {}, playing: false, over: true };
@@ -205,7 +208,7 @@ export class Synth {
     const g = ctx.createGain();
     g.gain.value = 0;
     ctx.createMediaElementSource(el).connect(g);
-    g.connect(this.buses.get(o.bus)!);
+    const pan = this.connectBed(g, o.bus, o.spatial);
     el.addEventListener('playing', () => (state.playing = !state.over));
     const end = (): void => {
       state.playing = false;
@@ -215,9 +218,10 @@ export class Synth {
     el.addEventListener('ended', end);
     el.play().catch(end);
     return {
-      set: (level, seconds = 1) => {
+      set: (level, seconds = 1, stereo = 0) => {
         g.gain.cancelScheduledValues(ctx.currentTime);
         g.gain.setTargetAtTime(Math.max(0, level) * o.gain, ctx.currentTime, Math.max(0.01, seconds / 3));
+        pan?.pan.setTargetAtTime(stereo, ctx.currentTime, 0.12);
       },
       stop: (seconds = 1) => {
         g.gain.setTargetAtTime(0, ctx.currentTime, Math.max(0.01, seconds / 3));
@@ -320,6 +324,7 @@ export class Synth {
     q?: number;
     gain: number;
     bus?: 'sfx' | 'ambience';
+    spatial?: boolean;
   }): Loop {
     const ctx = this.ctx;
     if (!ctx || !this.noiseBuf) return { set: () => {}, stop: () => {} };
@@ -334,15 +339,30 @@ export class Synth {
     g.gain.value = 0;
     src.connect(f);
     f.connect(g);
-    g.connect(this.buses.get(o.bus ?? 'ambience')!);
+    const pan = this.connectBed(g, o.bus ?? 'ambience', o.spatial);
     src.start();
     return {
-      set: (level) => g.gain.setTargetAtTime(Math.max(0, level) * o.gain, ctx.currentTime, 0.08),
+      set: (level, stereo = 0) => {
+        g.gain.setTargetAtTime(Math.max(0, level) * o.gain, ctx.currentTime, 0.12);
+        pan?.pan.setTargetAtTime(stereo, ctx.currentTime, 0.12);
+      },
       stop: () => {
         g.gain.setTargetAtTime(0, ctx.currentTime, 0.05);
         src.stop(ctx.currentTime + 0.3);
       },
     };
+  }
+
+  private connectBed(gain: GainNode, bus: string, spatial?: boolean): StereoPannerNode | undefined {
+    const dest = this.buses.get(bus)!;
+    if (!spatial) {
+      gain.connect(dest);
+      return;
+    }
+    const pan = this.ctx!.createStereoPanner();
+    gain.connect(pan);
+    pan.connect(dest);
+    return pan;
   }
 
   async dispose(): Promise<void> {

@@ -6,11 +6,13 @@ import { TUNING } from '@/content/tuning';
 import { ALWAYS_COLOR, GeometryBuilder } from '@/engine/render/geometry-builder';
 import { splatGeometry } from '@/engine/render/soft-shapes';
 import { makeInkMaterial } from '@/engine/render/ink-material';
+import { WindFlags } from '@/engine/render/wind-flags';
 import { type GameContext, type System, sceneKey } from '@/game/types';
 
 export class InkDropSystem implements System {
   readonly id = 'ink-drop';
   private readonly marker: THREE.Mesh;
+  private readonly flags: WindFlags;
   private readonly material = makeInkMaterial();
 
   constructor(private readonly ctx: GameContext) {
@@ -30,19 +32,30 @@ export class InkDropSystem implements System {
       ALWAYS_COLOR,
     );
     g.box({ x: -0.06, y: 0, z: -0.06 }, { x: 0.06, y: 3.2, z: 0.06 }, solid(color('brown')), always);
-    g.box({ x: 0.06, y: 2.3, z: -0.03 }, { x: 1.1, y: 3.1, z: 0.03 }, solid(color('red')), always);
     this.marker = new THREE.Mesh(g.build(), this.material);
+    this.flags = new WindFlags(this.marker, ctx.wilderness.seed);
+    this.flags.add({
+      x: 0,
+      y: 3.1,
+      z: 0,
+      width: 1.04,
+      height: 0.8,
+      color: color('red'),
+      phase: 1.3,
+      surface: ALWAYS_COLOR,
+    });
     this.marker.visible = false;
     ctx.renderer.scene.add(this.marker);
   }
 
-  update(): void {
+  update(dt: number): void {
     const drop = this.ctx.state.drop;
     const here =
       drop && this.ctx.combat.alive && sceneKey(drop.scene) === sceneKey(this.ctx.scenes.active.ref);
     this.marker.visible = !!here;
     if (!here || !drop) return;
     this.marker.position.set(drop.x, drop.y, drop.z);
+    this.flags.update(dt);
     const p = this.ctx.player.position;
     if (Math.hypot(p.x - drop.x, p.z - drop.z) > TUNING.combat.dropPickupRadius || Math.abs(p.y - drop.y) > 3)
       return;
@@ -51,6 +64,7 @@ export class InkDropSystem implements System {
   }
 
   dispose(): void {
+    this.flags.dispose();
     this.marker.geometry.dispose();
     this.material.dispose();
     this.marker.removeFromParent();

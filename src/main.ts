@@ -160,6 +160,7 @@ async function boot(): Promise<void> {
     game.ctx.input.sensitivity = 0.0022 * s.sensitivity;
     game.ctx.renderer.setFov(s.fov);
     game.ctx.renderer.setQuality(s.quality);
+    game.clock.timeScale = s.timeScale;
     game.audio.synth.setVolumes({ master: s.volume, sfx: s.sfx, music: s.music });
   };
   apply(settings);
@@ -252,7 +253,7 @@ async function boot(): Promise<void> {
     arenaLeave: () => game.arena?.leave(),
     arenaVote: (mode) => game.arena?.vote(mode),
   });
-  menu.show('main');
+  menu.show(params.get('preview') === 'courier' ? 'character' : 'main');
   input.onLockChange = (locked) => {
     if (!locked) {
       menu.show('pause');

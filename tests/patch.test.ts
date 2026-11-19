@@ -5,6 +5,7 @@ import { applyPatch, unlockWeapons, type PatchContext } from '@/world/patch';
 import { DRAINED, ORIGINAL, coloredRatio, graffiti, type SurfaceInfo } from '@/world/paint/surfaces';
 import {
   SaveError,
+  SAVE_VERSION,
   cityStates,
   createWorldState,
   deserializeWorld,
@@ -143,7 +144,9 @@ describe('saves', () => {
     kv.setItem('inkbloom:world:bad', '{not json');
     await expect(store.load('bad')).rejects.toThrow();
     expect(() =>
-      deserializeWorld(serializeWorld(createWorldState('a', 1)).replace('"version":2', '"version":9')),
+      deserializeWorld(
+        serializeWorld(createWorldState('a', 1)).replace(`"version":${SAVE_VERSION}`, '"version":9'),
+      ),
     ).toThrow();
   });
 });

@@ -70,6 +70,19 @@ describe('objectives', () => {
 });
 
 describe('wish objectives', () => {
+  it('offers wishes and exploration in a peaceful village, never a restoration task', () => {
+    const safe = { ...city, peaceful: true, coloredBlocks: 4, stain: null };
+    const quiet = objective({ ...base, scene: 'city', city: safe, generic: 0 });
+    expect(quiet.text).toContain('安然无恙');
+    expect(quiet.target).toEqual(safe.gate);
+    const wishes = objective({
+      ...base,
+      scene: 'city',
+      city: { ...safe, wishes: 1, nearestWish: { x: 3, z: 4 } },
+    });
+    expect(wishes.text).toContain('居民有心愿');
+    expect(wishes.target).toEqual({ x: 3, z: 4 });
+  });
   it('points at an open wish once the block has colour and nothing more urgent waits', () => {
     const o = objective({
       ...base,
@@ -125,7 +138,7 @@ describe('the first city', () => {
     expect(first.studios.length).toBeLessThanOrEqual(first.chunks * first.chunks);
     expect(first.surfaces.every((s) => s.chunk < first.chunks * first.chunks)).toBe(true);
     const other = w.entrancesNear(3000, -2000, 1)[0]!;
-    expect(other.chunks).toBe(TUNING.city.chunks);
+    expect([1, 2, 3, 4, 5]).toContain(other.chunks);
   });
 });
 

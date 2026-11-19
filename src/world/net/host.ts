@@ -10,6 +10,7 @@
 // validate.ts first): it may only act near where it stands, only a town's keeper may drain it or
 // claim its tide, and a patch that fails leaves nothing behind.
 import type { Look } from '@/content/characters';
+import { TUNING } from '@/content/tuning';
 import { applyPatch, type Patch, type PatchResult } from '../patch';
 import { DRAINED } from '../paint/surfaces';
 import { cleanName, validLook } from '../profile';
@@ -21,9 +22,9 @@ import {
   savedProgress,
   serializeWorld,
 } from '../state';
-import { createWilderness } from '../wilderness/generator';
+import { createWilderness, type Wilderness } from '../wilderness/generator';
 import { ArenaHost, type Outgoing } from './arena-host';
-import { layoutCache, worldPatchContext } from './patch-context';
+import { entranceById, layoutCache, worldPatchContext } from './patch-context';
 import { DEFAULT_MAX_PLAYERS, type Motion, type PlayerInfo, SHARED_KINDS, VIEW_RANGE } from './protocol';
 import { type PlayerSlice, deserializeSlice, newSlice, serializeSlice, withSlice } from './slices';
 import { type Fix, cityFix } from './fix';
@@ -93,6 +94,7 @@ export class WorldHost {
   private readonly members = new Map<number, Member>();
   private readonly players: Map<string, SavedPlayer>;
   private readonly patchContext;
+  private readonly wilderness: Wilderness;
   /** Town id -> world clock when its last tide was held. */
   private readonly tidesHeld = new Map<string, number>();
   private nextId = 1;
@@ -112,7 +114,8 @@ export class WorldHost {
     readonly max = DEFAULT_MAX_PLAYERS,
   ) {
     this.players = players;
-    const wilderness = createWilderness(state.seed);
+    const wilderness = createWilderness(state.seed, state.legacyTowns, state.terrainVersion);
+    this.wilderness = wilderness;
     this.patchContext = worldPatchContext(wilderness, layoutCache(wilderness), (id) =>
       savedProgress(this.state, id),
     );
@@ -218,6 +221,17 @@ export class WorldHost {
     const place = placeOf(patch);
     if (!place) return true;
     if (!motion) return false;
+    if ('city' in patch) {
+      // A city id identifies its seeded cell, not its terrain-adjusted centre. Bound the
+      // lookup first, then measure the actual town so distant requests stay cheap to reject.
+      if (
+        Math.hypot(place.x - motion.p[0], place.z - motion.p[2]) >
+        NEAR + TUNING.structures.cityGrid * TUNING.world.chunkSize * Math.SQRT2
+      )
+        return false;
+      const town = entranceById(this.wilderness, patch.city);
+      return town !== null && Math.hypot(town.x - motion.p[0], town.z - motion.p[2]) <= NEAR;
+    }
     return Math.hypot(place.x - motion.p[0], place.z - motion.p[2]) <= NEAR;
   }
 

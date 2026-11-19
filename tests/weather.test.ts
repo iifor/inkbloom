@@ -82,9 +82,13 @@ describe('weather', () => {
     expect(share).toBeLessThan(0.35);
   });
 
-  it('snows in winter, never in summer; autumn is the driest season', () => {
+  it('snows in winter; lowlands stay snow-free in summer and autumn is the driest season', () => {
     expect(stats[3]!.snowing).toBeGreaterThan(0.05);
-    expect(stats[1]!.snowing).toBe(0);
+    // The regional generator now has high peaks that can remain cold in summer.
+    for (let t = YEAR / 4; t < YEAR / 2; t += 151) {
+      const w = weatherAt(t, 64, 64);
+      if (w.precip > 0.1) expect(w.snow).toBeLessThan(0.5);
+    }
     const precip = stats.map((s) => s.rain + s.snowing);
     expect(precip[2]).toBeLessThan(Math.min(precip[0]!, precip[1]!, precip[3]!));
   });

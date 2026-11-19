@@ -34,7 +34,8 @@ export function ruinInCell(w: Wilderness, gx: number, gz: number): Ruin | null {
     const h = hashAt(w.seed, 'ruin-spot', gx, gz, a);
     const x = gx * span + 24 + unit(h) * (span - 48);
     const z = gz * span + 24 + unit(h >>> 9) * (span - 48);
-    const y = w.heightAt(x, z);
+    // Survey foundations before roads: a path must not change which ruin site was chosen.
+    const y = w.terrainHeightAt(x, z);
     if (y <= WATER_LEVEL + 0.75) continue;
     if (Math.hypot(x, z) < 80) continue;
     if (w.townAt(x, z, S.townClearance + 20)) continue;

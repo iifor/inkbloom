@@ -15,6 +15,7 @@
 // patrols; site.ts surveys the land for it.
 import { CITY_PREFIX, CITY_SUFFIX } from '@/content/names';
 import { TUNING } from '@/content/tuning';
+import { settlementBoundary, type BoundaryKind } from './settlement';
 import type { SurfaceInfo } from '../paint/surfaces';
 import { type Entrance, type Wilderness, WATER_LEVEL } from '../wilderness/generator';
 import type { Tree } from '../wilderness/chunk';
@@ -24,6 +25,7 @@ import { type Building, placeHouses } from './houses';
 import { type Face, type Point, ROAD_MAIN, ROAD_NONE, type Site, surveySite } from './site';
 import { type Street, layStreets } from './streets';
 import { fillYards, plantYardTrees } from './yards';
+import { villageGroundEdge } from './outline';
 
 export {
   GATE_HALF,
@@ -42,6 +44,7 @@ export type { Street } from './streets';
 export { type Building, rectsOverlap } from './houses';
 
 export interface CityLayout extends CitySkeleton {
+  readonly boundary: BoundaryKind;
   /** Where the town stands: its north-west corner. Every metre position below (streets,
    * buildings, surfaces, stains, doors, spawn) is in world space; the rasters are cells counted
    * from this corner. */
@@ -119,6 +122,7 @@ export function generateCity(
   const name = rng.pick(CITY_PREFIX) + rng.pick(CITY_SUFFIX);
   return {
     id,
+    boundary: settlementBoundary(seed, chunks),
     ox: 0,
     oz: 0,
     chunks,
@@ -240,14 +244,10 @@ export function townLayout(e: Entrance, w: Pick<Wilderness, 'heightAt'>): CityLa
 }
 
 /** The yard surface on the ground at (x, z), or null on streets, under houses and outside. */
-export function groundSurfaceAt(
-  l: Pick<CityLayout, 'ox' | 'oz' | 'n' | 'cell' | 'groundOf'>,
-  x: number,
-  z: number,
-): number | null {
+export function groundSurfaceAt(l: CityLayout, x: number, z: number): number | null {
   const ix = Math.floor((x - l.ox) / l.cell);
   const iz = Math.floor((z - l.oz) / l.cell);
   if (ix < 0 || iz < 0 || ix >= l.n || iz >= l.n) return null;
   const s = l.groundOf[iz * l.n + ix]!;
-  return s >= 0 ? s : null;
+  return s >= 0 && villageGroundEdge(l, s, x, z) <= 0.5 ? s : null;
 }

@@ -6,6 +6,7 @@ import type { HouseStyle } from '@/content/templates';
 import { NO_SURFACE, type GeometryBuilder } from '@/engine/render/geometry-builder';
 import type { Vec3Like, ColliderData } from '@/engine/physics/world';
 import type { Face } from '@/world/city/layout';
+import { appendIvy, appendWindowBox } from './house-plants';
 
 export interface House {
   x0: number;
@@ -13,6 +14,9 @@ export interface House {
   x1: number;
   z1: number;
   base: number;
+  /** Ground level at the foot of the plinth, when the caller builds one. */
+  foot?: number;
+  enterable?: boolean;
   height: number;
   front: Face;
   doorAt: number;
@@ -23,8 +27,8 @@ export interface House {
   surfaces?: { walls: Readonly<Record<Face, number>>; roof: number; door: number };
 }
 
-const DOOR_WIDTH = 1.6;
-const DOOR_HEIGHT = 2.4;
+export const DOOR_WIDTH = 1.6;
+export const DOOR_HEIGHT = 2.4;
 const wood = color('bark'),
   stone = color('rock'),
   glass = color('glass');
@@ -37,7 +41,6 @@ const roll = (h: House, k: number): number => {
   const r = Math.sin(h.x0 * 12.9898 + h.z0 * 78.233 + k * 37.719) * 43758.5453;
   return r - Math.floor(r);
 };
-const LEAF = new THREE.SphereGeometry(1, 7, 5);
 
 /** Orient a polygon towards its outside irrespective of the house's compass bearing. */
 function panel(
@@ -115,57 +118,83 @@ export function buildCountryHouse(g: GeometryBuilder, h: House, box: BoxSink, de
     eave = base + height;
   const doorMin = onFace(front, h.doorAt - DOOR_WIDTH / 2, 0, 0),
     doorMax = onFace(front, h.doorAt + DOOR_WIDTH / 2, DOOR_HEIGHT, 0);
-  g.box(
-    v(x0, base, z0),
-    v(x1, eave, z1),
-    { px: h.plaster, nx: h.plaster, pz: h.plaster, nz: h.plaster },
-    walls,
-  );
-  box(
-    v(x0, base, z0),
-    v(x1, eave, z1),
-    surfaces
-      ? {
-          faces: { ...walls, py: roof },
-          decals: [{ face: front, min: doorMin, max: doorMax, surface: door }],
-        }
-      : {},
-  );
-
-  if (detail) addFacade(g, h);
+  if (h.enterable) buildOpenShell(g, h, box);
+  else {
+    g.box(
+      v(x0, base, z0),
+      v(x1, eave, z1),
+      { px: h.plaster, nx: h.plaster, pz: h.plaster, nz: h.plaster },
+      walls,
+    );
+    box(
+      v(x0, base, z0),
+      v(x1, eave, z1),
+      surfaces
+        ? {
+            faces: { ...walls, py: roof },
+            decals: [{ face: front, min: doorMin, max: doorMax, surface: door }],
+          }
+        : {},
+    );
+  }
+  if (detail) addFacade(g, h, box);
   if (detail) addIvy(g, h);
   addRoof(g, h, box, detail);
 }
 
-/** Ivy up one front corner of some cottages: clumps of leaves climbing from the ground and
- * thinning out toward the eaves, painted (and drained) with the wall they cling to. */
+function buildOpenShell(g: GeometryBuilder, h: House, collide: BoxSink): void {
+  const { x0, x1, z0, z1, base, height, front, doorAt } = h;
+  const onFace = wallPoint(h);
+  const thickness = 0.19;
+  const piece = (f: Face, lo: number, hi: number, bottom: number) => {
+    const a = onFace(f, lo, bottom, 0);
+    const b = onFace(f, hi, height, -thickness);
+    const min = v(Math.min(a.x, b.x), a.y, Math.min(a.z, b.z));
+    const max = v(Math.max(a.x, b.x), b.y, Math.max(a.z, b.z));
+    g.box(min, max, allFaces(h.plaster));
+    collide(min, max, {});
+  };
+  for (const f of faces) {
+    const [lo, hi] = xFace(f) ? [z0, z1] : [x0 + thickness, x1 - thickness];
+    if (f !== front) piece(f, lo, hi, 0);
+    else {
+      const left = doorAt - DOOR_WIDTH / 2;
+      const right = doorAt + DOOR_WIDTH / 2;
+      piece(f, lo, left, 0);
+      piece(f, right, hi, 0);
+      piece(f, left, right, DOOR_HEIGHT);
+    }
+  }
+  const eave = base + height;
+  g.box(
+    v(x0 + thickness, eave - 0.12, z0 + thickness),
+    v(x1 - thickness, eave, z1 - thickness),
+    allFaces(wood),
+  );
+}
+
+/** Ivy climbs one front corner of some cottages and takes the wall's paint state. */
 function addIvy(g: GeometryBuilder, h: House): void {
   if (h.style !== 'cottage' || roll(h, 1) > 0.45) return;
   const { front, height } = h;
   const onFace = wallPoint(h);
   const [lo, hi] = xFace(front) ? [h.z0, h.z1] : [h.x0, h.x1];
   const corner = roll(h, 2) < 0.5 ? lo : hi;
-  const inward = corner === lo ? 1 : -1;
-  const sid = h.surfaces?.walls[front] ?? NO_SURFACE;
-  const m = new THREE.Matrix4();
   const reach = height * (0.55 + 0.35 * roll(h, 3));
-  for (let k = 0; k < 16; k++) {
-    const t = k / 15;
-    const y = 0.2 + reach * t;
-    // the clump spreads along the wall as it climbs, and thins out near the top
-    const along = corner + inward * (0.15 + roll(h, 10 + k) * (0.25 + 0.9 * t));
-    const size = (0.32 - 0.14 * t) * (0.75 + 0.5 * roll(h, 30 + k));
-    const p = onFace(front, along, y, 0.12 + size * 0.3);
-    m.compose(
-      new THREE.Vector3(p.x, p.y, p.z),
-      new THREE.Quaternion().setFromEuler(new THREE.Euler(roll(h, 50 + k), roll(h, 70 + k) * 6, 0)),
-      new THREE.Vector3(size * 1.2, size * 0.8, size),
-    );
-    g.meshSmooth(LEAF, m, color(k % 3 ? 'leaf' : 'forest'), sid);
-  }
+  const surface = h.surfaces?.walls[front] ?? NO_SURFACE;
+  appendIvy(
+    g,
+    (u, y, depth) => onFace(front, u, y, depth),
+    corner,
+    corner === lo ? 1 : -1,
+    reach,
+    h.foot === undefined ? undefined : h.foot - h.base,
+    surface,
+    (salt) => roll(h, salt),
+  );
 }
 
-function addFacade(g: GeometryBuilder, h: House): void {
+function addFacade(g: GeometryBuilder, h: House, box: BoxSink): void {
   const { x0, x1, z0, z1, height, front, surfaces } = h;
   const walls = surfaces?.walls,
     door = surfaces?.door ?? NO_SURFACE;
@@ -219,12 +248,18 @@ function addFacade(g: GeometryBuilder, h: House): void {
       );
     };
     // the stone footing stands out under the sill beam; posts and beams are proud of the plaster
-    slab(lo, hi, 0, 0.48, 0.09, stone);
-    slab(lo, hi, 0.48, 0.63, 0.06, wood);
+    const baseTrim = (y0: number, y1: number, depth: number, tint: number) => {
+      if (h.enterable && f === front) {
+        slab(lo, h.doorAt - DOOR_WIDTH / 2, y0, y1, depth, tint);
+        slab(h.doorAt + DOOR_WIDTH / 2, hi, y0, y1, depth, tint);
+      } else slab(lo, hi, y0, y1, depth, tint);
+    };
+    baseTrim(0, 0.48, 0.09, stone);
+    baseTrim(0.48, 0.63, 0.06, wood);
     slab(lo, hi, height - 0.24, height, 0.06, wood);
     for (const u of [lo + 0.15, hi - 0.15]) slab(u - 0.09, u + 0.09, 0.63, height - 0.24, 0.075, wood);
     if (h.style === 'barn') {
-      rect(lo, hi, 0.57, 1.0, 0.023, wood);
+      baseTrim(0.57, 1.0, 0.023, wood);
       // Exposed diagonal braces in the two outer bays of the timber frame.
       for (const side of [-1, 1]) {
         const foot = side > 0 ? lo + 0.18 : hi - 0.18;
@@ -265,41 +300,15 @@ function addFacade(g: GeometryBuilder, h: House): void {
         const shutter = u + side * (winHalf + 0.34);
         slab(shutter - 0.2, shutter + 0.2, 1.22, y - 0.1, 0.06, h.doorColor);
         if (f === front) {
-          // The trough projects from the wall; the leaves and little ochre heads
-          // are silhouettes in the same mesh, visible even when the village drains.
-          const corners = [onFace(f, u - winHalf, 0.83, 0.08), onFace(f, u + winHalf, 1.08, 0.4)];
-          const [a, b] = corners as [Vec3Like, Vec3Like];
-          g.box(
-            v(Math.min(a.x, b.x), a.y, Math.min(a.z, b.z)),
-            v(Math.max(a.x, b.x), b.y, Math.max(a.z, b.z)),
-            allFaces(wood),
-            allFaces(sid),
+          appendWindowBox(
+            g,
+            (x, y, depth) => onFace(f, x, y, depth),
+            u,
+            winHalf,
+            sid,
+            (salt) => roll(h, 300 + i * 97 + salt),
+            box,
           );
-          for (let k = 0; k < 7; k++) {
-            const stem = u + winHalf * (k - 3) * 0.27,
-              tip = 1.2 + 0.16 * Math.sin(k * 2.3);
-            panel(
-              g,
-              [
-                onFace(f, stem - 0.13, 1.08, 0.25),
-                onFace(f, stem - 0.14, tip, 0.26),
-                onFace(f, stem + 0.05, tip + 0.08, 0.27),
-                onFace(f, stem + 0.15, 1.1, 0.25),
-              ],
-              n,
-              color(k % 2 ? 'forest' : 'grass'),
-              sid,
-            );
-            if (k % 2)
-              rect(
-                stem - 0.07,
-                stem + 0.07,
-                tip + 0.04,
-                tip + 0.18,
-                0.29,
-                color(k === 3 ? 'yellow' : 'pink'),
-              );
-          }
         }
       }
     }
@@ -309,10 +318,12 @@ function addFacade(g: GeometryBuilder, h: House): void {
     slab(u - 0.95, u - 0.8, 0, DOOR_HEIGHT + 0.17, 0.13, wood);
     slab(u + 0.8, u + 0.95, 0, DOOR_HEIGHT + 0.17, 0.13, wood);
     slab(u - 0.8, u + 0.8, DOOR_HEIGHT, DOOR_HEIGHT + 0.17, 0.13, wood);
-    rect(u - 0.8, u + 0.8, 0, DOOR_HEIGHT, 0.035, h.doorColor, door);
-    rect(u - 0.52, u + 0.52, 1.47, 2.11, 0.05, glass, door, room(9));
-    rect(u - 0.035, u + 0.035, 1.47, 2.11, 0.065, wood, door);
-    rect(u + 0.54, u + 0.65, 0.97, 1.16, 0.07, wood, door);
+    if (!h.enterable) {
+      rect(u - 0.8, u + 0.8, 0, DOOR_HEIGHT, 0.035, h.doorColor, door);
+      rect(u - 0.52, u + 0.52, 1.47, 2.11, 0.05, glass, door, room(9));
+      rect(u - 0.035, u + 0.035, 1.47, 2.11, 0.065, wood, door);
+      rect(u + 0.54, u + 0.65, 0.97, 1.16, 0.07, wood, door);
+    }
     // A separate little shed roof casts a shadow over the entrance. Shop curtains
     // hang in three panels with actual gaps along the hem.
     const aw = Math.min(h.style === 'shop' ? 2.8 : 1.7, (hi - lo) / 2 - 0.18);

@@ -39,9 +39,9 @@ export const CHARACTERS = [
   {
     key: 'courier',
     name: '信使',
-    blurb: '贝雷帽、长围巾、斜挎邮包，背后折着一架纸飞机',
+    blurb: '短外套、长靴和旅行背包，带着颜色上路',
     colors: { coat: 'limewash', trousers: 'charcoal', boots: 'brown', bag: 'brown', plane: 'cream' },
-    defaults: { skin: 0, hair: 1, accent: 'red' },
+    defaults: { skin: 0, hair: 1, accent: 'teal' },
   },
   {
     key: 'mason',

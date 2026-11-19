@@ -7,18 +7,12 @@ import { BUILDINGS } from '@/content/templates';
 import { type ColliderData, type Vec3Like } from '@/engine/physics/world';
 import { GeometryBuilder } from '@/engine/render/geometry-builder';
 import { WATER_LEVEL } from '@/world/wilderness/generator';
-import {
-  GATE_HALF,
-  ROAD_MAIN,
-  ROAD_NONE,
-  WET,
-  groundAt,
-  type Building,
-  type CityLayout,
-} from '@/world/city/layout';
+import { ROAD_MAIN, ROAD_NONE, WET, groundAt, type Building, type CityLayout } from '@/world/city/layout';
 import { addTrunk } from '../wilderness/build-chunk';
 import { appendTree, treeMatrix, treePalette } from '../wilderness/tree-geometry';
 import { buildCountryHouse } from './country-house';
+import { buildBoundary } from './build-boundary';
+import { villageGroundEdge } from '@/world/city/outline';
 
 /** Where buildCity puts colliders: a PhysicsWorld, or a recorder in the city worker. */
 export interface ColliderSink {
@@ -49,6 +43,8 @@ export const cityGroup = (id: string): string => `city:${id}`;
 
 /** How far each kind of paving floats over the ground, so crossings never flicker. */
 const LIFT = { square: 0.13, 3: 0.11, 2: 0.1, 1: 0.09 } as const;
+/** Keep the yard above the identical wilderness triangles even at shallow viewing angles. */
+const YARD_LIFT = 0.024;
 /** Street strips are cut at most this far apart along their length, to follow the land. */
 const STRIP_STEP = 2;
 const UP = { x: 0, y: 1, z: 0 };
@@ -74,11 +70,13 @@ function upQuad(
   q: readonly [Vec3Like, Vec3Like, Vec3Like, Vec3Like],
   normals: readonly [Vec3Like, Vec3Like, Vec3Like, Vec3Like],
   tint: number,
+  edge?: readonly [number, number, number, number],
 ): void {
   const [a, b, c, d] = q;
   const cross = (b.x - a.x) * (d.z - a.z) - (b.z - a.z) * (d.x - a.x);
   if (cross > 0) g.quadSmooth(a, d, c, b, [normals[0], normals[3], normals[2], normals[1]], tint);
   else g.quadSmooth(a, b, c, d, normals, tint);
+  if (edge) g.pathEdge(cross > 0 ? [edge[0], edge[3], edge[2], edge[1]] : edge);
 }
 
 /** One district's share of a town: drawn in full near by, and with its houses as shells (no
@@ -92,7 +90,7 @@ export interface CityTile {
  * the tiles they see. Colliders go to `physics` once. */
 export function buildCity(city: CityLayout, physics: ColliderSink): CityTile[] {
   const group = cityGroup(city.id);
-  const { n, cell, roads, groundOf, ox, oz, heights, chunks, water } = city;
+  const { n, cell, roads, groundOf, ox, oz, heights, chunks } = city;
   const tiles = Array.from({ length: chunks * chunks }, () => ({
     base: new GeometryBuilder(),
     full: new GeometryBuilder(),
@@ -117,33 +115,25 @@ export function buildCity(city: CityLayout, physics: ColliderSink): CityTile[] {
       2 * cell,
       corner(kx, Math.max(0, kz - 1)) - corner(kx, Math.min(n, kz + 1)),
     ).normalize();
-  const grass = color('grass');
-  const riverside = (ix: number, iz: number): boolean => {
-    for (let dz = -1; dz <= 1; dz++)
-      for (let dx = -1; dx <= 1; dx++) {
-        const x = ix + dx;
-        const z = iz + dz;
-        if (x >= 0 && z >= 0 && x < n && z < n && water[z * n + x]) return true;
-      }
-    return false;
+  const pigmentAt = (ix: number, iz: number): number => {
+    if (ix < 0 || iz < 0 || ix >= n || iz >= n) return -1;
+    const surface = groundOf[iz * n + ix]!;
+    return surface < 0 ? -1 : city.surfaces[surface]!.color;
   };
   for (let iz = 0; iz < n; iz++)
     for (let ix = 0; ix < n; ix++) {
       const surface = groundOf[iz * n + ix]!;
-      // the river and its bare banks are left to the land underneath, which is painted with
-      // the same sandy shallows as any river in the wild
-      if (surface < 0 && riverside(ix, iz)) continue;
-      const c = surface >= 0 ? city.surfaces[surface]!.color : grass;
-      const P = (kx: number, kz: number): Vec3Like => {
-        const x = ox + kx * cell;
-        const z = oz + kz * cell;
-        // under the square the ground sinks out of sight, so none of it shows through the
-        // flagstones where the grid and the round square disagree
-        const under = Math.hypot(x - city.square.x, z - city.square.z) < city.square.r + 0.1;
-        return { x, y: corner(kx, kz) - (under ? 0.35 : 0), z };
-      };
+      // Open verges are already drawn by the wilderness ground under the village.
+      if (surface < 0) continue;
+      const c = city.surfaces[surface]!.color;
+      const P = (kx: number, kz: number): Vec3Like => ({
+        x: ox + kx * cell,
+        y: corner(kx, kz) + YARD_LIFT,
+        z: oz + kz * cell,
+      });
       // (x+1, z), (x, z), (x, z+1), (x+1, z+1): the diagonal runs (x+1, z)–(x, z+1)
-      tileAt(ox + (ix + 0.5) * cell, oz + (iz + 0.5) * cell).base.quadSmooth(
+      const base = tileAt(ox + (ix + 0.5) * cell, oz + (iz + 0.5) * cell).base;
+      base.quadSmooth(
         P(ix + 1, iz),
         P(ix, iz),
         P(ix, iz + 1),
@@ -151,6 +141,21 @@ export function buildCity(city: CityLayout, physics: ColliderSink): CityTile[] {
         [kNormal(ix + 1, iz), kNormal(ix, iz), kNormal(ix, iz + 1), kNormal(ix + 1, iz + 1)],
         c,
         surface,
+      );
+      // Adjacent cells using the same pigment stay joined, even across paintable patches.
+      const sides =
+        Number(pigmentAt(ix - 1, iz) !== c) +
+        2 * Number(pigmentAt(ix + 1, iz) !== c) +
+        4 * Number(pigmentAt(ix, iz - 1) !== c) +
+        8 * Number(pigmentAt(ix, iz + 1) !== c);
+      base.pathEdge(
+        [
+          villageGroundEdge(city, surface, ox + (ix + 1) * cell, oz + iz * cell),
+          villageGroundEdge(city, surface, ox + ix * cell, oz + iz * cell),
+          villageGroundEdge(city, surface, ox + ix * cell, oz + (iz + 1) * cell),
+          villageGroundEdge(city, surface, ox + (ix + 1) * cell, oz + (iz + 1) * cell),
+        ],
+        sides,
       );
     }
 
@@ -218,7 +223,7 @@ export function buildCity(city: CityLayout, physics: ColliderSink): CityTile[] {
               0.06 * Math.sin(p.x * 3.7 - p.z * 2.9 + u * 2);
         const x = p.x + nx * u * (st.width / 2) * ragged;
         const z = p.z + nz * u * (st.width / 2) * ragged;
-        const y = deck[i] ?? ground(x, z) + (u === 0 ? lift : lift * 0.35);
+        const y = deck[i] ?? ground(x, z) + (u === 0 ? lift : lift * 0.55);
         return { p: { x, y, z }, n: onDeck ? UP : normalAt(x, z) };
       });
     });
@@ -229,7 +234,15 @@ export function buildCity(city: CityLayout, physics: ColliderSink): CityTile[] {
         const b = rows[i]![j + 1]!;
         const c = rows[i + 1]![j + 1]!;
         const d = rows[i + 1]![j]!;
-        upQuad(tileAt(a.p.x, a.p.z).base, [a.p, b.p, c.p, d.p], [a.n, b.n, c.n, d.n], tint);
+        const verge = j === 0 ? ([0.82, 0, 0, 0.82] as const) : ([0, 0.82, 0.82, 0] as const);
+        const onDeck = deck[i] !== undefined || deck[i + 1] !== undefined;
+        upQuad(
+          tileAt(a.p.x, a.p.z).base,
+          [a.p, b.p, c.p, d.p],
+          [a.n, b.n, c.n, d.n],
+          tint,
+          onDeck ? undefined : verge,
+        );
       }
   }
 
@@ -250,37 +263,7 @@ export function buildCity(city: CityLayout, physics: ColliderSink): CityTile[] {
 
   buildWell(tileAt(sq.x, sq.z).base, { x: sq.x, y: ground(sq.x, sq.z), z: sq.z }, group, physics);
 
-  // a low dry-stone wall round the town, stepping with the land, open at the gates
-  const wallColor = color('rock');
-  const gateCells = new Set<number>();
-  for (const gate of city.gates)
-    for (let k = -GATE_HALF; k <= GATE_HALF; k++) {
-      const along = gate.dir === 0 || gate.dir === 2;
-      gateCells.add(along ? (gate.iz + k) * n + gate.ix : gate.iz * n + gate.ix + k);
-    }
-  const wall = (ix: number, iz: number): void => {
-    // open at the gates, and where a river runs in or out
-    if (gateCells.has(iz * n + ix) || roads[iz * n + ix] !== ROAD_NONE || water[iz * n + ix]) return;
-    const c = [corner(ix, iz), corner(ix + 1, iz), corner(ix, iz + 1), corner(ix + 1, iz + 1)];
-    const min = { x: ox + ix * cell, y: Math.min(...c) - 0.6, z: oz + iz * cell };
-    const max = { x: ox + (ix + 1) * cell, y: Math.max(...c) + 1.4, z: oz + (iz + 1) * cell };
-    tileAt(min.x + cell / 2, min.z + cell / 2).base.box(min, max, {
-      px: wallColor,
-      nx: wallColor,
-      pz: wallColor,
-      nz: wallColor,
-      py: grass,
-    });
-    physics.addBox(group, min, max);
-  };
-  for (let i = 0; i < n; i++) {
-    wall(i, 0);
-    wall(i, n - 1);
-    if (i > 0 && i < n - 1) {
-      wall(0, i);
-      wall(n - 1, i);
-    }
-  }
+  buildBoundary(city, tileAt, physics);
   const same = new THREE.Matrix4();
   return tiles.map(({ base, full, far }) => {
     full.append(base, same);
@@ -311,6 +294,7 @@ function buildHouse(
     z0: -hd,
     z1: hd,
     base: 0,
+    foot: b.foot - b.base,
     height: b.height,
     front: 'pz',
     doorAt: 0,
@@ -363,7 +347,7 @@ function buildHouse(
       { x, z, angle: b.angle, hx: (box.max.x - box.min.x) / 2, hz: (box.max.z - box.min.z) / 2 },
       b.base + box.min.y,
       b.base + box.max.y,
-      { ...(box.data.faces ? { faces: box.data.faces } : {}), ...(decals ? { decals } : {}) },
+      { ...box.data, ...(decals ? { decals } : {}) },
     );
   }
 }

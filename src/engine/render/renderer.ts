@@ -12,6 +12,7 @@
 // The passes live beside it: paint-shader.ts / paint-pass.ts (the paint pass, with its sky and
 // water chunks in sky-paint.ts and water-paint.ts), brush-pass.ts, glow.ts and sun-shadows.ts.
 import * as THREE from 'three';
+import { TUNING } from '@/content/tuning';
 import { FXAAShader } from 'three/examples/jsm/shaders/FXAAShader.js';
 import { type Daylight, daylightAt } from './daylight';
 import { ResolutionGovernor } from './resolution';
@@ -30,6 +31,7 @@ import { PaintedTextures } from './painted-textures';
 import { SEA_SLOTS } from './paint-shader';
 import { PassTimer } from './pass-timer';
 import { SunShadows } from './sun-shadows';
+import { CURRENT_STEP } from '@/world/wilderness/water-current';
 import { RIVER_SAMPLES, RiverTable, WAKE_COUNT } from './water-paint';
 
 /** Most pixels drawn a frame at each quality, to start with: about 2300 x 1400, and 1900 x 1100.
@@ -47,7 +49,7 @@ const _flash = new THREE.Vector3(0.7, 0.72, 0.9);
 export class InkRenderer {
   readonly renderer: THREE.WebGLRenderer;
   readonly scene = new THREE.Scene();
-  readonly camera = new THREE.PerspectiveCamera(78, 1, 0.08, 480);
+  readonly camera = new THREE.PerspectiveCamera(78, 1, 0.08, TUNING.world.landscape.far);
   private readonly rt: THREE.WebGLRenderTarget;
   /** The painted frame, before anti-aliasing. */
   private readonly paintRt: THREE.WebGLRenderTarget;
@@ -82,7 +84,7 @@ export class InkRenderer {
   private readonly noise = makeNoise();
   /** Hand-painted surface tiles and clouds for the paint pass; they load in the background. */
   private readonly painted: PaintedTextures;
-  /** River middles and half-widths around the player, for the water's current (setRivers). */
+  /** Surface velocities around the player for the water shader. */
   private readonly rivers = new RiverTable();
   /** The player's field of view; tools zoom relative to it and return to it. */
   baseFov = 78;
@@ -369,18 +371,9 @@ export class InkRenderer {
     return this.governor.scale;
   }
 
-  /**
-   * Where the rivers run around the player: `RIVER_ROWS` lanes from `lane`, sampled every
-   * `step` metres of z from `z0`; `at(lane, z)` gives a river's middle and half-width.
-   */
-  setRivers(
-    lane: number,
-    z0: number,
-    step: number,
-    at: (lane: number, z: number) => { x: number; half: number },
-  ): void {
-    this.rivers.set(lane, z0, step, at);
-    this.post.uniforms.uRiverGrid!.value.set(lane, z0, step, RIVER_SAMPLES);
+  setRivers(x0: number, z0: number, at: (x: number, z: number) => { x: number; z: number }): void {
+    this.rivers.set(x0, z0, at);
+    this.post.uniforms.uRiverGrid!.value.set(x0, z0, CURRENT_STEP, RIVER_SAMPLES);
   }
 
   setWildWater(enabled: boolean): void {

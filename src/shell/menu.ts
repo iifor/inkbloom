@@ -15,7 +15,14 @@ import {
 import { PALETTE, color } from '@/content/palette';
 import { DEFAULT_NAME, NAME_MAX, type Profile } from '@/world/profile';
 import { levelOf } from '@/world/progression';
-import { DEFAULT_SETTINGS, SETTING_LIMITS, type Settings } from '@/world/settings';
+import {
+  DEFAULT_SETTINGS,
+  SETTING_LIMITS,
+  TIME_SCALES,
+  validTimeScale,
+  type Settings,
+} from '@/world/settings';
+import { yearDuration } from '@/world/climate/calendar';
 import type { WorldState } from '@/world/state';
 
 export type Screen = 'main' | 'pause' | 'character' | 'join' | 'settings' | 'worlds' | 'controls' | 'arena';
@@ -79,6 +86,7 @@ const CONTROLS = [
   ['WASD', '移动'],
   ['空格', '跳 · 二段跳 · 有纸飞机后在空中按住滑翔'],
   ['Shift', '陆地冲刺，深水加快划水'],
+  ['X / Z', '平坦草地上坐下 / 躺下，按移动键起身'],
   ['E / F', '交互 / 第二个动作（画室升级笔刷、在已恢复的城或标记之间传送）'],
   ['1 / 2 / 3', '笔刷 / 武器 / 墨迹标记'],
   ['左键', '还色、攻击、放标记'],
@@ -219,6 +227,7 @@ export class Menu {
         const s = this.actions.settings();
         const [smin, smax] = SETTING_LIMITS.sensitivity;
         const [fmin, fmax] = SETTING_LIMITS.fov;
+        const online = !!this.actions.online();
         body = `<h2>设置</h2>
           <label>鼠标灵敏度 <input type="range" data-s="sensitivity" min="${smin}" max="${smax}" step="0.1" value="${s.sensitivity}"><span>${s.sensitivity.toFixed(1)}</span></label>
           <label>视野 <input type="range" data-s="fov" min="${fmin}" max="${fmax}" step="1" value="${s.fov}"><span>${s.fov}°</span></label>
@@ -226,6 +235,8 @@ export class Menu {
           <label>音乐 <input type="range" data-s="music" min="0" max="1" step="0.05" value="${s.music}"><span>${pct(s.music)}</span></label>
           <label>音效 <input type="range" data-s="sfx" min="0" max="1" step="0.05" value="${s.sfx}"><span>${pct(s.sfx)}</span></label>
           <label>画质 <select data-s="quality"><option value="high"${s.quality === 'high' ? ' selected' : ''}>清晰</option><option value="low"${s.quality === 'low' ? ' selected' : ''}>流畅</option></select></label>
+          <label>时间流速 <select data-s="timeScale"${online ? ' disabled' : ''}>${TIME_SCALES.map((rate) => `<option value="${rate}"${rate === (online ? 1 : s.timeScale) ? ' selected' : ''}>${rate}×${rate === 1 ? '（正常）' : ''} · ${yearDuration(rate)}</option>`).join('')}</select></label>
+          <p class="hint">${online ? '联机时跟随服务器时间。' : '加快昼夜、天气和四季；移动、战斗与资源刷新保持原速。'}</p>
           <button data-a="reset">恢复默认</button>
           <button data-a="back">返回</button>`;
         break;
@@ -312,6 +323,7 @@ export class Menu {
         const s = { ...this.actions.settings() };
         const key = el.dataset.s as keyof Settings;
         if (key === 'quality') s.quality = el.value === 'low' ? 'low' : 'high';
+        else if (key === 'timeScale') s.timeScale = validTimeScale(Number(el.value));
         else s[key] = Number(el.value);
         this.actions.applySettings(s);
         const label = el.nextElementSibling;

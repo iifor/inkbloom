@@ -7,6 +7,7 @@ import type { ToolBelt } from '@/systems/tools/tool';
 import { CityScene } from '@/systems/city/city-scene';
 import type { SceneManager } from '@/systems/scenes/scene-manager';
 import { studioOpen } from '@/world/city/features';
+import { peacefulVillage } from '@/world/state';
 import { bearing, objective, type Point, type Situation } from '@/world/objectives';
 import { type Entrance, townDistance } from '@/world/wilderness/generator';
 import { lesson } from './hints';
@@ -96,6 +97,7 @@ export class ObjectiveSystem implements System {
         city: {
           name: l.name,
           completed: scene.completed,
+          peaceful: scene.peaceful,
           coloredBlocks: blocks.filter((b) => b === 'colored' || b === 'thriving').length,
           blocks: blocks.length,
           gate: { x: l.ox + (gate.ix + 0.5) * l.cell, z: l.oz + (gate.iz + 0.5) * l.cell },
@@ -110,7 +112,10 @@ export class ObjectiveSystem implements System {
     }
     const entrances = wilderness
       .entrancesNear(p.x, p.z, 2)
-      .filter((e) => !state.cities.get(e.cityId)?.completed)
+      .filter(
+        (e) =>
+          !state.cities.get(e.cityId)?.completed && (!base.visitedCity || !peacefulVillage(state, e.cityId)),
+      )
       .sort((a, b) => townDistance(a, p.x, p.z) - townDistance(b, p.x, p.z));
     const e = entrances[0];
     // the name and the gate come with the city's layout, worked out in the background; until

@@ -125,6 +125,10 @@ varying vec3 vTreeView;
 #endif
 #ifdef CLOTH
 varying vec3 vCloth;
+varying float vClothDepth;
+#endif
+#ifdef VIEW_MODEL
+uniform float uViewScale;
 #endif
 #ifdef PLANTS
 varying float vPlantCell;
@@ -219,6 +223,7 @@ void main() {
     vTreeView = (viewMatrix * world).xyz;
   #endif
   #ifdef CLOTH
+    vClothDepth = -(viewMatrix * world).z;
     // where on its part this point is, in metres, turning with the part: the strokes are
     // painted on the cloth and move with it rather than sliding over it
     #ifdef USE_INSTANCING
@@ -310,6 +315,9 @@ void main() {
   vec3 wn = normalize(mat3(modelMatrix) * objectNormal);
   vShadow = uShadowMatrix * vec4(world.xyz + wn * 0.12, 1.0);
   gl_Position = projectionMatrix * viewMatrix * world;
+  #ifdef VIEW_MODEL
+    gl_Position.xy *= uViewScale;
+  #endif
 }`;
 
 const frag = /* glsl */ `
@@ -321,6 +329,7 @@ uniform vec3 uLightDir;
 uniform float uShadeBias;
 uniform sampler2D uShadowMap;
 uniform float uReversedDepth;
+uniform vec3 uYardGrid;
 uniform float uShadowTexel;
 uniform float uShadowOn;
 varying vec3 vNormalV;
@@ -340,6 +349,7 @@ varying vec3 vTreeView;
 #endif
 #ifdef CLOTH
 varying vec3 vCloth;
+varying float vClothDepth;
 #endif
 #ifdef PLANTS
 uniform sampler2D uPlants;
@@ -366,6 +376,11 @@ float sunlight() {
     return mix(1.0, step(p.z - 0.0012, shadowAt(p.xy)), smoothstep(0.0, 0.08, min(e1.x, e1.y)));
   #endif
   float turn = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453) * 6.2832;
+  #ifdef CLOTH
+    // Close hands expose individual shadow taps. A fixed kernel keeps skin
+    // smooth instead of stippling it with the world's per-pixel brush grain.
+    if (vClothDepth < 0.85) turn = 0.35;
+  #endif
   float sum = step(p.z - 0.0008, shadowAt(p.xy));
   for (int i = 0; i < 8; i++) {
     float a = turn + float(i) * 0.7854;
@@ -402,6 +417,17 @@ void main() {
                       mix(PATH_HASH(qi + vec2(0.0, 1.0)), PATH_HASH(qi + vec2(1.0, 1.0)), qf.x), qf.y);
     float fine = PATH_HASH(floor(vGroundAt * 14.0));
     if (vPane.y > 0.5 + 0.42 * broad + 0.08 * fine) discard;
+    if (vPane.x < -4.5) {
+      // Resolve the yard edge within each cell in world space, across both triangles.
+      float sides = floor(-vPane.x - 3.5);
+      vec2 cell = fract((vGroundAt - uYardGrid.xy) / uYardGrid.z);
+      float edge = 1.0;
+      if (mod(sides, 2.0) >= 1.0) edge = min(edge, cell.x);
+      if (mod(floor(sides / 2.0), 2.0) >= 1.0) edge = min(edge, 1.0 - cell.x);
+      if (mod(floor(sides / 4.0), 2.0) >= 1.0) edge = min(edge, cell.y);
+      if (mod(floor(sides / 8.0), 2.0) >= 1.0) edge = min(edge, 1.0 - cell.y);
+      if (edge * uYardGrid.z < 0.13 + 0.86 * broad + 0.11 * fine) discard;
+    }
   }
   #ifdef PLANTS
     // the painting: red how light, green how much it covers, blue what it is
@@ -522,6 +548,7 @@ export interface InkMaterialOptions {
   tree?: boolean;
   fishPaint?: THREE.Texture;
   state?: SurfaceStateTexture;
+  yardGrid?: THREE.Vector3;
   side?: THREE.Side;
   shadeBias?: number;
   /** World-space gust strength and lateral wind for grass and flowers. */
@@ -535,6 +562,8 @@ export interface InkMaterialOptions {
   field?: FieldUniforms;
   /** Instanced figures in cloth (player characters): brush strokes painted on each part. */
   cloth?: boolean;
+  /** Fixed first-person framing without stretching mesh proportions or normals. */
+  viewModel?: boolean;
   /** Painted plants from the plant atlas, as cards that face the eye: a row of the atlas. */
   plants?: 'tufts' | 'flowers';
 }
@@ -565,6 +594,7 @@ export function makeInkMaterial(opts: InkMaterialOptions = {}): THREE.ShaderMate
       uArena: shared.uArena,
       uShadowMap: shared.uShadowMap,
       uReversedDepth: shared.uReversedDepth,
+      uYardGrid: { value: opts.yardGrid ?? new THREE.Vector3(0, 0, 1) },
       uShadowMatrix: shared.uShadowMatrix,
       uShadowTexel: shared.uShadowTexel,
       uShadowOn: shared.uShadowOn,
@@ -577,6 +607,7 @@ export function makeInkMaterial(opts: InkMaterialOptions = {}): THREE.ShaderMate
       uState: { value: opts.state?.texture ?? empty() },
       uStateWidth: { value: opts.state?.width ?? 1 },
       uShadeBias: { value: opts.shadeBias ?? 0 },
+      ...(opts.viewModel ? { uViewScale: { value: 1 } } : {}),
       ...(opts.fishPaint ? { uFishPaint: { value: opts.fishPaint } } : {}),
       ...(opts.field ?? {}),
     },
@@ -592,6 +623,7 @@ export function makeInkMaterial(opts: InkMaterialOptions = {}): THREE.ShaderMate
       ...(opts.field ? { FIELD: '' } : {}),
       ...(opts.field?.uBloom ? { SEA: '' } : {}),
       ...(opts.cloth ? { CLOTH: '' } : {}),
+      ...(opts.viewModel ? { VIEW_MODEL: '' } : {}),
       ...(opts.plants ? { PLANTS: '', PLANT_ROW: opts.plants === 'tufts' ? 0 : 1 } : {}),
     },
     side: opts.side ?? THREE.FrontSide,

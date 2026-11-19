@@ -35,6 +35,7 @@ export interface Tool {
   onUnequip?(): void;
   /** What it shows in hand; absent for a tool that shows nothing (the ink marker). */
   inHand?(): InHand;
+  dispose?(): void;
 }
 
 const SLOT_ACTIONS = ['slot1', 'slot2', 'slot3', 'slot4'] as const;
@@ -55,7 +56,7 @@ export class ToolBelt implements System {
     return this.tools[this.index];
   }
 
-  /** What is in hand: nothing while swimming (the tool is put away). */
+  /** Movement modes and resting can put the tool away and free both hands. */
   inHand(): InHand {
     return (!this.stowed && this.active?.inHand?.()) || EMPTY;
   }
@@ -69,10 +70,16 @@ export class ToolBelt implements System {
   }
 
   update(dt: number): void {
-    const swim = this.ctx.player.waterMode === 'swimming';
-    if (swim !== this.stowed) {
-      this.stowed = swim;
-      if (swim) this.active?.onUnequip?.();
+    const { player } = this.ctx;
+    const stowed =
+      player.waterMode === 'swimming' ||
+      player.gliding ||
+      player.flying ||
+      player.falling ||
+      !!player.resting;
+    if (stowed !== this.stowed) {
+      this.stowed = stowed;
+      if (stowed) this.active?.onUnequip?.();
       else this.active?.onEquip?.();
     }
     SLOT_ACTIONS.forEach((a, i) => {
@@ -80,5 +87,9 @@ export class ToolBelt implements System {
     });
     for (const t of this.tools) t.tick?.(dt);
     if (!this.stowed) this.active?.update(dt);
+  }
+
+  dispose(): void {
+    for (const tool of this.tools) tool.dispose?.();
   }
 }

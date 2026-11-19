@@ -6,7 +6,7 @@ import { SEASONS } from '@/content/seasons';
 import { TUNING } from '@/content/tuning';
 import { dayHours } from '@/engine/render/daylight';
 import type { GameContext, System } from '@/game/types';
-import { calendarAt } from '@/world/climate/calendar';
+import { calendarAt, calendarClock } from '@/world/climate/calendar';
 import { type WeatherAt, createWeather } from '@/world/climate/weather';
 
 export class DebugPanel implements System {
@@ -52,7 +52,7 @@ export class DebugPanel implements System {
     const size = TUNING.world.chunkSize;
     const scene = this.ctx.scenes.active;
     const biome = scene.ref.kind === 'wild' ? BIOMES[this.ctx.wilderness.biomeAt(p.x, p.z)]!.name : '-';
-    const cal = calendarAt(this.ctx.state.clock);
+    const cal = calendarAt(calendarClock(this.ctx.state, !!this.ctx.net));
     const hh = Math.floor(cal.hour);
     const mm = Math.floor((cal.hour - hh) * 60);
     const time = `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
@@ -69,7 +69,7 @@ export class DebugPanel implements System {
 
   /** The weather where the player stands (not drawn yet: these numbers are all there is). */
   private weatherLines(x: number, z: number): string[] {
-    const w = this.weather(this.ctx.state.clock, x, z);
+    const w = this.weather(calendarClock(this.ctx.state, !!this.ctx.net), x, z);
     const n = (v: number): string => v.toFixed(2);
     const falling = w.precip === 0 ? '-' : w.snow > 0.5 ? `雪 ${n(w.precip)}` : `雨 ${n(w.precip)}`;
     return [

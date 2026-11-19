@@ -40,3 +40,17 @@ export function makeWindMap(seed: number): THREE.DataTexture {
   texture.needsUpdate = true;
   return texture;
 }
+
+/** CPU counterpart of the grass shader's repeating, linear-filtered RG wind sample. */
+export function sampleWindMap(texture: THREE.DataTexture, x: number, z: number, out: THREE.Vector2): void {
+  const { data, width, height } = texture.image;
+  const px = (x / 96 - Math.floor(x / 96)) * width - 0.5;
+  const pz = (z / 96 - Math.floor(z / 96)) * height - 0.5;
+  const ix = Math.floor(px),
+    iz = Math.floor(pz);
+  const at = (dx: number, dz: number, c: number) =>
+    data[(((iz + dz + height) % height) * width + ((ix + dx + width) % width)) * 2 + c]! / 255;
+  const channel = (c: number) =>
+    lerp(lerp(at(0, 0, c), at(1, 0, c), px - ix), lerp(at(0, 1, c), at(1, 1, c), px - ix), pz - iz);
+  out.set(channel(0), channel(1));
+}

@@ -12,6 +12,8 @@ export const TUNING = {
     loadRadius: 2,
     /** Chunks beyond this radius are unloaded. */
     unloadRadius: 3,
+    /** Visual-only terrain beyond the interactive chunks; no actors or colliders. */
+    landscape: { rootSize: 1024, radius: 3, cells: 8, far: 5000, hazeStart: 1600, hazeEnd: 3000 },
     /** Spawn area is flattened grassland within this many metres. */
     spawnCalmRadius: 220,
   },
@@ -52,8 +54,20 @@ export const TUNING = {
   city: {
     /** City side length in chunks (design: 5×5). */
     chunks: 5,
-    /** The first city, next to spawn, is small enough to finish in one sitting. */
+    /** The peaceful village next to spawn is smaller than other towns. */
     firstCityChunks: 2,
+    /** Naturally peaceful share of other villages; the first village is always peaceful. */
+    peacefulChance: 0.2,
+    settlements: {
+      /** Relative frequency of small villages, medium villages and larger towns. */
+      smallShare: 0.45,
+      mediumShare: 0.35,
+      small: [1, 2] as const,
+      medium: [3] as const,
+      town: [4, 5] as const,
+      /** Other rolls split equally between the other two materials and no boundary. */
+      typicalBoundary: 0.85,
+    },
     /** Paid once when every block of a city has colour again. */
     completeReward: { generic: 60, ink: 40 },
     /** Raster cell for road growth and lots, metres. */
@@ -105,6 +119,10 @@ export const TUNING = {
     accelAir: 14,
     jumpSpeed: 7.6,
     gravity: 22,
+    terminalFallSpeed: 48,
+    /** Impact speeds in m/s: ordinary jumps are safe; 32 costs 100 HP before protection. */
+    fallSafeSpeed: 12,
+    fallSevereSpeed: 32,
     airJumps: 1,
     /** Forgiving jumps (systems/player/jump-window.ts): seconds after leaving the ground a jump
      * still counts as from the ground, and seconds a press is remembered before landing. */

@@ -9,7 +9,7 @@ import { dayHours } from '@/engine/render/daylight';
 import { SEA_SLOTS } from '@/engine/render/paint-shader';
 import { STEAM_SPRINGS } from '@/engine/render/steam';
 import type { GameContext, System } from '@/game/types';
-import { calendarAt, seasonBlend } from '@/world/climate/calendar';
+import { calendarAt, calendarClock, seasonBlend } from '@/world/climate/calendar';
 import { meanTemperature, snowCover } from '@/world/climate/temperature';
 import { type WeatherAt, boltsAt, createWeather } from '@/world/climate/weather';
 import { smoothstep } from '@/world/math/noise';
@@ -110,7 +110,7 @@ export class AtmosphereSystem implements System {
 
   private sampleWeather(snap: boolean): void {
     const { x, z, ground } = this.weatherPoint();
-    const clock = this.ctx.state.clock;
+    const clock = calendarClock(this.ctx.state, !!this.ctx.net);
     const w = this.weather(clock, x, z);
     // the shader lays settled snow by height itself; it only needs the fresh fall on top
     const settled = snowCover(meanTemperature(calendarAt(clock).yearPhase, ground));
@@ -164,7 +164,8 @@ export class AtmosphereSystem implements System {
     const now = this.weatherNow;
     for (const key of Object.keys(now) as (keyof WeatherLook)[])
       now[key] += (this.weatherTarget[key] - now[key]) * k;
-    const second = Math.floor(this.ctx.state.clock);
+    const clock = calendarClock(this.ctx.state, !!this.ctx.net);
+    const second = Math.floor(clock);
     if (second !== this.second) {
       if (this.second !== -1) this.lightning(second);
       this.second = second;
@@ -177,7 +178,7 @@ export class AtmosphereSystem implements System {
     const a = this.ctx.renderer.atmosphere;
     a.colour = this.colour;
     a.gloom = this.gloom;
-    const cal = calendarAt(this.ctx.state.clock);
+    const cal = calendarAt(clock);
     a.hour = cal.hour;
     a.declination = cal.declination;
     a.year = cal.yearPhase;

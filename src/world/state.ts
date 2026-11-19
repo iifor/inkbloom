@@ -5,11 +5,14 @@ import { PALETTE, PAINTABLE, color } from '@/content/palette';
 import { TUNING } from '@/content/tuning';
 import { BRUSH_TIERS } from '@/content/brush-tiers';
 import { WEAPONS } from '@/content/weapons';
-import { surfaceFingerprint } from './paint/surfaces';
+import { ORIGINAL, surfaceFingerprint } from './paint/surfaces';
+import { startsPeaceful } from './city/origin';
 import { type Growth, createGrowth, validGrowth } from './progression';
 import { type CitySkeleton, monsterFingerprint, requestFingerprint, stainFingerprint } from './city/features';
 
-export const SAVE_VERSION = 2;
+import { TERRAIN_VERSION, type TerrainVersion } from './wilderness/terrain-version';
+
+export const SAVE_VERSION = 6;
 
 export type SceneRef = { readonly kind: 'wild' } | { readonly kind: 'city'; readonly id: string };
 
@@ -47,15 +50,20 @@ export interface WorldState {
   readonly version: typeof SAVE_VERSION;
   readonly id: string;
   readonly seed: number;
+  readonly terrainVersion: TerrainVersion;
   name: string;
   inventory: Inventory;
   /** Palette indices the player can graffiti with. */
   unlocked: number[];
   /** Per-city surface states, created when a city is first entered. */
   cities: Map<string, CitySave>;
+  /** Pre-v4 towns retain the original 2/5-block footprints across clients and workers. */
+  legacyTowns: string[];
   player: PlayerSave | null;
   /** Seconds of play in this world. Cooldowns use this, so nothing grows while offline. */
   clock: number;
+  /** Extra environment seconds accumulated by time acceleration; never used for cooldowns. */
+  calendarOffset: number;
   /** Wilderness source id -> clock time it was last harvested. */
   harvested: Map<string, number>;
   /** At most one drop at a time; dying again loses the old one. */
@@ -82,6 +90,8 @@ export interface CitySave {
   stains: Uint8Array;
   /** Every block had colour at once; the city is restored for good. */
   completed: boolean;
+  /** Naturally unpolluted, not a restoration by the player. False for existing v1/v2 towns. */
+  peaceful: boolean;
   /** monsterFingerprint of the stronghold list `defeated` belongs to. */
   monsterFingerprint: number | null;
   /** 1 per stronghold monster already defeated. */
@@ -157,6 +167,7 @@ export const STARTING_COLORS = [color('red'), color('blue'), color('yellow'), co
 export function createWorldState(id: string, seed: number, name = '新世界'): WorldState {
   return {
     version: SAVE_VERSION,
+    terrainVersion: TERRAIN_VERSION,
     id,
     seed,
     name,
@@ -169,8 +180,10 @@ export function createWorldState(id: string, seed: number, name = '新世界'): 
     },
     unlocked: [...STARTING_COLORS],
     cities: new Map(),
+    legacyTowns: [],
     player: null,
     clock: 0,
+    calendarOffset: 0,
     harvested: new Map(),
     drop: null,
     hunted: new Map(),
@@ -183,7 +196,7 @@ export function createWorldState(id: string, seed: number, name = '新世界'): 
 }
 
 /**
- * Saved state for a city, created all-drained on first use. Surface states and stain flags
+ * Saved state for a city, created according to its origin on first use. Surface states and stain flags
  * are each checked against the skeleton they were made for: when generator code or content
  * changed a list, that part is replaced with a fresh array. `reset` reports a surface reset
  * (lost painting progress) so the caller can tell the player; stain resets are silent.
@@ -213,24 +226,26 @@ export function cityStates(
       saved.fingerprint = fingerprint;
     if (saved.fingerprint !== fingerprint) {
       saved.fingerprint = fingerprint;
-      saved.states = new Uint8Array(skel.surfaces.length);
+      saved.states = new Uint8Array(skel.surfaces.length).fill(saved.peaceful ? ORIGINAL : 0);
       saved.completed = false;
-      saved.coloredOnce = new Uint8Array(skel.chunks * skel.chunks);
+      saved.coloredOnce = new Uint8Array(skel.chunks * skel.chunks).fill(saved.peaceful ? 1 : 0);
       saved.stockFrom = new Array<number>(skel.chunks * skel.chunks).fill(-1);
       // block numbers may mean other blocks now
       saved.tide = newTide();
       reset = true;
     }
   } else {
+    const peaceful = startsPeaceful(state.seed, cityId);
     saved = {
       fingerprint,
-      states: new Uint8Array(skel.surfaces.length),
+      states: new Uint8Array(skel.surfaces.length).fill(peaceful ? ORIGINAL : 0),
       stainFingerprint: stainFp,
-      stains: new Uint8Array(skel.stains.length),
+      stains: new Uint8Array(skel.stains.length).fill(peaceful ? 1 : 0),
       completed: false,
+      peaceful,
       monsterFingerprint: monsterFp,
-      defeated: new Uint8Array(skel.monsters.length),
-      coloredOnce: new Uint8Array(skel.chunks * skel.chunks),
+      defeated: new Uint8Array(skel.monsters.length).fill(peaceful ? 1 : 0),
+      coloredOnce: new Uint8Array(skel.chunks * skel.chunks).fill(peaceful ? 1 : 0),
       requestFingerprint: requestFp,
       requestsDone: new Uint8Array(skel.requests.length),
       stockFrom: new Array<number>(skel.chunks * skel.chunks).fill(-1),
@@ -240,11 +255,11 @@ export function cityStates(
   }
   if (saved.stainFingerprint !== stainFp) {
     saved.stainFingerprint = stainFp;
-    saved.stains = new Uint8Array(skel.stains.length);
+    saved.stains = new Uint8Array(skel.stains.length).fill(saved.peaceful ? 1 : 0);
   }
   if (saved.monsterFingerprint !== monsterFp) {
     saved.monsterFingerprint = monsterFp;
-    saved.defeated = new Uint8Array(skel.monsters.length);
+    saved.defeated = new Uint8Array(skel.monsters.length).fill(saved.peaceful ? 1 : 0);
   }
   if (saved.requestFingerprint !== requestFp) {
     saved.requestFingerprint = requestFp;
@@ -253,7 +268,7 @@ export function cityStates(
   if (saved.stockFrom.length !== skel.chunks * skel.chunks)
     saved.stockFrom = new Array<number>(skel.chunks * skel.chunks).fill(-1);
   if (saved.coloredOnce.length !== skel.chunks * skel.chunks)
-    saved.coloredOnce = new Uint8Array(skel.chunks * skel.chunks);
+    saved.coloredOnce = new Uint8Array(skel.chunks * skel.chunks).fill(saved.peaceful ? 1 : 0);
   const w = saved.tide.wave;
   if (w && (w.chunk < 0 || w.chunk >= skel.chunks * skel.chunks || w.from < 0 || w.from > 3))
     saved.tide.wave = null;
@@ -280,10 +295,15 @@ export function sourceReady(state: WorldState, id: string): boolean {
   return t === undefined || state.clock - t >= TUNING.economy.regrowSeconds;
 }
 
-/** Share of coloured surfaces from saved state alone (no skeleton needed); 1 once restored. */
+/** A saved origin takes precedence, including an old village's explicit non-peaceful origin. */
+export function peacefulVillage(state: WorldState, cityId: string): boolean {
+  return state.cities.get(cityId)?.peaceful ?? startsPeaceful(state.seed, cityId);
+}
+
+/** Share of coloured surfaces; peaceful villages have no pollution even before their first visit. */
 export function savedProgress(state: WorldState, cityId: string): number {
   const saved = state.cities.get(cityId);
-  if (saved?.completed) return 1;
+  if (saved?.completed || peacefulVillage(state, cityId)) return 1;
   if (!saved || saved.states.length === 0) return 0;
   let colored = 0;
   for (const s of saved.states) if (s !== 0) colored++;
@@ -293,6 +313,8 @@ export function savedProgress(state: WorldState, cityId: string): number {
 // ---- serialisation ----------------------------------------------------------------------
 
 interface WorldJson {
+  terrainVersion?: TerrainVersion;
+  legacyTowns?: string[];
   version: number;
   id: string;
   seed: number;
@@ -309,6 +331,7 @@ interface WorldJson {
         sf?: number;
         st?: string;
         c?: 1;
+        p?: 1;
         mf?: number;
         d?: string;
         co?: string;
@@ -322,6 +345,7 @@ interface WorldJson {
   >;
   player: PlayerSave | null;
   clock?: number;
+  calendarOffset?: number;
   harvested?: Record<string, number>;
   drop?: InkDrop | null;
   hunted?: Record<string, number>;
@@ -347,6 +371,7 @@ const fromBase64 = (text: string): Uint8Array => {
 export function serializeWorld(state: WorldState): string {
   const json: WorldJson = {
     version: state.version,
+    terrainVersion: state.terrainVersion,
     id: state.id,
     seed: state.seed,
     name: state.name,
@@ -363,6 +388,7 @@ export function serializeWorld(state: WorldState): string {
                 s: toBase64(v.states),
                 ...(v.stainFingerprint === null ? {} : { sf: v.stainFingerprint, st: toBase64(v.stains) }),
                 ...(v.completed ? { c: 1 as const } : {}),
+                ...(v.peaceful ? { p: 1 as const } : {}),
                 ...(v.monsterFingerprint === null
                   ? {}
                   : { mf: v.monsterFingerprint, d: toBase64(v.defeated) }),
@@ -389,8 +415,10 @@ export function serializeWorld(state: WorldState): string {
             ],
       ),
     ),
+    legacyTowns: state.legacyTowns,
     player: state.player,
     clock: state.clock,
+    calendarOffset: state.calendarOffset,
     drop: state.drop,
     hunted: Object.fromEntries([...state.hunted].filter(([id]) => !wildMonsterBack(state, id))),
     cleansed: Object.fromEntries(state.cleansed),
@@ -413,8 +441,17 @@ export function deserializeWorld(text: string): WorldState {
   } catch (e) {
     throw new SaveError(`存档不是有效的 JSON：${(e as Error).message}`);
   }
-  if (json.version !== 1 && json.version !== SAVE_VERSION)
+  if (
+    json.version !== 1 &&
+    json.version !== 2 &&
+    json.version !== 3 &&
+    json.version !== 4 &&
+    json.version !== 5 &&
+    json.version !== SAVE_VERSION
+  )
     throw new SaveError(`不支持的存档版本 ${json.version}`);
+  if (json.version >= 6 && ![1, 2, 3, 4, 5].some((version) => version === json.terrainVersion))
+    throw new SaveError(`不支持的地形版本 ${json.terrainVersion}`);
   if (typeof json.id !== 'string' || !Number.isInteger(json.seed))
     throw new SaveError('存档缺少世界编号或种子');
   // saves from before pigment was one paint kept coloured pigment per colour: it all counts now
@@ -424,7 +461,12 @@ export function deserializeWorld(text: string): WorldState {
   );
   return {
     version: SAVE_VERSION,
+    terrainVersion: json.version < 6 ? 1 : json.terrainVersion!,
     id: json.id,
+    legacyTowns:
+      json.version < 4
+        ? Object.keys(json.cities ?? {})
+        : (json.legacyTowns ?? []).filter((id) => typeof id === 'string'),
     seed: json.seed,
     name: String(json.name ?? '世界'),
     inventory: {
@@ -446,6 +488,7 @@ export function deserializeWorld(text: string): WorldState {
                 stainFingerprint: null,
                 stains: new Uint8Array(),
                 completed: false,
+                peaceful: false,
                 monsterFingerprint: null,
                 defeated: new Uint8Array(),
                 coloredOnce: new Uint8Array(),
@@ -463,6 +506,7 @@ export function deserializeWorld(text: string): WorldState {
                 stainFingerprint: Number.isInteger(v.sf) ? v.sf! : null,
                 stains: v.st ? fromBase64(v.st) : new Uint8Array(),
                 completed: v.c === 1,
+                peaceful: json.version >= 3 && v.p === 1,
                 monsterFingerprint: Number.isInteger(v.mf) ? v.mf! : null,
                 defeated: v.d ? fromBase64(v.d) : new Uint8Array(),
                 coloredOnce: v.co ? fromBase64(v.co) : new Uint8Array(),
@@ -476,6 +520,7 @@ export function deserializeWorld(text: string): WorldState {
     ),
     player: json.player ?? null,
     clock: Number.isFinite(json.clock) ? Math.max(0, json.clock!) : 0,
+    calendarOffset: Number.isFinite(json.calendarOffset) ? Math.max(0, json.calendarOffset!) : 0,
     harvested: new Map(
       Object.entries(json.harvested ?? {}).filter((e): e is [string, number] => Number.isFinite(e[1])),
     ),

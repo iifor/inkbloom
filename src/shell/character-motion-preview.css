@@ -1,0 +1,54 @@
+.character-motion-preview {
+  position: fixed;
+  z-index: 20;
+  right: 3vw;
+  bottom: 3vh;
+  width: min(500px, 43vw);
+  box-sizing: border-box;
+  padding: 14px 18px;
+  color: #493b2c;
+  background: rgba(250, 243, 223, 0.94);
+  border: 1px solid #b7a584;
+  border-radius: 6px 11px 5px 9px;
+  box-shadow: 0 5px 25px #352d2526;
+  font:
+    14px/1.5 system-ui,
+    sans-serif;
+}
+.character-motion-preview > span {
+  display: block;
+  margin-bottom: 8px;
+}
+.character-motion-preview > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.character-motion-preview button {
+  border: 1px solid #bbab8f;
+  border-radius: 4px;
+  padding: 5px 11px;
+  background: #fff9e9;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+}
+.character-motion-preview button[aria-pressed='true'] {
+  background: #9e4e3c;
+  color: #fff9e9;
+  border-color: #9e4e3c;
+}
+.character-motion-preview label {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 10px;
+}
+.character-motion-preview input {
+  flex: 1;
+  accent-color: #9e4e3c;
+}
+.character-motion-preview :focus-visible {
+  outline: 2px solid #644b32;
+  outline-offset: 3px;
+}

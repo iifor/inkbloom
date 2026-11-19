@@ -83,13 +83,22 @@ export class GeometryBuilder {
 
   /** Mark the last four vertices added (a quad) as trodden path: `edge` is how far each lies
    * from the path's middle, 0 to 1 at its edge. The material breaks the edge up raggedly, so
-   * earth gives way to grass as a brush would leave it (aPane -3, edge). */
-  pathEdge(edge: readonly [number, number, number, number]): void {
+   * earth gives way to grass. For yards, side bits 1/2/4/8 also feather the -X/+X/-Z/+Z edges. */
+  pathEdge(edge: readonly [number, number, number, number], yardSides = 0): void {
     this.panes ??= new Array<number>(this.vertexCount * 2).fill(0);
     const o = this.vertexCount - 4;
     for (let k = 0; k < 4; k++) {
-      this.panes[(o + k) * 2] = -3;
+      this.panes[(o + k) * 2] = yardSides ? -4 - yardSides : -3;
       this.panes[(o + k) * 2 + 1] = edge[k]!;
+    }
+    // At a tight bend the inside edge can cross the next section. Orient both faces separately.
+    const x = (p: number): number => Math.fround(this.pos[p * 3]!);
+    const z = (p: number): number => Math.fround(this.pos[p * 3 + 2]!);
+    for (let i = this.indices.length - 3, first = i - 3; i >= first; i -= 3) {
+      const a = this.indices[i]!, b = this.indices[i + 1]!, c = this.indices[i + 2]!;
+      const up = (z(b) - z(a)) * (x(c) - x(a)) - (x(b) - x(a)) * (z(c) - z(a));
+      if (up < 0) [this.indices[i + 1], this.indices[i + 2]] = [this.indices[i + 2]!, this.indices[i + 1]!];
+      if (up === 0) this.indices.splice(i, 3);
     }
   }
 

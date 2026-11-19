@@ -5,3 +5,6 @@ dist/
 .env*
 # multiplayer world saves (npm run server)
 world-data/
+# Download cache and visual QA for the Quaternius courier sample.
+artifacts/quaternius/
+art/models/quaternius/*.blend1

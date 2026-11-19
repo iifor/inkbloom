@@ -9,6 +9,7 @@ function save(n = 4): CitySave {
     stainFingerprint: null,
     stains: new Uint8Array(n),
     completed: false,
+    peaceful: false,
     monsterFingerprint: null,
     defeated: new Uint8Array(n),
     coloredOnce: new Uint8Array(n),

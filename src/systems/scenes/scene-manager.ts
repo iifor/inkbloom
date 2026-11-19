@@ -116,7 +116,7 @@ export class SceneManager implements SceneApi, System {
       this.switchTo(town);
       this.ctx.events.emit('title', {
         text: town.layout.name,
-        sub: this.ctx.state.cities.get(town.layout.id)?.completed ? undefined : '颜色被抽走了',
+        sub: town.peaceful ? '安宁的村庄' : town.completed ? undefined : '颜色被抽走了',
       });
       return;
     }
@@ -144,7 +144,7 @@ export class SceneManager implements SceneApi, System {
   respawnPoint(near: THREE.Vector3): { pos: THREE.Vector3; yaw: number } {
     if (this.city) return this.city.spawn();
     const options = [...this.ctx.state.cities]
-      .filter(([, c]) => c.completed)
+      .filter(([, c]) => c.completed || c.peaceful)
       .map(([id]) => this.mainStreet(id))
       .filter((o): o is { pos: THREE.Vector3; yaw: number } => o !== null);
     options.push(this.wild.spawn());
@@ -183,9 +183,9 @@ export class SceneManager implements SceneApi, System {
     return e && target ? { ...target, name: this.ctx.cities.layout(e).name } : null;
   }
 
-  /** Restored towns and ink marks, the stops on the travel ring. */
+  /** Restored or peaceful towns and ink marks, the stops on the travel ring. */
   private ring(): string[] {
-    const cities = [...this.ctx.state.cities].filter(([, c]) => c.completed).map(([id]) => id);
+    const cities = [...this.ctx.state.cities].filter(([, c]) => c.completed || c.peaceful).map(([id]) => id);
     return [...cities, ...this.ctx.state.marks.map((m) => m.id)];
   }
 

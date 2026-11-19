@@ -5,12 +5,17 @@ import { AIMING, GROUNDED, PAINTING, PROTOCOL, parseClientMessage, type Motion }
 import { deserializeSlice } from '@/world/net/slices';
 import { validPatch } from '@/world/net/validate';
 import type { Patch } from '@/world/patch';
-import { createWorldState } from '@/world/state';
+import { cityStates, createWorldState, savedProgress } from '@/world/state';
+import { chunkSaturation } from '@/world/wilderness/wild-monsters';
+import { startsPeaceful } from '@/world/city/origin';
+import { layoutCache } from '@/world/net/patch-context';
 import { type Entrance, createWilderness } from '@/world/wilderness/generator';
 import { type PigmentSource, sourcesInChunk } from '@/world/wilderness/sources';
 import { inkWellsNear, wellGuards } from '@/world/wilderness/ink-wells';
 
 const SEED = 7;
+const land = createWilderness(SEED);
+const layoutOf = layoutCache(land);
 const LOOK = defaultLook('courier');
 const token = (i: number): string => `player-token-${i}`;
 const host = (max = 10): WorldHost => new WorldHost(createWorldState('net', SEED), new Map(), max);
@@ -35,7 +40,9 @@ function aSource(): PigmentSource {
 }
 
 function aTown(): Entrance {
-  const e = createWilderness(SEED).entrancesNear(0, 0, 3)[0];
+  const e = createWilderness(SEED)
+    .entrancesNear(0, 0, 3)
+    .find((e) => !startsPeaceful(SEED, e.cityId));
   if (!e) throw new Error('no town near the origin');
   return e;
 }
@@ -49,6 +56,7 @@ function keeper(h: WorldHost, i: number, town: Entrance): number {
 
 /** Colour one surface of a town for the test, as if someone had restored it. */
 function colour(h: WorldHost, town: Entrance, who: number, surface: number): void {
+  cityStates(h.state, town.cityId, layoutOf(town.cityId)!);
   const r = h.patch(who, { kind: 'restore', city: town.cityId, surface });
   if (!r.ok) {
     // not affordable or guarded: set it directly, it is only the starting point of the test
@@ -114,8 +122,16 @@ describe('world host: patches', () => {
 
   it('an ink well is cleansed once, for everyone, after its guards are down', () => {
     const w = createWilderness(SEED);
-    const well = inkWellsNear(w, 0, 0, 3000).find((x) => wellGuards(w, x, 0).length > 0)!;
     const h = host();
+    const well = inkWellsNear(w, 0, 0, 1800).find(
+      (x) =>
+        wellGuards(
+          w,
+          x,
+          chunkSaturation(w, x.cx, x.cz, (id) => savedProgress(h.state, id)),
+        ).length > 0,
+    )!;
+    expect(well).toBeDefined();
     const a = joined(h, 1, well.x, well.z);
     const b = joined(h, 2, well.x, well.z);
     expect(h.patch(a, { kind: 'cleanse', well: well.id })).toMatchObject({

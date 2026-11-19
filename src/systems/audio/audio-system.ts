@@ -28,6 +28,8 @@ export class AudioSystem implements System {
   private rain: Loop | null = null;
   private rainBed: Stream | null = null;
   private stepT = 0;
+  private coverT = 0;
+  private weatherExposure = 1;
   private stepSide = 0;
   /** The weapon last fired or taken in hand (blade hits and switching sound by it). */
   private weapon = 'rifle';
@@ -133,7 +135,8 @@ export class AudioSystem implements System {
       on('monster:bite', ({ at }) =>
         s.noise({ dur: 0.07, gain: 0.45, type: 'bandpass', freq: 1800, q: 2, pos: at }),
       ),
-      on('player:hurt', () => {
+      on('player:hurt', ({ fall }) => {
+        if (fall) return;
         s.tone({ freq: 150, freqEnd: 60, dur: 0.22, gain: 0.3, type: 'triangle' });
         this.play('punch', { gain: 0.4 }, () => s.noise({ dur: 0.12, gain: 0.25, freq: 700 }));
       }),
@@ -144,7 +147,17 @@ export class AudioSystem implements System {
       on('player:jump', ({ air }) =>
         s.noise({ dur: 0.12, gain: air ? 0.12 : 0.07, type: 'highpass', freq: 1200, freqEnd: 3000 }),
       ),
-      on('player:land', ({ impact }) => {
+      on('player:land', ({ impact, water }) => {
+        if (water) {
+          s.noise({
+            dur: 0.24 + impact * 0.22,
+            gain: 0.15 + impact * 0.35,
+            type: 'bandpass',
+            freq: 2400,
+            freqEnd: 380,
+          });
+          return;
+        }
         this.play('thudHeavy', { gain: 0.15 + impact * 0.4, rate: 1.1 - impact * 0.2 }, () =>
           s.noise({ dur: 0.1 + impact * 0.15, gain: 0.15 + impact * 0.35, freq: 350, freqEnd: 120 }),
         );
@@ -271,7 +284,7 @@ export class AudioSystem implements System {
   private loops(): { brush: Loop | null; wind: Loop | null; rumble: Loop | null; rain: Loop | null } {
     if (this.synth.ctx && !this.brush) {
       this.brush = this.synth.noiseLoop({ type: 'bandpass', freq: 2300, q: 0.9, gain: 0.18, bus: 'sfx' });
-      this.wind = this.synth.noiseLoop({ type: 'bandpass', freq: 700, q: 0.6, gain: 0.35 });
+      this.wind = this.synth.noiseLoop({ type: 'bandpass', freq: 700, q: 0.6, gain: 0.35, spatial: true });
       this.rumble = this.synth.noiseLoop({ type: 'lowpass', freq: 160, gain: 0.5 });
       // a soft hiss of rain on leaves and ground
       this.rain = this.synth.noiseLoop({ type: 'bandpass', freq: 2200, q: 0.4, gain: 0.24 });
@@ -372,13 +385,23 @@ export class AudioSystem implements System {
     const { player } = this.ctx;
     const yaw = player.yaw;
     this.synth.setListener(player.eye, { x: Math.cos(yaw), y: 0, z: -Math.sin(yaw) });
+    this.coverT -= dt;
+    if (this.coverT <= 0) {
+      this.coverT = 0.25;
+      const roof = this.ctx.scenes.active.physics.raycast(player.eye, { x: 0, y: 1, z: 0 }, 12);
+      this.weatherExposure = roof ? 0.25 : 1;
+    }
     // wind from the weather (a breeze is barely there, a storm roars), louder still when gliding
     const w = this.ctx.renderer.atmosphere.weather;
-    const blow = Math.max(0, Math.hypot(w.windX, w.windZ) - 3) / 9;
-    this.loops().wind?.set(Math.max(player.gliding ? 1 : 0, Math.min(0.8, blow)));
+    const speed = Math.hypot(w.windX, w.windZ);
+    const blow = Math.max(0, speed - 3) / 9;
+    const upwind = (0.35 * (w.windZ * Math.sin(yaw) - w.windX * Math.cos(yaw))) / Math.max(1, speed);
+    const loops = this.loops();
+    loops.wind?.set(Math.max(player.gliding ? 1 : 0, Math.min(0.8, blow)) * this.weatherExposure, upwind);
     // the recorded rain once it has loaded, the synthesised hiss until then (or if it cannot)
-    this.rainBed?.set(w.rain, 2);
-    this.loops().rain?.set(this.rainBed?.playing ? 0 : w.rain);
+    const rain = w.rain * this.weatherExposure;
+    this.rainBed?.set(rain, 1);
+    loops.rain?.set(this.rainBed?.playing ? 0 : rain);
     // footsteps (a swimmer's strokes sound on 'player:stroke' instead)
     const water = player.waterMode === 'wading';
     const swimming = player.waterMode === 'swimming';

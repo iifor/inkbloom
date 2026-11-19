@@ -6,12 +6,14 @@
 // ends), steps around towns in the way, and crosses every river straight east–west over a plank
 // bridge. Trees and grass keep off it; the chunk mesh lays it on the ground as a dirt ribbon.
 import { TUNING } from '@/content/tuning';
-import { townGates, type WorldGate } from '../city/layout';
+import { townGates, type WorldGate } from '../city/gates';
 import { hashAt } from '../math/hash';
 import { Heap } from '../nav/path';
-import { createNoise2D, fbm } from '../math/noise';
+import { createNoise2D, fbm, smoothstep } from '../math/noise';
 import { type Entrance, townDistance, WATER_LEVEL, type Wilderness } from './generator';
 import { ruinInCell } from './ruins';
+import { SPAWN_CENTER as SPAWN, SPAWN_STONE_RADIUS, spawnStoneDistance } from './spawn-circle';
+import { createSettlementLinks } from './settlement-links';
 
 /** A plank bridge carrying a path over a river: a deck along x from x0 to x1 at z. */
 export interface Bridge {
@@ -38,12 +40,16 @@ export interface Trail {
 }
 
 export interface PathNetwork {
+  /** Prewarm route searches one at a time before streaming terrain samples. */
+  prepare(x0: number, z0: number, x1: number, z1: number): Generator<void, readonly Trail[], void>;
   /** Paths whose bounds overlap the box. */
   trailsNear(x0: number, z0: number, x1: number, z1: number): readonly Trail[];
   /** Metres from (x, z) to the edge of the nearest path: negative on it, Infinity far off. */
   edgeDistance(x: number, z: number): number;
   /** The bridge whose deck is over (x, z), if any. */
   bridgeAt(x: number, z: number): Bridge | null;
+  /** Cut the uphill bank and fill the downhill shoulder at a terrain mesh corner. */
+  groundAt(x: number, z: number, natural: number): number;
 }
 
 const ROAD = 2.6;
@@ -63,16 +69,19 @@ const CROSSING_ROWS = 2;
 const DEEP = 0.45;
 /** The longest bridge a path will have, metres. */
 const MAX_BRIDGE = 70;
-/** Points (2.5 m apart or closer) either side of a crossing eased onto its straight line. */
-const EASE_PTS = 28;
+/** How far along each bank to look for a dry connection to the bridge. */
+const APPROACH_POINTS = 28;
 
 type Pt = { x: number; z: number };
 /** Bucket size for the distance lookups, metres. */
 const BUCKET = 64;
+// A bench wider than the visible footpath leaves room for its 4 m terrain triangles.
+const BENCH = TUNING.world.cellSize;
+const SHOULDER = 9;
+export const MAX_EARTHWORK = 3.5;
 
 const S = TUNING.structures;
 const SIZE = TUNING.world.chunkSize;
-const SPAWN = SIZE / 2;
 const CITY_SPAN = S.cityGrid * SIZE;
 const RUIN_SPAN = S.ruinGrid * SIZE;
 
@@ -81,7 +90,7 @@ const networks = new WeakMap<Wilderness, PathNetwork>();
 /** The path network of a wilderness (built lazily, cached). */
 export function pathsOf(w: Wilderness): PathNetwork {
   let net = networks.get(w);
-  if (!net) networks.set(w, (net = createNetwork(w)));
+  if (!net) networks.set(w, (net = createNetwork({ ...w, heightAt: w.terrainHeightAt })));
   return net;
 }
 
@@ -89,10 +98,12 @@ export function pathsOf(w: Wilderness): PathNetwork {
 const cityCell = (v: number): number => Math.floor((v / SIZE + Math.floor(S.cityGrid / 2)) / S.cityGrid);
 
 function createNetwork(w: Wilderness): PathNetwork {
+  const linksOf = createSettlementLinks(w);
   const trails = new Map<string, Trail | null>();
   const gates = new Map<string, WorldGate[]>();
   const buckets = new Map<number, number[]>();
   const bridgesBy = new Map<number, Bridge[]>();
+  const bedsBy = new Map<number, number[]>();
   const wobble = createNoise2D(hashAt(w.seed, 'trail-wobble'));
 
   const gatesOf = (e: Entrance): WorldGate[] => {
@@ -138,11 +149,28 @@ function createNetwork(w: Wilderness): PathNetwork {
     const px = (i: number): number => x0 + (i % nx) * GRID;
     const pz = (i: number): number => z0 + Math.floor(i / nx) * GRID;
     const heights = new Float32Array(n).fill(Number.NaN);
+    const relief = new Float32Array(n).fill(Number.NaN);
     /** 0 not looked at, 1 open, 2 inside a town's room. */
     const state = new Uint8Array(n);
     const height = (i: number): number => {
       if (Number.isNaN(heights[i]!)) heights[i] = w.heightAt(px(i), pz(i));
       return heights[i]!;
+    };
+    const steepness = (i: number): number => {
+      if (Number.isNaN(relief[i])) {
+        // Reuse the route grid's samples instead of four new terrain queries per node.
+        const ix = i % nx,
+          iz = Math.floor(i / nx);
+        const left = ix ? i - 1 : i,
+          right = ix + 1 < nx ? i + 1 : i;
+        const north = iz ? i - nx : i,
+          south = iz + 1 < nz ? i + nx : i;
+        relief[i] = Math.hypot(
+          (height(right) - height(left)) / ((right - left) * GRID),
+          (height(south) - height(north)) / (((south - north) / nx) * GRID),
+        );
+      }
+      return relief[i]!;
     };
     const open = (i: number): boolean => {
       if (!state[i]) {
@@ -194,7 +222,12 @@ function createNetwork(w: Wilderness): PathNetwork {
           const run = GRID * (dx && dz ? Math.SQRT2 : 1);
           const slope = Math.abs(hj - hi) / run;
           const ease = 1 + 0.4 * (fbm(wobble, px(j) / 220, pz(j) / 220, 2) + 1);
-          const c = cost[i]! + run * ease * (1 + 30 * slope * slope) * (inDeep ? 40 : inWater ? 3 : 1);
+          // Contour walking can have zero ascent but still cling to a cliff. Price the
+          // bank's steepness too: a shallow cut/fill bench is preferable to a tall embankment.
+          const bank = inWater || inDeep ? 0 : Math.max(0, Math.max(steepness(i), steepness(j)) - 0.18);
+          const c =
+            cost[i]! +
+            run * ease * (1 + 45 * slope * slope + 24 * bank * bank) * (inDeep ? 40 : inWater ? 3 : 1);
           if (c >= cost[j]!) continue;
           cost[j] = c;
           from[j] = i;
@@ -253,23 +286,33 @@ function createNetwork(w: Wilderness): PathNetwork {
     // a point every 2.5 m or closer, so the ribbon hugs the ground and no dip into deep water
     // between points goes unnoticed
     const pts: Pt[] = [];
-    for (let i = 0; i < curve.length - 1; i++) {
-      const p = curve[i]!;
-      const q = curve[i + 1]!;
-      const n = Math.max(1, Math.ceil(Math.hypot(q.x - p.x, q.z - p.z) / 2.5));
+    const segment = (out: Pt[], p: Pt, q: Pt): void => {
+      const length = Math.hypot(q.x - p.x, q.z - p.z);
+      if (length < 1e-6) return;
+      const n = Math.ceil(length / 2.5);
       for (let j = 0; j < n; j++)
-        pts.push({ x: p.x + ((q.x - p.x) * j) / n, z: p.z + ((q.z - p.z) * j) / n });
-    }
+        out.push({ x: p.x + ((q.x - p.x) * j) / n, z: p.z + ((q.z - p.z) * j) / n });
+    };
+    for (let i = 0; i < curve.length - 1; i++) segment(pts, curve[i]!, curve[i + 1]!);
     pts.push(curve[curve.length - 1]!);
 
     // each stretch over deep water runs straight east–west on a bridge from bank to bank, easing
     // back into its way beyond; shallow water is a ford, waded
     const bridges: Bridge[] = [];
+    const joined: Pt[] = [];
+    let next = 0;
+    const dryLink = (a: Pt, b: Pt): boolean => {
+      const n = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.z - a.z) / 0.5));
+      for (let k = 0; k <= n; k++)
+        if (w.heightAt(a.x + ((b.x - a.x) * k) / n, a.z + ((b.z - a.z) * k) / n) < WATER_LEVEL + 0.05)
+          return false;
+      return true;
+    };
     for (let i = 0; i < pts.length; i++) {
       if (!deep(pts[i]!.x, pts[i]!.z)) continue;
       let j = i;
       while (j + 1 < pts.length && wet(pts[j + 1]!.x, pts[j + 1]!.z)) j++;
-      while (i > 0 && wet(pts[i - 1]!.x, pts[i - 1]!.z)) i--;
+      while (i > next && wet(pts[i - 1]!.x, pts[i - 1]!.z)) i--;
       const run = pts.slice(i, j + 1);
       const deepest = run.reduce((m, p) => (w.heightAt(p.x, p.z) < w.heightAt(m.x, m.z) ? p : m));
       // (on the crossing row the search took, exactly: every path over it then has the same deck)
@@ -277,32 +320,13 @@ function createNetwork(w: Wilderness): PathNetwork {
       const z = Math.abs(row - deepest.z) < GRID / 2 ? row : deepest.z;
       // the deck runs along this line from bank to bank: walk out from the deepest water each way
       // till the ground is dry (the path's own points may wade along a bank instead)
-      let lo = deepest.x;
-      let hi = deepest.x;
+      const center = Math.round(deepest.x * 2) / 2;
+      let lo = center;
+      let hi = center;
       while (wet(lo, z) && deepest.x - lo < MAX_BRIDGE) lo -= 0.5;
       while (wet(hi, z) && hi - deepest.x < MAX_BRIDGE) hi += 0.5;
       lo -= 2;
       hi += 2;
-      // The path comes onto the deck's line and leaves it again in a long easy curve: wholly
-      // on the line over the water and beside the deck, less and less so over the points either
-      // side (counted along the path, so it never jumps, and other parts of the path that
-      // happen to pass at the same x are left alone).
-      for (let k = Math.max(0, i - EASE_PTS); k <= Math.min(pts.length - 1, j + EASE_PTS); k++) {
-        const p = pts[k]!;
-        const out = Math.max(i - k, k - j, 0) / EASE_PTS;
-        const beside = p.x > lo - 4 && p.x < hi + 4 && out < 0.5;
-        const f = beside ? 1 : 1 - out * out * (3 - 2 * out);
-        p.z += (z - p.z) * f;
-      }
-      // (pulling a bend onto the line tightens it: relax the approaches again, a few rounds of
-      // each point moving toward the middle of its neighbours, the deck's own stretch held)
-      for (let round = 0; round < 6; round++)
-        for (let k = Math.max(1, i - EASE_PTS); k <= Math.min(pts.length - 2, j + EASE_PTS); k++) {
-          const p = pts[k]!;
-          if (p.x > lo - 4 && p.x < hi + 4 && Math.abs(p.z - z) < 0.01) continue;
-          p.x = (pts[k - 1]!.x + 2 * p.x + pts[k + 1]!.x) / 4;
-          p.z = (pts[k - 1]!.z + 2 * p.z + pts[k + 1]!.z) / 4;
-        }
       // a long bridge over a lake would look built for a town, not a footpath: no path instead
       if (hi - lo > MAX_BRIDGE) return null;
       const y = Math.max(w.heightAt(lo, z), w.heightAt(hi, z), WATER_LEVEL + 0.6) + 0.15;
@@ -310,14 +334,49 @@ function createNetwork(w: Wilderness): PathNetwork {
       // rather than ending in the air
       for (let k = 0; k < 30 && w.heightAt(lo, z) < y - 0.12; k++) lo -= 0.5;
       for (let k = 0; k < 30 && w.heightAt(hi, z) < y - 0.12; k++) hi += 0.5;
+      if (hi - lo > MAX_BRIDGE + 6) return null;
+
+      // Use the finished deck ends as actual trail vertices, after extending the deck to meet
+      // the banks. Sampling the approaches keeps the dirt on land up to the first plank.
+      const east = pts[j]!.x > pts[i]!.x;
+      const entry = { x: east ? lo : hi, z };
+      const exit = { x: east ? hi : lo, z };
+      const sign = east ? 1 : -1;
+      const approach = (end: Pt, from: number, dir: -1 | 1, side: number) => {
+        const bank = { x: end.x + side * 1.5, z };
+        if (!dryLink(end, bank)) return null;
+        for (let k = from; k >= next && k < pts.length && Math.abs(k - from) < APPROACH_POINTS; k += dir) {
+          const p = pts[k]!;
+          if ((p.x - bank.x) * side >= 0 && dryLink(p, bank)) return { k, points: [bank] };
+          // A road that follows the bank may need to turn back after clearing the rail.
+          if (Math.abs(p.z - z) > width + 1.5) {
+            const corner = { x: bank.x, z: z + Math.sign(p.z - z) * (width + 1.5) };
+            if (dryLink(bank, corner) && dryLink(corner, p)) return { k, points: [bank, corner] };
+          }
+          if (dir === 1 && deep(p.x, p.z)) break;
+        }
+        return null;
+      };
+      const before = approach(entry, i - 1, -1, -sign);
+      const after = approach(exit, j + 1, 1, sign);
+      if (!before || !after) return null;
+      if ([lo, hi].some((x) => Math.abs(w.heightAt(x, z) - y) > TUNING.player.stepHeight - 0.1)) return null;
+      joined.push(...pts.slice(next, before.k));
+      const crossing = [
+        pts[before.k]!,
+        ...before.points.reverse(),
+        entry,
+        exit,
+        ...after.points,
+        pts[after.k]!,
+      ];
+      for (let k = 0; k + 1 < crossing.length; k++) segment(joined, crossing[k]!, crossing[k + 1]!);
       bridges.push({ x0: lo, x1: hi, z, y, half: width / 2 + 0.4 });
-      i = j;
+      next = after.k;
+      i = next - 1;
     }
-    // (easing onto a deck's line can bring neighbouring points together: one of each is enough)
-    const spaced = pts.filter(
-      (p, k) => k === 0 || k === pts.length - 1 || Math.hypot(p.x - pts[k - 1]!.x, p.z - pts[k - 1]!.z) > 0.4,
-    );
-    const dense = spaced.flatMap((p) => [p.x, p.z]);
+    joined.push(...pts.slice(next));
+    const dense = joined.flatMap((p) => [p.x, p.z]);
     let minX = Infinity;
     let maxX = -Infinity;
     let minZ = Infinity;
@@ -370,19 +429,50 @@ function createNetwork(w: Wilderness): PathNetwork {
       const [cx, cz] = S.firstCityChunk;
       const town = w.entrancesNear((cx + 0.5) * SIZE, (cz + 0.5) * SIZE, 0)[0];
       if (!town) return null;
-      return build('spawn', ROAD, { x: SPAWN + 6, z: SPAWN }, gateToward(town, SPAWN, SPAWN));
+      const road = build('spawn', ROAD, { x: SPAWN + 6, z: SPAWN }, gateToward(town, SPAWN, SPAWN));
+      if (!road) return null;
+      // Run the dirt a little under the paving so its tapered end is hidden.
+      const join = SPAWN + SPAWN_STONE_RADIUS - 0.8;
+      return { ...road, pts: [join, SPAWN, ...road.pts], minX: Math.min(join, road.minX) };
     });
 
-  const trailsNear = (x0: number, z0: number, x1: number, z1: number): Trail[] => {
+  function* prepare(x0: number, z0: number, x1: number, z1: number): Generator<void, Trail[], void> {
     const out: Trail[] = [];
     const add = (t: Trail | null): void => {
       if (t && t.maxX >= x0 && t.minX <= x1 && t.maxZ >= z0 && t.minZ <= z1) out.push(t);
     };
-    for (let gx = cityCell(x0) - 1; gx <= cityCell(x1) + 1; gx++)
-      for (let gz = cityCell(z0) - 1; gz <= cityCell(z1) + 1; gz++) {
-        add(road(gx, gz, 1, 0));
-        add(road(gx, gz, 0, 1));
-      }
+    if (w.terrainVersion >= 5) {
+      const seen = new Set<string>();
+      // A link spans at most two cells; allow another for the routing corridor.
+      for (let gx = cityCell(x0) - 3; gx <= cityCell(x1) + 3; gx++)
+        for (let gz = cityCell(z0) - 3; gz <= cityCell(z1) + 3; gz++) {
+          const town = w.entranceInCell(gx, gz);
+          if (town)
+            for (const { id, a, b } of linksOf(town)) {
+              if (seen.has(id)) continue;
+              seen.add(id);
+              // Do not run A* for roads which cannot possibly enter this query.
+              const pad = Math.max(a.size, b.size) / 2 + CORRIDOR + GRID + GATE_RUN + TOWN_ROOM;
+              if (
+                Math.max(a.x, b.x) + pad < x0 ||
+                Math.min(a.x, b.x) - pad > x1 ||
+                Math.max(a.z, b.z) + pad < z0 ||
+                Math.min(a.z, b.z) - pad > z1
+              )
+                continue;
+              add(trail(id, () => build(id, ROAD, gateToward(a, b.x, b.z), gateToward(b, a.x, a.z))));
+              yield;
+            }
+          yield;
+        }
+    } else
+      for (let gx = cityCell(x0) - 1; gx <= cityCell(x1) + 1; gx++)
+        for (let gz = cityCell(z0) - 1; gz <= cityCell(z1) + 1; gz++) {
+          add(road(gx, gz, 1, 0));
+          yield;
+          add(road(gx, gz, 0, 1));
+          yield;
+        }
     // a ruin's track can reach most of a town cell from it
     for (
       let rx = Math.floor((x0 - CITY_SPAN) / RUIN_SPAN);
@@ -393,10 +483,18 @@ function createNetwork(w: Wilderness): PathNetwork {
         let rz = Math.floor((z0 - CITY_SPAN) / RUIN_SPAN);
         rz <= Math.floor((z1 + CITY_SPAN) / RUIN_SPAN);
         rz++
-      )
+      ) {
         add(ruinTrack(rx, rz));
+        yield;
+      }
     if (x0 < CITY_SPAN && z0 < CITY_SPAN && x1 > -CITY_SPAN && z1 > -CITY_SPAN) add(firstPath());
     return out;
+  }
+  const trailsNear = (x0: number, z0: number, x1: number, z1: number): Trail[] => {
+    const steps = prepare(x0, z0, x1, z1);
+    let next = steps.next();
+    while (!next.done) next = steps.next();
+    return next.value;
   };
 
   /** Segments (ax, az, bx, bz, half width) near a bucket, and the bridges over it. */
@@ -407,12 +505,14 @@ function createNetwork(w: Wilderness): PathNetwork {
     if (buckets.size > 4096) {
       buckets.clear();
       bridgesBy.clear();
+      bedsBy.clear();
     }
     segs = [];
     const bridges: Bridge[] = [];
+    const beds: number[] = [];
     const x0 = bx * BUCKET;
     const z0 = bz * BUCKET;
-    const pad = ROAD;
+    const pad = Math.max(ROAD + BENCH + SHOULDER, 24);
     for (const t of trailsNear(x0 - pad, z0 - pad, x0 + BUCKET + pad, z0 + BUCKET + pad)) {
       const p = t.pts;
       for (let i = 0; i + 3 < p.length; i += 2) {
@@ -423,19 +523,81 @@ function createNetwork(w: Wilderness): PathNetwork {
         if (Math.max(ax, qx) < x0 - pad || Math.min(ax, qx) > x0 + BUCKET + pad) continue;
         if (Math.max(az, qz) < z0 - pad || Math.min(az, qz) > z0 + BUCKET + pad) continue;
         segs.push(ax, az, qx, qz, t.width / 2);
+        const ha = w.heightAt(ax, az),
+          hb = w.heightAt(qx, qz);
+        // Leave water crossings and their approaches untouched. Fade out excavation
+        // at trail ends so existing town gates and ruin foundations remain connected.
+        if (
+          Math.min(ha, hb) > WATER_LEVEL + 0.5 &&
+          !t.bridges.some(
+            (b) =>
+              Math.max(ax, qx) >= b.x0 - 8 &&
+              Math.min(ax, qx) <= b.x1 + 8 &&
+              Math.min(Math.abs(az - b.z), Math.abs(qz - b.z)) < b.half + 8,
+          )
+        ) {
+          const fade = (x: number, z: number) =>
+            smoothstep(
+              0,
+              18,
+              Math.min(
+                Math.hypot(x - p[0]!, z - p[1]!),
+                Math.hypot(x - p[p.length - 2]!, z - p[p.length - 1]!),
+              ),
+            );
+          beds.push(ax, az, qx, qz, t.width / 2 + BENCH, ha, hb, fade(ax, az), fade(qx, qz));
+        }
       }
       bridges.push(...t.bridges);
     }
     buckets.set(key, segs);
     bridgesBy.set(key, bridges);
+    bedsBy.set(key, beds);
     return segs;
   };
 
   return {
+    prepare,
     trailsNear,
+    groundAt(x, z, natural) {
+      const bx = Math.floor(x / BUCKET),
+        bz = Math.floor(z / BUCKET);
+      bucket(bx, bz);
+      const beds = bedsBy.get((bx + 32768) * 65536 + bz + 32768)!;
+      // A neighbouring trail must not fill or excavate another trail's bridge landing.
+      // Keep a full terrain-cell margin; interpolate() also reads corners beside the deck.
+      let landing = 1;
+      for (const b of bridgesBy.get((bx + 32768) * 65536 + bz + 32768) ?? []) {
+        const d = Math.hypot(Math.max(b.x0 - x, 0, x - b.x1), Math.max(Math.abs(z - b.z) - b.half, 0));
+        landing = Math.min(landing, smoothstep(6, 18, d));
+      }
+      if (!landing) return natural;
+      let total = 0,
+        sum = 0,
+        strength = 0;
+      for (let i = 0; i < beds.length; i += 9) {
+        const ax = beds[i]!,
+          az = beds[i + 1]!,
+          dx = beds[i + 2]! - ax,
+          dz = beds[i + 3]! - az;
+        const t = Math.max(0, Math.min(1, ((x - ax) * dx + (z - az) * dz) / (dx * dx + dz * dz || 1)));
+        const d = Math.hypot(x - ax - dx * t, z - az - dz * t);
+        const half = beds[i + 4]!;
+        const fade = beds[i + 7]! * (1 - t) + beds[i + 8]! * t;
+        const influence = (1 - smoothstep(half, half + SHOULDER, d)) * fade;
+        if (influence <= 0) continue;
+        const h = beds[i + 5]! * (1 - t) + beds[i + 6]! * t;
+        // Nearby short segments form one continuous bench, also at bends/junctions.
+        const weight = influence / (0.05 + d * d);
+        sum += Math.max(-MAX_EARTHWORK, Math.min(MAX_EARTHWORK, h - natural)) * weight;
+        total += weight;
+        strength = Math.max(strength, influence);
+      }
+      return total ? natural + (sum / total) * strength * landing : natural;
+    },
     edgeDistance(x, z) {
       const s = bucket(Math.floor(x / BUCKET), Math.floor(z / BUCKET));
-      let best = Infinity;
+      let best = spawnStoneDistance(x, z);
       for (let i = 0; i < s.length; i += 5) {
         const ax = s[i]!;
         const az = s[i + 1]!;

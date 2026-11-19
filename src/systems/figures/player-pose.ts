@@ -4,6 +4,7 @@
 import type { Gesture, HeldItem } from '@/world/net/protocol';
 import { heldIn, holdPose } from './player-hold';
 import type { Rig } from './player-rig';
+import { swimArms } from './player-swim';
 
 /** What another player's figure is doing this frame. */
 export interface PlayerPose {
@@ -54,6 +55,15 @@ const JOINTS = [
 /** Pose a rig for one frame (exported for tests). */
 export function posePlayer(r: Rig, p: PlayerPose): void {
   for (const k of JOINTS) r[k].rotation.set(0, 0, 0);
+  if (r.gripOffset) {
+    for (const side of ['L', 'R'] as const) {
+      const palm = r[`palm${side}`];
+      palm.quaternion.identity();
+      palm.position.copy(r.gripOffset);
+      if (side === 'L') palm.position.x *= -1;
+      palm.position.y -= r.armLengths![1];
+    }
+  }
   const s = Math.sin(p.walk);
   const w = Math.min(1, p.stride);
   const run = Math.max(0, Math.min(1, p.stride - 1) / 0.7);
@@ -63,9 +73,16 @@ export function posePlayer(r: Rig, p: PlayerPose): void {
   r.legR.rotation.x = -s * swing * w;
   r.shinL.rotation.x = -(0.08 + (0.7 + 0.6 * run) * Math.max(0, -s)) * w;
   r.shinR.rotation.x = -(0.08 + (0.7 + 0.6 * run) * Math.max(0, s)) * w;
-  r.armL.rotation.set(-s * (0.5 + 0.4 * run) * w, 0, -0.1);
-  r.armR.rotation.set(s * (0.5 + 0.4 * run) * w, 0, 0.1);
-  r.foreL.rotation.x = r.foreR.rotation.x = 0.15 + (0.25 + 0.9 * run) * w;
+  // Keep the shoulders quiet; bend and open each elbow through the step instead of
+  // holding a fixed elbow angle and swinging the whole arm as one rigid piece.
+  const upperSwing = (0.16 + 0.1 * run) * w;
+  const elbowRest = 0.15 + (0.5 + 0.65 * run) * w;
+  const elbowSwing = (0.4 + 0.25 * run) * w;
+  const elbowPhase = Math.sin(p.walk - 0.18);
+  r.armL.rotation.set(-s * upperSwing, 0, -0.1);
+  r.armR.rotation.set(s * upperSwing, 0, 0.1);
+  r.foreL.rotation.x = elbowRest - elbowPhase * elbowSwing;
+  r.foreR.rotation.x = elbowRest + elbowPhase * elbowSwing;
   r.hips.position.y = r.hipsY - 0.02 * w + Math.abs(Math.cos(p.walk)) * (0.03 + 0.04 * run) * w;
   // at a run the body leans into it; at rest it breathes
   r.torso.rotation.x = -(0.05 * w + 0.18 * run);
@@ -78,13 +95,10 @@ export function posePlayer(r: Rig, p: PlayerPose): void {
   if (p.swim) {
     // lying along the water with the head up out of it: a crawl stroke and a flutter kick,
     // the whole body sunk so the head rides at the surface
-    const s = Math.sin(p.walk);
     r.hips.position.y = r.hipsY - 0.78;
     r.hips.rotation.x = -1.25;
     r.head.rotation.x = 1.05 + p.pitch * 0.3;
-    r.armL.rotation.set(1.6 + s * 1.4, 0, -0.2);
-    r.armR.rotation.set(1.6 - s * 1.4, 0, 0.2);
-    r.foreL.rotation.x = r.foreR.rotation.x = 0.3;
+    swimArms(r, p.walk);
     r.legL.rotation.x = Math.sin(p.walk * 2) * 0.35;
     r.legR.rotation.x = -Math.sin(p.walk * 2) * 0.35;
     r.shinL.rotation.x = r.shinR.rotation.x = -0.2;

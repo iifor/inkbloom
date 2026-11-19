@@ -3,16 +3,30 @@ import { TUNING } from '@/content/tuning';
 import { ROAD_NONE, type CityLayout } from '../city/layout';
 import { WATER_LEVEL } from '../wilderness/generator';
 import type { NavGrid } from './path';
+import { boundarySpans } from '../city/boundary';
 
 /** City: roads and courtyards inside the wall; buildings and the wall ring are blocked. */
 export function cityNav(l: CityLayout): NavGrid {
+  const blocked = new Set<number>();
+  for (const span of boundarySpans(l)) {
+    const steps = Math.max(1, Math.ceil(span.length / (l.cell * 0.25)));
+    for (let k = 0; k <= steps; k++) {
+      const d = span.length * (k / steps - 0.5);
+      const ix = Math.floor((span.x + span.tx * d - l.ox) / l.cell),
+        iz = Math.floor((span.z + span.tz * d - l.oz) / l.cell);
+      if (ix >= 0 && iz >= 0 && ix < l.n && iz < l.n) blocked.add(iz * l.n + ix);
+    }
+  }
   return {
     cell: l.cell,
     ox: l.ox,
     oz: l.oz,
     walkable: (ix, iz) => {
-      if (ix < 1 || iz < 1 || ix >= l.n - 1 || iz >= l.n - 1) return false;
+      if (ix < 0 || iz < 0 || ix >= l.n || iz >= l.n) return false;
       const i = iz * l.n + ix;
+      if (blocked.has(i)) return false;
+      if (ix === 0 || iz === 0 || ix === l.n - 1 || iz === l.n - 1)
+        return l.roads[i] !== ROAD_NONE || (!l.water[i] && l.buildingOf[i] === 0);
       return l.roads[i] !== ROAD_NONE || (l.blockOf[i] !== 0 && l.buildingOf[i] === 0);
     },
   };

@@ -1,10 +1,12 @@
 import * as THREE from 'three';
-import type { Look } from '@/content/characters';
+import { defaultLook, type Look } from '@/content/characters';
 import { color } from '@/content/palette';
 import { ALWAYS_COLOR, GeometryBuilder } from '@/engine/render/geometry-builder';
 import { makeInkMaterial } from '@/engine/render/ink-material';
 import { disposeTree } from '@/engine/resources';
 import { type Hands, handsOf } from '@/systems/tools/viewmodels';
+import { CourierViewArms } from './courier-view-arms';
+import { loadCourier } from '@/systems/figures/quaternius-courier';
 
 const v = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
 const upperLength = 0.305,
@@ -235,18 +237,35 @@ export class SwimArms {
   private readonly axis = new THREE.Vector3();
   private readonly euler = new THREE.Euler(0, 0, 0, 'YXZ');
   private readonly aim = new THREE.Quaternion();
+  private look = defaultLook('courier');
+  private model: CourierViewArms | null = null;
+  private disposed = false;
 
   constructor(camera: THREE.Camera) {
     this.limbs = this.build({ skin: color('skinLight'), sleeve: color('cream') });
     this.root.visible = false;
+    this.root.name = 'swimming-hands';
     camera.add(this.root);
+    if (typeof window !== 'undefined')
+      void loadCourier()
+        .then((source) => {
+          if (this.disposed) return;
+          this.model = new CourierViewArms(source, this.material);
+          this.model.root.visible = false;
+          this.root.add(this.model.root);
+        })
+        .catch((error) => console.warn('游泳角色手臂加载失败，暂用原有手部。', error));
   }
 
   /** The player's own colours: their skin, and their coat on the upper arms (the sleeves are
    * rolled to the elbow to swim), as on the hands that hold the weapons. */
   setLook(look: Look): void {
-    for (const child of [...this.root.children]) disposeTree(child);
-    this.root.clear();
+    this.look = { ...look };
+    for (const child of [...this.root.children]) {
+      if (child === this.model?.root) continue;
+      child.removeFromParent();
+      disposeTree(child);
+    }
     this.limbs = this.build(handsOf(look));
     this.settled = false;
   }
@@ -377,6 +396,12 @@ export class SwimArms {
       part.grip.lerp(this.grip, follow);
       this.shapeFingers(part.fingers, part.thumb, part.grip);
     }
+    const useModel = this.look.character === 'courier' && this.model !== null;
+    for (const part of this.limbs) part.arm.visible = part.forearm.visible = part.hand.visible = !useModel;
+    if (this.model) {
+      this.model.root.visible = useModel;
+      if (useModel) this.model.swim(this.look, this.limbs);
+    }
     return kicked;
   }
 
@@ -395,10 +420,16 @@ export class SwimArms {
 
   /** The hands' world positions (after the camera's matrices are up to date). */
   hands(): THREE.Vector3[] {
+    if (this.model?.root.visible)
+      return [this.model.actor.rig.palmL, this.model.actor.rig.palmR].map((palm) =>
+        palm.getWorldPosition(new THREE.Vector3()),
+      );
     return this.limbs.map(({ hand }) => hand.getWorldPosition(new THREE.Vector3()));
   }
 
   dispose(): void {
+    this.disposed = true;
+    this.model?.dispose();
     disposeTree(this.root);
     this.material.dispose();
   }

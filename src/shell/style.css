@@ -74,12 +74,34 @@ body {
   width: 74px;
   height: 20px;
   margin-left: -37px;
-  background: var(--tape);
+  background-color: var(--tape);
+  background-image:
+    url('/ui/washi-leaves.svg'),
+    linear-gradient(180deg, rgba(255, 250, 230, 0.18), transparent 55%, rgba(151, 108, 67, 0.08));
+  background-size:
+    30px 22px,
+    100% 100%;
+  background-position: center;
+  background-repeat: repeat-x, no-repeat;
   transform: rotate(-3deg);
-  border-radius: 2px;
+  clip-path: polygon(
+    2% 0,
+    98% 1%,
+    100% 16%,
+    98% 32%,
+    100% 52%,
+    98% 72%,
+    100% 97%,
+    1% 100%,
+    2% 80%,
+    0 62%,
+    2% 43%,
+    0 22%
+  );
+  pointer-events: none;
 }
 .hud-tool::before {
-  background: var(--tape-2);
+  background-color: var(--tape-2);
   transform: rotate(4deg);
 }
 .hud-place {

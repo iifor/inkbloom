@@ -21,9 +21,10 @@ export function reach(
   fore: THREE.Object3D,
   side: number,
   target: THREE.Vector3,
+  lengths: readonly [number, number] = [UPPER_ARM, PALM],
+  poleDirection?: THREE.Vector3,
 ): THREE.Vector3 {
-  const a = UPPER_ARM;
-  const b = PALM;
+  const [a, b] = lengths;
   const dir = va.subVectors(target, arm.position);
   const d = Math.min(a + b - 1e-3, Math.max(0.12, dir.length()));
   dir.normalize();
@@ -34,7 +35,7 @@ export function reach(
   // then spun about the reach so the elbow points the right way
   const elbow = vb.copy(DOWN).applyQuaternion(qa);
   elbow.addScaledVector(dir, -elbow.dot(dir));
-  const pole = vc.set(side * 0.7, -1, 0.5);
+  const pole = poleDirection ? vc.copy(poleDirection) : vc.set(side * 0.7, -1, 0.5);
   pole.addScaledVector(dir, -pole.dot(dir));
   if (elbow.lengthSq() > 1e-8 && pole.lengthSq() > 1e-8) {
     const turn = Math.atan2(dir.dot(vd.crossVectors(elbow, pole)), elbow.dot(pole));

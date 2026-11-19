@@ -7,11 +7,14 @@ import { type CityLayout, townLayout } from '@/world/city/layout';
 import { type Entrance, type Wilderness, createWilderness } from '@/world/wilderness/generator';
 import { type GeometryBuilder, geometryData } from '@/engine/render/geometry-builder';
 import { buildCity } from './build-city';
+import type { TerrainVersion } from '@/world/wilderness/terrain-version';
 
 export interface CityJob {
   readonly town: Entrance;
   /** The world's seed: the town is laid out on the land, which the worker works out itself. */
   readonly worldSeed: number;
+  readonly terrainVersion: TerrainVersion;
+  readonly legacyTowns: readonly string[];
 }
 
 let wilderness: Wilderness | null = null;
@@ -23,8 +26,13 @@ export interface CityResult {
 }
 
 self.addEventListener('message', (event: MessageEvent<CityJob>) => {
-  const { town, worldSeed } = event.data;
-  if (wilderness?.seed !== worldSeed) wilderness = createWilderness(worldSeed);
+  const { town, worldSeed, legacyTowns, terrainVersion } = event.data;
+  if (
+    wilderness?.seed !== worldSeed ||
+    wilderness.terrainVersion !== terrainVersion ||
+    JSON.stringify(wilderness.legacyTowns) !== JSON.stringify(legacyTowns)
+  )
+    wilderness = createWilderness(worldSeed, legacyTowns, terrainVersion);
   const layout = townLayout(town, wilderness);
   const cityId = layout.id;
   const boxes: BuiltCity['boxes'][number][] = [];

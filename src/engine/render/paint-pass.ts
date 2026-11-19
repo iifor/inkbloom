@@ -5,7 +5,7 @@ import * as THREE from 'three';
 import { type ColorDef, MAX_COLORS, PALETTE, color } from '@/content/palette';
 import { SEASONS } from '@/content/seasons';
 import { TUNING } from '@/content/tuning';
-import { RIVER_LANE, RIVER_X } from '@/world/wilderness/generator';
+import { CURRENT_STEP } from '@/world/wilderness/water-current';
 import type { Daylight } from './daylight';
 import { shared } from './ink-material';
 import { LAMP_COUNT } from './lamps';
@@ -77,8 +77,7 @@ export function makePaintMaterial(o: PaintInputs): THREE.ShaderMaterial {
       uReversedDepth: shared.uReversedDepth,
       uNoise: { value: o.noise },
       uRivers: { value: o.rivers },
-      uRiverGrid: { value: new THREE.Vector4(1e9, 0, 8, RIVER_SAMPLES) },
-      uRiverLane: { value: new THREE.Vector2(TUNING.world.chunkSize / 2 + RIVER_X, RIVER_LANE) },
+      uRiverGrid: { value: new THREE.Vector4(1e9, 1e9, CURRENT_STEP, RIVER_SAMPLES) },
       uColors: { value: colors },
       uSolid: { value: perColor((c) => (c.solid ? 1 : 0), 0) },
       uTexture: { value: perColor((c) => c.texture ?? 0.25, 0.25) },

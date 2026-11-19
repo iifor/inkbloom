@@ -28,6 +28,7 @@ import { weaponModel } from './player-props';
 import { heldIn } from './player-hold';
 import { type PlayerPose, posePlayer } from './player-pose';
 import { type Rig, characterRig } from './player-rig';
+import { CourierFigures } from './quaternius-courier';
 
 export { ACTION_SECONDS } from './player-hold';
 export type { PlayerPose } from './player-pose';
@@ -50,6 +51,7 @@ export class PlayerFigures {
   private readonly rigs = new Map<CharacterKey, Rig>();
   private readonly fixed = new Map<CharacterKey, Map<string, number>>();
   private readonly figures: FigureRenderer;
+  private readonly couriers: CourierFigures;
   private readonly at = new THREE.Vector3();
   /** The weapons in hand, each its model instanced (colours are in the model). */
   private readonly weapons = new Map<WeaponKey, { mesh: THREE.InstancedMesh; used: number }>();
@@ -59,6 +61,7 @@ export class PlayerFigures {
     private readonly material: THREE.Material,
   ) {
     this.figures = new FigureRenderer(parent, material);
+    this.couriers = new CourierFigures(parent, material);
   }
 
   /** One more of this weapon this frame, at a prop's joint. */
@@ -96,12 +99,14 @@ export class PlayerFigures {
 
   begin(): void {
     this.figures.begin();
+    this.couriers.begin();
     for (const w of this.weapons.values()) w.used = 0;
   }
 
   draw(look: Look, p: PlayerPose): void {
-    const r = this.rig(look.character);
-    posePlayer(r, p);
+    const imported = this.couriers.draw(look, p);
+    const r = imported ?? this.rig(look.character);
+    if (!imported) posePlayer(r, p);
     r.root.updateMatrixWorld(true);
     const fixed = this.fixed.get(look.character)!;
     const skin = SKIN[look.skin] ?? SKIN[0]!;
@@ -150,6 +155,7 @@ export class PlayerFigures {
 
   end(): void {
     this.figures.end();
+    this.couriers.end();
     for (const w of this.weapons.values()) {
       w.mesh.count = w.used;
       w.mesh.instanceMatrix.needsUpdate = true;
@@ -158,6 +164,7 @@ export class PlayerFigures {
 
   dispose(): void {
     this.figures.dispose();
+    this.couriers.dispose();
     // the models are shared (player-props.ts); only the meshes are this renderer's
     for (const w of this.weapons.values()) {
       w.mesh.removeFromParent();

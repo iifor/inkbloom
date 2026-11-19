@@ -83,6 +83,115 @@ class Parts {
     );
   }
 
+  /** A continuous rounded contour, built once and merged with the hand. */
+  curve(points: readonly V[], radii: readonly number[], c: number): void {
+    const path = new THREE.CatmullRomCurve3(points.map((v) => new THREE.Vector3(...v)));
+    const segments = 40,
+      sides = 12;
+    const length = path.getLength();
+    const geo = new THREE.TubeGeometry(path, segments, 1, sides, false);
+    const pos = geo.getAttribute('position');
+    const center = new THREE.Vector3(),
+      vertex = new THREE.Vector3();
+    for (let i = 0; i <= segments; i++) {
+      const t = i / segments;
+      path.getPointAt(t, center);
+      const f = t * (radii.length - 1);
+      const k = Math.min(Math.floor(f), radii.length - 2);
+      const radius = THREE.MathUtils.lerp(radii[k]!, radii[k + 1]!, THREE.MathUtils.smoothstep(f - k, 0, 1));
+      // Domed ends, without separate caps at every bent finger joint.
+      const endDistance = Math.min(t, 1 - t) * length;
+      const cap = Math.sqrt(Math.max(0, 1 - Math.max(0, 1 - endDistance / radius) ** 2));
+      for (let j = 0; j <= sides; j++) {
+        const n = i * (sides + 1) + j;
+        vertex
+          .fromBufferAttribute(pos, n)
+          .sub(center)
+          .multiplyScalar(radius * cap)
+          .add(center);
+        pos.setXYZ(n, vertex.x, vertex.y, vertex.z);
+      }
+    }
+    geo.computeVertexNormals();
+    // TubeGeometry duplicates the longitudinal seam. Average its two normals so
+    // it cannot draw a hard stripe down skin after the radius profile changes.
+    const normals = geo.getAttribute('normal');
+    for (let i = 0; i <= segments; i++) {
+      const a = i * (sides + 1),
+        b = a + sides;
+      center.fromBufferAttribute(normals, a);
+      vertex.fromBufferAttribute(normals, b).add(center).normalize();
+      normals.setXYZ(a, vertex.x, vertex.y, vertex.z);
+      normals.setXYZ(b, vertex.x, vertex.y, vertex.z);
+    }
+    this.g.meshSmooth(geo, this.m.identity(), c, ALWAYS_COLOR);
+    geo.dispose();
+  }
+
+  /** Elliptical cross sections: a single skin surface from forearm to palm.
+   * Rows are [centre x/y/z, half width, half thickness], from elbow to knuckles. */
+  loft(rows: readonly (readonly [number, number, number, number, number])[], c: number): void {
+    const path = new THREE.CatmullRomCurve3(rows.map((r) => new THREE.Vector3(r[0], r[1], r[2])));
+    const profile = new THREE.CatmullRomCurve3(rows.map((r) => new THREE.Vector3(r[3], r[4], 0)));
+    const segments = (rows.length - 1) * 5,
+      sides = 24;
+    const positions: number[] = [],
+      indices: number[] = [];
+    for (let i = 0; i <= segments; i++) {
+      const t = i / segments,
+        at = path.getPoint(t),
+        size = profile.getPoint(t);
+      // Foreshorten only the forearm, keeping the palm's rounded cross-section.
+      if (at.y < -0.05) {
+        at.y = -0.05 + (at.y + 0.05) * 0.65;
+        at.z = 0.03 + (at.z - 0.03) * 0.4;
+      }
+      for (let j = 0; j < sides; j++) {
+        const angle = (j / sides) * Math.PI * 2;
+        positions.push(
+          at.x + Math.cos(angle) * Math.max(0, size.x),
+          at.y,
+          at.z + Math.sin(angle) * Math.max(0, size.y),
+        );
+      }
+    }
+    for (let i = 0; i < segments; i++)
+      for (let j = 0; j < sides; j++) {
+        const a = i * sides + j,
+          b = i * sides + ((j + 1) % sides);
+        indices.push(a, a + sides, b, b, a + sides, b + sides);
+      }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    geo.setIndex(indices);
+    geo.computeVertexNormals();
+    this.g.meshSmooth(geo, this.m.identity(), c, ALWAYS_COLOR);
+    geo.dispose();
+  }
+
+  /** A flush nail follows the finger's tangent and front surface, not a guessed
+   * world-space offset that can leave a floating disc above a bent fingertip. */
+  nail(points: readonly V[], radii: readonly number[], c: number): void {
+    const path = new THREE.CatmullRomCurve3(points.map((v) => new THREE.Vector3(...v)));
+    const t = 0.82,
+      f = t * (radii.length - 1),
+      k = Math.floor(f);
+    const r = THREE.MathUtils.lerp(radii[k]!, radii[k + 1]!, THREE.MathUtils.smoothstep(f - k, 0, 1));
+    const tangent = path.getTangentAt(t).normalize();
+    const front = new THREE.Vector3(0, 0, 1).addScaledVector(tangent, -tangent.z).normalize();
+    const across = new THREE.Vector3().crossVectors(tangent, front).normalize();
+    const at = path.getPointAt(t).addScaledVector(front, r * 0.96);
+    const geometry = new THREE.SphereGeometry(1, 16, 10);
+    this.q.setFromRotationMatrix(this.m.makeBasis(across, tangent, front));
+    this.g.meshSmooth(
+      geometry,
+      this.m.compose(at, this.q, new THREE.Vector3(r * 0.59, r * 0.95, 0.00065)),
+      c,
+      ALWAYS_COLOR,
+    );
+    geometry.dispose();
+  }
+
   /** A hand closed round a grip at `at`, its sleeve running off towards `elbow` (out of view).
    * `side` is 1 for the right hand, -1 for the left. */
   hand(at: V, elbow: V, h: Hands | null, side: 1 | -1, rot: V = [0, 0, 0]): void {
@@ -107,6 +216,188 @@ class Parts {
 /** Where the arms go: steeply down and back, so only the hand and a little of the forearm show. */
 const RIGHT_ELBOW: V = [0.12, -0.46, 0.42];
 const LEFT_ELBOW: V = [-0.42, -0.44, 0.12];
+
+/** A relaxed walking hand and sleeve, merged once; the brush shares the right-hand mesh. */
+export function walkingHand(h: Hands, side: 1 | -1, brush = false): THREE.BufferGeometry {
+  const p = new Parts();
+  if (brush && side === 1) heldBrush(p, h);
+  else relaxedHand(p, h, side);
+  return p.g.build();
+}
+
+/** A separate brush for the rigged first-person hand; the grip is at the origin. */
+export function modelBrush(): THREE.BufferGeometry {
+  const p = new Parts();
+  p.rod([0, 0, 0.17], [0, 0, -0.3], 0.017, color('brown'), 0.014);
+  p.box([0, 0, -0.3], [0.045, 0.025, 0.055], color('stone'), 0.004);
+  p.box([0, 0, -0.366], [0.048, 0.026, 0.085], color('cream'), 0.006);
+  for (let i = 0; i < 5; i++) {
+    const x = -0.018 + i * 0.009;
+    p.rod([x, 0.014, -0.335], [x, 0.014, -0.407], 0.001, color('sand'), 0.0005);
+  }
+  return p.g.build();
+}
+
+/** Fingers spread as the player reaches out to balance or catch a fall. */
+export function bracingHand(h: Hands, side: 1 | -1): THREE.BufferGeometry {
+  const p = new Parts();
+  walkingForearm(p, h, side);
+  const digits = [
+    [-0.024, 0.024, -0.044, 0.098],
+    [-0.009, 0.031, -0.018, 0.116],
+    [0.008, 0.031, 0.014, 0.103],
+    [0.025, 0.022, 0.041, 0.08],
+  ] as const;
+  for (const [i, [x, y, tipX, tipY]] of digits.entries()) {
+    const r = 0.0093 - i * 0.00055;
+    const points: V[] = [
+      [side * x, y, 0],
+      [(side * (x + tipX)) / 2, (y + tipY) / 2, -0.005],
+      [side * tipX, tipY - 0.016, -0.011],
+      [side * tipX, tipY, -0.006],
+    ];
+    p.curve(points, [r * 1.15, r, r * 0.9, r * 0.68], h.skin);
+  }
+  p.curve(
+    [
+      [-side * 0.015, -0.025, 0.012],
+      [-side * 0.036, -0.01, 0.017],
+      [-side * 0.051, 0.011, 0.011],
+      [-side * 0.059, 0.033, 0.008],
+    ],
+    [0.016, 0.014, 0.011, 0.008],
+    h.skin,
+  );
+  return p.g.build();
+}
+
+/** Palm and forearm share one surface: the wrist narrows, but never disconnects. */
+function walkingForearm(p: Parts, h: Hands, side: 1 | -1, grip = false): void {
+  const x = (v: number) => side * v;
+  p.loft(
+    [
+      [x(0.1), -0.27, 0.225, 0, 0],
+      [x(0.084), -0.23, 0.195, 0.035, 0.028],
+      [x(0.061), -0.17, 0.132, 0.032, 0.025],
+      [x(0.04), -0.108, 0.073, 0.025, 0.02],
+      [x(0.022), -0.055, 0.03, 0.021, 0.017],
+      [x(grip ? 0.018 : 0.006), -0.027, 0.01, 0.032, 0.021],
+      [x(grip ? 0.019 : 0), 0.005, -0.002, 0.038, 0.023],
+      [x(grip ? 0.021 : 0), 0.028, -0.006, 0.029, 0.016],
+      [x(grip ? 0.022 : 0), 0.038, -0.007, 0.018, 0.01],
+      [x(grip ? 0.022 : 0), 0.042, -0.007, 0, 0],
+    ],
+    h.skin,
+  );
+  // Elliptical opening and rolled cloth lip instead of a barrel cap.
+  p.loft(
+    [
+      [x(0.13), -0.32, 0.28, 0.045, 0.037],
+      [x(0.1), -0.25, 0.21, 0.046, 0.036],
+      [x(0.079), -0.205, 0.168, 0.041, 0.033],
+      [x(0.054), -0.13, 0.095, 0.038, 0.032],
+      [x(0.046), -0.111, 0.078, 0.038, 0.031],
+      [x(0.04), -0.1, 0.07, 0.034, 0.027],
+      [x(0.041), -0.102, 0.071, 0.027, 0.022],
+      [x(0.048), -0.119, 0.086, 0.029, 0.024],
+    ],
+    h.sleeve,
+  );
+}
+
+function relaxedHand(p: Parts, h: Hands, side: 1 | -1): void {
+  walkingForearm(p, h, side);
+  const mirror = (v: V): V => [-side * v[0], v[1], v[2]];
+  // Index nearly open; the other fingers curl progressively into the palm.
+  const fingers: readonly (readonly V[])[] = [
+    [
+      [-0.024, 0.023, 0],
+      [-0.017, 0.07, 0.003],
+      [0.022, 0.085, 0.006],
+      [0.064, 0.065, 0.008],
+    ],
+    [
+      [0.003, 0.027, 0.005],
+      [0.043, 0.05, 0.009],
+      [0.073, 0.022, 0.018],
+      [0.069, 0.01, 0.029],
+    ],
+    [
+      [0.014, 0.006, 0.008],
+      [0.057, 0.018, 0.02],
+      [0.066, -0.006, 0.027],
+      [0.065, -0.023, 0.033],
+    ],
+    [
+      [0.022, -0.014, 0.003],
+      [0.05, -0.01, 0.018],
+      [0.056, -0.022, 0.03],
+      [0.055, -0.039, 0.035],
+    ],
+  ];
+  fingers.forEach((points, i) => {
+    const r = [0.0085, 0.009, 0.0082, 0.007][i]!;
+    const shape = points.map(mirror),
+      radii = [r * 1.15, r, r * 0.95, r * 0.9];
+    p.curve(shape, radii, h.skin);
+    p.nail(shape, radii, h.skin);
+  });
+  const thumb: V[] = [
+    [-0.007, -0.027, 0.006],
+    [0.014, -0.014, 0.025],
+    [0.036, 0.02, 0.046],
+    [0.045, 0.056, 0.042],
+  ];
+  p.curve(thumb.map(mirror), [0.017, 0.014, 0.011, 0.008], h.skin);
+  p.nail(thumb.map(mirror), [0.017, 0.014, 0.011, 0.008], h.skin);
+}
+
+/** Four fingers curl around the shaft; the thumb closes diagonally from the palm. */
+function heldBrush(p: Parts, h: Hands): void {
+  walkingForearm(p, h, 1, true);
+  p.curve(
+    [
+      [0.006, -0.11, 0.006],
+      [-0.007, -0.05, -0.002],
+      [-0.025, 0.04, -0.016],
+      [-0.047, 0.15, -0.031],
+    ],
+    [0.0085, 0.009, 0.008, 0.0065],
+    color('brown'),
+  );
+  for (let i = 0; i < 4; i++) {
+    const y = 0.026 - i * 0.021;
+    const shaft = -0.017 - y * 0.2;
+    const r = [0.0095, 0.01, 0.009, 0.0078][i]!;
+    const points: V[] = [
+      [0.03, y - 0.003, -0.008],
+      [0.009, y + 0.004, -0.028],
+      [shaft - 0.014, y + 0.003, -0.015],
+      [shaft - 0.009, y - 0.002, 0.008],
+      [shaft + 0.014, y - 0.005, 0.016],
+    ];
+    const radii = [r * 1.12, r, r * 0.98, r * 0.85, r * 0.7];
+    p.curve(points, radii, h.skin);
+    p.nail(points, radii, h.skin);
+  }
+  const thumb: V[] = [
+    [0.023, -0.024, 0.009],
+    [0.033, -0.002, 0.018],
+    [0.014, 0.025, 0.032],
+    [-0.012, 0.045, 0.009],
+    [-0.026, 0.052, -0.007],
+  ];
+  const thumbRadii = [0.016, 0.014, 0.012, 0.01, 0.0085];
+  p.curve(thumb, thumbRadii, h.skin);
+  p.nail(thumb, thumbRadii, h.skin);
+  const tilt: V = [-0.18, 0, 0.2];
+  p.box([-0.047, 0.148, -0.031], [0.027, 0.028, 0.016], color('stone'), 0.004, tilt);
+  p.box([-0.054, 0.179, -0.037], [0.031, 0.038, 0.013], color('cream'), 0.006, tilt);
+  for (let i = 0; i < 5; i++) {
+    const x = -0.066 + i * 0.006;
+    p.rod([x, 0.166, -0.028], [x - 0.006, 0.196 + (i % 2) * 0.002, -0.034], 0.001, color('sand'), 0.0005);
+  }
+}
 
 /** Points on each weapon, in weapon space: where the main hand grips it, where the other hand
  * holds it (none for one hand), and its far end (muzzle, blade tip, the staff's orb). */
@@ -221,7 +512,7 @@ export function viewModel(def: WeaponDef, h: Hands | null): THREE.BufferGeometry
       break;
     }
     default: {
-      // the rifle: metal action and barrel, a wooden stock and fore-end, a curved magazine
+      // Metal action and barrel, wooden stock and fore-end, and a curved magazine.
       p.box([0, 0, -0.08], [0.07, 0.085, 0.42], main, 0.016);
       p.rod([0, 0.01, -0.28], [0, 0.01, -0.64], 0.014, metal, 0.013);
       p.rod([0, 0.01, -0.63], [0, 0.01, -0.67], 0.02, metal);
@@ -230,7 +521,7 @@ export function viewModel(def: WeaponDef, h: Hands | null): THREE.BufferGeometry
       p.box([0, -0.1, -0.12], [0.04, 0.11, 0.06], metal, 0.012, [0.25, 0, 0]);
       p.box([0, -0.09, 0.07], [0.036, 0.1, 0.045], accent, 0.012, [-0.35, 0, 0]);
       p.box([0, -0.035, 0.24], [0.054, 0.1, 0.26], accent, 0.024, [-0.12, 0, 0]);
-      p.hand([0.0, -0.1, 0.08], RIGHT_ELBOW, h, 1, [-0.35, 0, 0]);
+      p.hand([0, -0.1, 0.08], RIGHT_ELBOW, h, 1, [-0.35, 0, 0]);
       p.hand([-0.03, -0.03, -0.37], LEFT_ELBOW, h, -1, [0, 0, 0.5]);
     }
   }

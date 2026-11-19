@@ -18,6 +18,7 @@ export interface CityFix {
   readonly requestsDone?: Pairs;
   readonly stockFrom?: Pairs;
   readonly completed?: boolean;
+  readonly peaceful?: boolean;
 }
 
 export interface Fix {
@@ -49,6 +50,7 @@ export function cityFix(id: string, before: CitySave | undefined, after: CitySav
   const stock = diff(before?.stockFrom, after.stockFrom);
   if (stock) fix.stockFrom = stock;
   if (!before || before.completed !== after.completed) fix.completed = after.completed;
+  if (!before || before.peaceful !== after.peaceful) fix.peaceful = after.peaceful;
   return Object.keys(fix).length > 1 ? (fix as unknown as CityFix) : undefined;
 }
 
@@ -102,6 +104,7 @@ export function applyFix(state: WorldState, fix: Fix | null | undefined): Change
     set(saved.requestsDone, c.requestsDone);
     set(saved.stockFrom, c.stockFrom);
     if (typeof c.completed === 'boolean') saved.completed = c.completed;
+    if (typeof c.peaceful === 'boolean') saved.peaceful = c.peaceful;
   }
   for (const [k, t] of fix.harvested ?? [])
     if (typeof k === 'string' && Number.isFinite(t)) state.harvested.set(k, t);

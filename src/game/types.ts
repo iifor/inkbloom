@@ -61,7 +61,10 @@ export interface PlayerApi {
   pitch: number;
   flying: boolean;
   readonly gliding: boolean;
+  /** Airborne fall or its brief landing recovery, with both hands free. */
+  readonly falling: boolean;
   readonly waterMode: 'dry' | 'wading' | 'swimming';
+  readonly resting: 'sitting' | 'lying' | null;
   /** Push the player along a direction for a moment (dodges, dash attacks). */
   dash(dir: THREE.Vector3, distance: number, seconds: number): void;
   readonly dashing: boolean;
@@ -173,7 +176,11 @@ export interface CombatApi {
   readonly maxHp: number;
   readonly alive: boolean;
   /** `melee`: a blow that shoves the player back and slows them for a moment. */
-  damagePlayer(amount: number, from: THREE.Vector3, opts?: { readonly melee?: boolean }): void;
+  damagePlayer(
+    amount: number,
+    from?: THREE.Vector3,
+    opts?: { readonly melee?: boolean; readonly fall?: boolean },
+  ): void;
   addTargets(source: TargetSource): () => void;
   /** A hitscan shot: hits the nearest target unless a wall is closer. */
   shoot(origin: THREE.Vector3, dir: THREE.Vector3, range: number, damage: number): ShotResult;

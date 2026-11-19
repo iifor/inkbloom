@@ -119,6 +119,7 @@ function blockMilestones(
   coloredOnce: Uint8Array,
   chunk: number,
 ): void {
+  if (state.cities.get(city)?.peaceful) return;
   if (coloredOnce[chunk] || coloredRatio(states, surfaces, chunk) < TUNING.blocks.coloredAt) return;
   coloredOnce[chunk] = 1;
   const g = state.growth;
@@ -301,6 +302,11 @@ function applyRules(state: WorldState, patch: Patch, ctx: PatchContext): PatchRe
   const skel = ctx.cityOf(patch.city);
   if (!skel) return fail('城市不存在');
   const { states, stains, defeated, coloredOnce, requestsDone } = cityStates(state, patch.city, skel);
+  if (
+    state.cities.get(patch.city)!.peaceful &&
+    (patch.kind === 'complete' || patch.kind === 'drain' || patch.kind === 'tideHeld')
+  )
+    return fail('这座村庄未受污染，无需修复或抵御墨潮');
 
   switch (patch.kind) {
     case 'complete': {

@@ -31,7 +31,12 @@ export class CityRegistry implements CityApi {
     if (!worker) return;
     this.entrances.set(id, entrance);
     this.pending.add(id);
-    const job: CityJob = { town: entrance, worldSeed: this.ctx.wilderness.seed };
+    const job: CityJob = {
+      town: entrance,
+      worldSeed: this.ctx.wilderness.seed,
+      terrainVersion: this.ctx.wilderness.terrainVersion,
+      legacyTowns: this.ctx.wilderness.legacyTowns,
+    };
     worker.postMessage(job);
   }
 

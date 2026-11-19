@@ -3,10 +3,9 @@
 // with accepted patches. It shares the wilderness's physics world: the player walks in through
 // a gate and the scene manager makes it the active scene while they are inside.
 import * as THREE from 'three';
-import { color } from '@/content/palette';
 import { TUNING } from '@/content/tuning';
 import { PhysicsWorld } from '@/engine/physics/world';
-import { GeometryBuilder, fromGeometryData } from '@/engine/render/geometry-builder';
+import { fromGeometryData } from '@/engine/render/geometry-builder';
 import { SurfaceStateTexture, makeInkMaterial, shared } from '@/engine/render/ink-material';
 import { disposeTree } from '@/engine/resources';
 import type { GameContext, GameScene } from '@/game/types';
@@ -22,6 +21,7 @@ import { InkTide } from './ink-tide';
 import { CityMonsters } from './city-monsters';
 import { Residents } from './residents';
 import { Studios } from './studios';
+import { buildWaterwheel } from './waterwheel';
 
 /** Metres from a district's middle beyond which its houses are drawn as shells. A district is
  * 128 m across, so its nearest houses are then some 70 m off, where a window frame is about a
@@ -29,30 +29,6 @@ import { Studios } from './studios';
 const FAR_DETAIL = 130;
 /** Radians a second the waterwheel turns. */
 const WHEEL_TURN = 0.45;
-
-/** A wooden undershot waterwheel turning about its own x axis: two rims, spokes, paddles. */
-function waterwheel(r: number): THREE.BufferGeometry {
-  const g = new GeometryBuilder();
-  const wood = color('bark');
-  const m = new THREE.Matrix4();
-  const turn = new THREE.Matrix4();
-  const rim = new THREE.TorusGeometry(r, 0.09, 5, 28).rotateY(Math.PI / 2);
-  const spoke = new THREE.BoxGeometry(0.08, 2 * r, 0.08);
-  const paddle = new THREE.BoxGeometry(1.3, 0.55, 0.06);
-  const axle = new THREE.CylinderGeometry(0.16, 0.16, 2.2, 8).rotateZ(Math.PI / 2);
-  for (const x of [-0.55, 0.55]) {
-    g.mesh(rim, m.makeTranslation(x, 0, 0), wood);
-    for (let k = 0; k < 4; k++)
-      g.mesh(spoke, m.makeTranslation(x, 0, 0).multiply(turn.makeRotationX((k * Math.PI) / 4)), wood);
-  }
-  for (let k = 0; k < 16; k++) {
-    const a = (k * Math.PI * 2) / 16;
-    g.mesh(paddle, turn.makeRotationX(a).multiply(m.makeTranslation(0, r - 0.2, 0)), wood);
-  }
-  g.mesh(axle, m.identity(), wood);
-  for (const geometry of [rim, spoke, paddle, axle]) geometry.dispose();
-  return g.build();
-}
 
 export class CityScene implements GameScene {
   readonly ref: { readonly kind: 'city'; readonly id: string };
@@ -107,7 +83,10 @@ export class CityScene implements GameScene {
       }
     });
     this.texture = new SurfaceStateTexture(this.states);
-    this.material = makeInkMaterial({ state: this.texture });
+    this.material = makeInkMaterial({
+      state: this.texture,
+      yardGrid: new THREE.Vector3(layout.ox, layout.oz, layout.cell),
+    });
     // the town's ground lies on the land's own triangles: draw it in front of them (towards
     // the eye is up the depth range when depth runs the other way)
     const towards = shared.uReversedDepth.value ? 1 : -1;
@@ -178,9 +157,15 @@ export class CityScene implements GameScene {
       yield;
     }
     if (layout.wheel) {
-      this.wheel = new THREE.Mesh(waterwheel(layout.wheel.r), this.material);
+      const mill = buildWaterwheel(layout)!;
+      this.wheel = new THREE.Mesh(mill.rotor, this.material);
+      this.wheel.name = 'waterwheel:rotor';
       this.wheel.position.set(layout.wheel.x, layout.wheel.y, layout.wheel.z);
-      this.root.add(this.wheel);
+      const support = new THREE.Mesh(mill.frame, this.material);
+      support.name = 'waterwheel:fixed-support';
+      support.position.copy(this.wheel.position);
+      this.root.add(this.wheel, support);
+      for (const b of mill.boxes) this.physics.addBox(cityGroup(layout.id), b.min, b.max);
     }
     yield;
     this.stains = new InkStains(ctx, layout, stains, this.material, this.root);
@@ -245,6 +230,10 @@ export class CityScene implements GameScene {
     return this.ctx.state.cities.get(this.layout.id)?.completed ?? false;
   }
 
+  get peaceful(): boolean {
+    return this.ctx.state.cities.get(this.layout.id)?.peaceful ?? false;
+  }
+
   /** Once every block has colour, the city is restored for good. */
   /** Bring one surface's counts and texture up to its saved state. Returns whether it gained
    * colour; `bloom` bursts its colour where it stands (for colour freed without the brush). */
@@ -266,6 +255,7 @@ export class CityScene implements GameScene {
   }
 
   private checkComplete(): void {
+    if (this.peaceful) return;
     // this player's own restore: in a server world someone else may have finished the town
     if (this.ctx.state.growth.milestones.includes(`city:${this.layout.id}:restored`)) return;
     if (!this.blocks().every((b) => b === 'colored' || b === 'thriving')) return;
@@ -319,15 +309,19 @@ export class CityScene implements GameScene {
   update(dt: number): void {
     this.stains.update();
     const keeper = !this.ctx.net || this.ctx.net.keeps(this.layout.id);
-    if (keeper) this.erosion.update(dt);
+    if (keeper && !this.peaceful) this.erosion.update(dt);
     this.monsters.update(dt);
-    if (keeper) this.tide.update(dt);
+    this.studios.update(dt);
+    if (keeper && !this.peaceful) this.tide.update(dt);
   }
 
   /** While the player is just outside the wall: the guards stay awake; everything else (the
    * tide's timers, erosion) waits for them to come in. */
   updateOutside(dt: number): void {
-    if (this.ready) this.monsters.update(dt);
+    if (this.ready) {
+      this.monsters.update(dt);
+      this.studios.update(dt);
+    }
   }
 
   dispose(): void {

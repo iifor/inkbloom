@@ -2,8 +2,9 @@
 // never hitches), owns their colliders (and, while they stand, the towns'), registers each
 // pigment source as an interactable, and hosts the monsters that roam drained land (and guard
 // its ink wells) and the deer that graze the rest.
+import { pathsOf } from '@/world/wilderness/paths';
+import { SPAWN_CENTER } from '@/world/wilderness/spawn-circle';
 import * as THREE from 'three';
-import { color } from '@/content/palette';
 import { SEASONS } from '@/content/seasons';
 import { TUNING } from '@/content/tuning';
 import { PhysicsWorld } from '@/engine/physics/world';
@@ -11,10 +12,10 @@ import { GeometryBuilder } from '@/engine/render/geometry-builder';
 import { makeInkMaterial, shared } from '@/engine/render/ink-material';
 import { disposeTree } from '@/engine/resources';
 import type { GameContext, GameScene } from '@/game/types';
-import { calendarAt, grassCoverAt, seasonBlend } from '@/world/climate/calendar';
-import type { CityLayout } from '@/world/city/layout';
-import { chunkKey, generateWildChunk } from '@/world/wilderness/chunk';
-import { RIVER_LANE, RIVER_X } from '@/world/wilderness/generator';
+import { calendarAt, calendarClock, grassCoverAt, seasonBlend } from '@/world/climate/calendar';
+import { villageLawnKind } from '@/world/city/lawn';
+import { chunkKey, generateWildChunkSteps } from '@/world/wilderness/chunk';
+import { waterCurrentsOf } from '@/world/wilderness/water-current';
 import { buildTerrainSteps, addChunkColliders } from './build-chunk';
 import { WildTrees } from './wild-trees';
 import { WildSources } from './pigment-sources';
@@ -26,6 +27,11 @@ import { Waterweed } from './waterweed';
 import { GrassField } from './grass';
 import { WildDeer } from './deer';
 import { WildInkWells } from './ink-wells';
+import { WindFlags } from '@/engine/render/wind-flags';
+import { lookoutFlag } from './build-landmarks';
+import { DistantTerrain } from './distant-terrain';
+import { buildFarmstead } from './build-farmstead';
+import { mountFarmDoor } from './farm-door';
 
 interface Loaded {
   readonly mesh: THREE.Mesh;
@@ -33,8 +39,8 @@ interface Loaded {
 }
 
 const W = TUNING.world;
-/** The river table covers four of these bands of z, with the player in the third. */
-const RIVER_BAND = 256;
+/** The velocity texture covers four bands on each axis. */
+const RIVER_BAND = 192;
 /** Offsets (metres) round a grass tuft that must all be clear of paving, houses and water. */
 const LAWN_CLEAR = [
   [0, 0],
@@ -43,48 +49,6 @@ const LAWN_CLEAR = [
   [0, 0.6],
   [0, -0.6],
 ] as const;
-/** Where a town is paved (its streets' strips and the square), a metre to a cell, with half a
- * metre to spare; worked out once a town. */
-const paving = new WeakMap<CityLayout, Uint8Array>();
-function pavingOf(l: CityLayout): Uint8Array {
-  let grid = paving.get(l);
-  if (grid) return grid;
-  const side = l.n * l.cell;
-  grid = new Uint8Array(side * side);
-  const stamp = (cx: number, cz: number, r: number, inside: (x: number, z: number) => boolean): void => {
-    for (let z = Math.max(0, Math.floor(cz - r)); z <= Math.min(side - 1, Math.ceil(cz + r)); z++)
-      for (let x = Math.max(0, Math.floor(cx - r)); x <= Math.min(side - 1, Math.ceil(cx + r)); x++)
-        if (inside(x + 0.5, z + 0.5)) grid![z * side + x] = 1;
-  };
-  for (const st of l.streets) {
-    const half = st.width / 2 + 0.5;
-    for (let k = 0; k + 1 < st.points.length; k++) {
-      const a = st.points[k]!;
-      const b = st.points[k + 1]!;
-      const ax = a.x - l.ox,
-        az = a.z - l.oz,
-        bx = b.x - l.ox,
-        bz = b.z - l.oz;
-      const len2 = (bx - ax) ** 2 + (bz - az) ** 2 || 1;
-      const r = Math.hypot(bx - ax, bz - az) / 2 + half;
-      stamp((ax + bx) / 2, (az + bz) / 2, r, (x, z) => {
-        const t = Math.max(0, Math.min(1, ((x - ax) * (bx - ax) + (z - az) * (bz - az)) / len2));
-        return Math.hypot(x - ax - t * (bx - ax), z - az - t * (bz - az)) < half;
-      });
-    }
-  }
-  const sq = l.square;
-  stamp(
-    sq.x - l.ox,
-    sq.z - l.oz,
-    sq.r + 1,
-    (x, z) => Math.hypot(x - (sq.x - l.ox), z - (sq.z - l.oz)) < sq.r + 0.5,
-  );
-  paving.set(l, grid);
-  return grid;
-}
-/** Yard colours that are lawn. */
-const GRASSY = new Set([color('grass'), color('green')]);
 /** Milliseconds a frame spent building the next chunk. */
 const BUILD_MS = 2;
 
@@ -95,6 +59,7 @@ export class WildScene implements GameScene {
   readonly physics = new PhysicsWorld(8);
   private readonly material = makeInkMaterial();
   private readonly trees = new WildTrees(this.root);
+  private readonly landscape: DistantTerrain;
   private readonly loaded = new Map<string, Loaded>();
   /** The chunk being built a little each frame, if any; see update(). */
   private building: { readonly key: string; readonly steps: Generator<void, void, void> } | null = null;
@@ -106,22 +71,25 @@ export class WildScene implements GameScene {
   private readonly deer: WildDeer;
   private readonly wells: WildInkWells;
   private readonly grass: GrassField;
+  private readonly flags: WindFlags;
   private readonly fish = new WildFish(this.root, (x, z) => this.ctx.renderer.ripple(x, z, false));
   private readonly weed = new Waterweed(this.root);
   private nextWake = 0;
   /** Towns near by that were laid out when the grass was last laid (see update). */
   private lawns = '';
   /** Where the renderer's river table was last made for (see updateRivers). */
-  private riverLane = NaN;
+  private riverX = NaN;
   private riverZ = NaN;
   private readonly offStroke: () => void;
 
   constructor(private readonly ctx: GameContext) {
     this.root.name = 'wild';
+    this.landscape = new DistantTerrain(ctx.wilderness, this.root);
     // rolling hills: bodies stand on the height function itself, not on colliders
     this.physics.ground = (x, z) => ctx.wilderness.heightAt(x, z);
     this.grass = new GrassField(ctx.wilderness, this.root, ctx.renderer.camera, (x, z) => this.lawnAt(x, z));
     this.sources = new WildSources(ctx, this.material, this.root, this.grass.windMap);
+    this.flags = new WindFlags(this.root, ctx.wilderness.seed, this.grass.windMap);
     this.monsters = new WildMonsterCamps(ctx, this.physics, this.root, this.material);
     this.ruins = new WildRuins(ctx, this.material, this.root);
     this.marks = new WildMarks(ctx, this.material, this.root);
@@ -133,13 +101,17 @@ export class WildScene implements GameScene {
   }
 
   spawn(): { pos: THREE.Vector3; yaw: number } {
-    const x = W.chunkSize * 0.5;
-    const z = W.chunkSize * 0.5;
+    const x = SPAWN_CENTER;
+    const z = SPAWN_CENTER;
     this.ensureAt(x, z);
-    const e = this.ctx.wilderness.entranceInCell(0, 0);
-    // face the first town
-    const yaw = e ? Math.atan2(-(e.x - x), -(e.z - z)) : 0;
-    return { pos: new THREE.Vector3(x, this.ctx.wilderness.heightAt(x, z) + 0.05, z), yaw };
+    const w = this.ctx.wilderness;
+    const road = pathsOf(w)
+      .trailsNear(x, z, x + 8, z)
+      .find((trail) => trail.id === 'spawn');
+    const town = w.entranceInCell(0, 0);
+    const aheadX = road?.pts[4] ?? town?.x ?? x;
+    const aheadZ = road?.pts[5] ?? town?.z ?? z - 1;
+    return { pos: new THREE.Vector3(x, w.heightAt(x, z) + 0.16, z), yaw: Math.atan2(x - aheadX, z - aheadZ) };
   }
 
   /**
@@ -152,21 +124,7 @@ export class WildScene implements GameScene {
     const e = this.ctx.wilderness.townAt(x, z, 1);
     const l = e && this.ctx.cities.byId(e.cityId);
     if (!l) return false;
-    const paved = pavingOf(l);
-    /** -1 paving, house, water or outside; 0 bare yard; 1 green. */
-    const kind = (px: number, pz: number): number => {
-      const ix = Math.floor((px - l.ox) / l.cell);
-      const iz = Math.floor((pz - l.oz) / l.cell);
-      if (ix < 0 || iz < 0 || ix >= l.n || iz >= l.n) return -1;
-      const i = iz * l.n + ix;
-      if (l.buildingOf[i] || l.water[i]) return -1;
-      const side = l.n * l.cell;
-      const mx = Math.floor(px - l.ox);
-      const mz = Math.floor(pz - l.oz);
-      if (paved[mz * side + mx]) return -1;
-      const s = l.groundOf[i]!;
-      return s < 0 || GRASSY.has(l.surfaces[s]!.color) ? 1 : 0;
-    };
+    const kind = (px: number, pz: number) => villageLawnKind(l, px, pz);
     let lawn = 0;
     for (const [dx, dz] of LAWN_CLEAR) {
       const k = kind(x + dx, z + dz);
@@ -218,7 +176,8 @@ export class WildScene implements GameScene {
       const [cx, cz] = key.split(',').map(Number) as [number, number];
       if (Math.max(Math.abs(cx - pcx), Math.abs(cz - pcz)) > W.unloadRadius) this.unload(key, item);
     }
-    const phase = calendarAt(this.ctx.state.clock).yearPhase;
+    const phase = calendarAt(calendarClock(this.ctx.state, !!this.ctx.net)).yearPhase;
+    this.landscape.update(p, this.loaded);
     const year = seasonBlend(phase);
     this.trees.update(p);
     const flowers = SEASONS[year.from]!.flowers * (1 - year.t) + SEASONS[year.to]!.flowers * year.t;
@@ -233,6 +192,7 @@ export class WildScene implements GameScene {
     }
     this.updateRivers(p);
     this.sources.update(dt);
+    this.flags.update(dt);
     this.monsters.update(dt);
     this.ruins.update(dt);
     this.deer.update(dt);
@@ -257,12 +217,13 @@ export class WildScene implements GameScene {
   /** The renderer's table of where the rivers run (for the water's current), redone when the
    * player crosses into another river's lane or another stretch of a few hundred metres. */
   private updateRivers(p: THREE.Vector3): void {
-    const lane = Math.round((p.x - W.chunkSize / 2 - RIVER_X) / RIVER_LANE) - 1;
+    const x0 = Math.floor(p.x / RIVER_BAND) * RIVER_BAND - RIVER_BAND * 2;
     const z0 = Math.floor(p.z / RIVER_BAND) * RIVER_BAND - RIVER_BAND * 2;
-    if (lane === this.riverLane && z0 === this.riverZ) return;
-    this.riverLane = lane;
+    if (x0 === this.riverX && z0 === this.riverZ) return;
+    this.riverX = x0;
     this.riverZ = z0;
-    this.ctx.renderer.setRivers(lane, z0, 8, (l, z) => this.ctx.wilderness.riverAt(l, z));
+    const currents = waterCurrentsOf(this.ctx.wilderness);
+    this.ctx.renderer.setRivers(x0, z0, (x, z) => currents.at(x, z));
   }
 
   /** Push nearby cities' progress into the shader so the wilderness greys around them. */
@@ -292,7 +253,7 @@ export class WildScene implements GameScene {
   /** Loading a chunk as a sequence of steps, each a millisecond or two. */
   private *loadSteps(cx: number, cz: number): Generator<void, void, void> {
     const key = chunkKey(cx, cz);
-    const chunk = generateWildChunk(this.ctx.wilderness, cx, cz);
+    const chunk = yield* generateWildChunkSteps(this.ctx.wilderness, cx, cz);
     yield;
     const g = new GeometryBuilder();
     yield* buildTerrainSteps(chunk, this.ctx.wilderness, g);
@@ -300,7 +261,22 @@ export class WildScene implements GameScene {
     const group = `chunk:${key}`;
     addChunkColliders(chunk, this.physics, group);
     const release: (() => void)[] = [];
+    if (chunk.farmstead) {
+      let index = 0;
+      buildFarmstead(
+        g,
+        this.ctx.wilderness,
+        chunk.farmstead,
+        (min, max, data) => this.physics.addBox(group, min, max, data),
+        (door) =>
+          release.push(
+            mountFarmDoor(this.ctx, this.root, this.material, this.physics, `${group}:door:${index++}`, door),
+          ),
+      );
+      yield;
+    }
     release.push(this.trees.add(chunk, this.ctx.player.position));
+    for (const l of chunk.lookouts) release.push(this.flags.add(lookoutFlag(l, this.ctx.wilderness)));
     for (const r of chunk.ruins) buildRuin(r, g, this.physics, group);
     yield;
     release.push(this.ruins.add(chunk.ruins));
@@ -347,9 +323,11 @@ export class WildScene implements GameScene {
     this.deer.dispose();
     this.wells.dispose();
     this.grass.dispose();
+    this.flags.dispose();
     this.fish.dispose();
     this.weed.dispose();
     this.trees.dispose();
+    this.landscape.dispose();
     this.material.dispose();
     disposeTree(this.root);
   }

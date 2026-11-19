@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { TUNING } from '@/content/tuning';
-import { generateWildChunk } from '@/world/wilderness/chunk';
+import { generateWildChunk, generateWildChunkSteps } from '@/world/wilderness/chunk';
 import { createWilderness, townDistance } from '@/world/wilderness/generator';
 import { saturationAt } from '@/world/wilderness/drain';
 import { ruinById, ruinInCell } from '@/world/wilderness/ruins';
@@ -9,6 +9,20 @@ import { WATER_LEVEL } from '@/world/wilderness/generator';
 const SEED = 20261102;
 
 describe('wilderness', () => {
+  it('can interleave chunk generation without changing its terrain or contents', () => {
+    const w = createWilderness(SEED);
+    const steps = generateWildChunkSteps(w, -10, -5);
+    let next = steps.next();
+    let yields = 0;
+    while (!next.done) {
+      // Other systems may sample the same world while streaming is suspended.
+      w.heightAt(-1250 + yields, -610);
+      yields++;
+      next = steps.next();
+    }
+    expect(yields).toBeGreaterThan(64);
+    expect(next.value).toEqual(generateWildChunk(createWilderness(SEED), -10, -5));
+  });
   it('generates the same chunk regardless of order', () => {
     const a = createWilderness(SEED);
     const b = createWilderness(SEED);
@@ -71,7 +85,8 @@ describe('wilderness', () => {
   });
 
   it('keeps a gentler copy of the hills under a town and eases it back into the wild ones', () => {
-    const w = createWilderness(SEED);
+    // Legacy towns keep their raw-height grading contract; regional towns survey river valleys too.
+    const w = createWilderness(SEED, [], 1);
     const S = TUNING.structures;
     for (const e of w.entrancesNear(0, 0, 2)) {
       expect(Math.abs(e.ox % TUNING.world.cellSize)).toBe(0);

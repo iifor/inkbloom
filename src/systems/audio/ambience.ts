@@ -1,89 +1,77 @@
 // The sound of the land around the player, made from the same synth as everything else: birds
 // by day (a dawn chorus, quiet in winter, silent in rain), crickets on warm evenings and nights,
 // cicadas in the heat of a summer afternoon, an owl now and then in the woods at night, frogs and
-// running water near rivers and lakes, leaves rustling in the wind. Life comes back with colour:
-// drained grey land is nearly silent, and birds return as the colour does. Everything is placed
-// a few metres to tens of metres around the listener, so it pans and fades like other sounds.
+// running water in channels, leaves rustling in the wind. Life comes back with colour:
+// drained grey land is nearly silent, and birds return as the colour does. Habitat emitters
+// stay at the same world coordinates as the listener moves.
 // Under it all lie recorded beds (CC0 field recordings, see content/sounds.ts): birdsong in the
 // woods and in open country, and running water; the synthesised calls then become occasional
 // accents. Until a bed has loaded, or if it cannot, the synthesised version plays alone.
-import { BIOMES } from '@/content/biomes';
 import { BEDS } from '@/content/sounds';
-import { type Loop, type Stream, type Synth } from '@/engine/audio/synth';
+import { type Loop, type Stream, type Synth, type Vec3 } from '@/engine/audio/synth';
 import { dayHours } from '@/engine/render/daylight';
 import type { GameContext } from '@/game/types';
 import { seasonBlend } from '@/world/climate/calendar';
 import { smoothstep } from '@/world/math/noise';
-import { springLevel, springsNear } from '@/world/wilderness/landmarks';
+import { AmbienceSites, ambienceGain, type AmbienceSite } from './ambience-sites';
 
-/** What the ambience reads about the land, refreshed twice a second. */
-interface Here {
-  wild: boolean;
-  /** 0 bare and open .. 1 deep woods. */
-  trees: number;
-  /** 0 far from water .. 1 on the bank. */
-  water: number;
-  /** The nearest hot spring's water, and how far it is (Infinity: none near). */
-  spring: { x: number; y: number; z: number; d: number };
+interface Mix {
+  level: number;
+  pan: number;
+  weight: number;
+  source: Vec3 | null;
 }
+const mix = (): Mix => ({ level: 0, pan: 0, weight: 0, source: null });
 
 export class Ambience {
-  private readonly here: Here = { wild: true, trees: 0, water: 0, spring: { x: 0, y: 0, z: 0, d: Infinity } };
+  private readonly survey: AmbienceSites;
+  private sites: AmbienceSite[] = [];
   private sampleT = 0;
   private cicada: Loop | null = null;
   private stream: Loop | null = null;
   private leaves: Loop | null = null;
-  private simmer: Loop | null = null;
   private beds: { forest: Stream; birds: Stream; river: Stream } | null = null;
 
   constructor(
     private readonly synth: Synth,
     private readonly ctx: GameContext,
-  ) {}
+  ) {
+    this.survey = new AmbienceSites(ctx.wilderness);
+  }
 
   private loops(): void {
     if (this.cicada || !this.synth.ctx) return;
     const s = this.synth;
-    this.cicada = s.noiseLoop({ type: 'bandpass', freq: 4200, q: 3, gain: 0.05 });
-    this.stream = s.noiseLoop({ type: 'bandpass', freq: 900, q: 0.7, gain: 0.22 });
-    this.leaves = s.noiseLoop({ type: 'highpass', freq: 2400, gain: 0.12 });
-    this.simmer = s.noiseLoop({ type: 'lowpass', freq: 420, gain: 0.18 });
+    this.cicada = s.noiseLoop({ type: 'bandpass', freq: 4200, q: 3, gain: 0.05, spatial: true });
+    this.stream = s.noiseLoop({ type: 'bandpass', freq: 900, q: 0.7, gain: 0.22, spatial: true });
+    this.leaves = s.noiseLoop({ type: 'highpass', freq: 2400, gain: 0.12, spatial: true });
     const bed = (url: string, gain: number): Stream =>
-      s.stream(import.meta.env.BASE_URL + url, { loop: true, gain, bus: 'ambience' });
+      s.stream(import.meta.env.BASE_URL + url, { loop: true, gain, bus: 'ambience', spatial: true });
     this.beds = { forest: bed(BEDS.forest, 0.55), birds: bed(BEDS.birds, 0.45), river: bed(BEDS.river, 0.6) };
   }
 
   private sample(): void {
-    const { scenes, player, wilderness } = this.ctx;
-    const h = this.here;
-    h.wild = scenes.active.ref.kind === 'wild';
-    h.spring.d = Infinity;
-    if (!h.wild) {
-      h.trees = 0.2;
-      h.water = 0;
-      return;
-    }
+    const { player } = this.ctx;
     const { x, z } = player.position;
-    const spring = springsNear(wilderness, x, z, 45)[0];
-    if (spring)
-      Object.assign(h.spring, {
-        x: spring.x,
-        y: springLevel(spring, wilderness),
-        z: spring.z,
-        d: Math.max(0, Math.hypot(spring.x - x, spring.z - z) - spring.r),
-      });
-    const biome = BIOMES[wilderness.biomeAt(x, z)]!;
-    h.trees = biome.key === 'forest' ? 1 : biome.key === 'water' ? 0.1 : 0.35;
-    // `water` is small along rivers and lakes
-    h.water = smoothstep(0.12, 0.04, wilderness.climate(x, z).water);
+    this.sites = this.survey.near(x, z);
   }
 
-  /** A point `near`..`far` metres away in a random direction, `up` metres above the ear. */
-  private around(near: number, far: number, up: number): { x: number; y: number; z: number } {
-    const e = this.ctx.player.eye;
-    const a = Math.random() * Math.PI * 2;
-    const d = near + Math.random() * (far - near);
-    return { x: e.x + Math.cos(a) * d, y: e.y + up * Math.random(), z: e.z + Math.sin(a) * d };
+  /** Mix emitters using the strongest level and a distance-weighted stereo image.
+   * A single looping recording per habitat avoids several copies of the same chorus. */
+  private add(m: Mix, pos: Vec3, near: number, far: number, height = 0, strength = 1): void {
+    const { eye, yaw } = this.ctx.player;
+    const x = pos.x - eye.x,
+      z = pos.z - eye.z;
+    const distance = Math.hypot(x, pos.y + height - eye.y, z);
+    const level = strength * ambienceGain(distance, near, far);
+    if (level <= 0) return;
+    if (level > m.level) {
+      m.level = level;
+      m.source = pos;
+    }
+    const weight = level * level;
+    m.weight += weight;
+    m.pan += (weight * 0.82 * (x * Math.cos(yaw) - z * Math.sin(yaw))) / Math.max(1, distance);
   }
 
   update(dt: number): void {
@@ -96,7 +84,20 @@ export class Ambience {
     }
     const a = this.ctx.renderer.atmosphere;
     const w = a.weather;
-    const h = this.here;
+    const wild = this.ctx.scenes.active.ref.kind === 'wild';
+    const forest = mix(),
+      meadow = mix(),
+      shore = mix(),
+      current = mix();
+    for (const site of this.sites) {
+      if (site.kind === 'forest') this.add(forest, site.pos, 12, 88, 4.8);
+      if (site.kind === 'meadow') this.add(meadow, site.pos, 12, 76, 2.2);
+      if (site.kind === 'water' && wild) this.add(shore, site.pos, 8, 62);
+      if (site.kind === 'current' && wild)
+        this.add(current, site.pos, 10, 28 + 24 * site.strength, 0, site.strength);
+    }
+    const pan = (m: Mix) => (m.weight ? m.pan / m.weight : 0);
+    const land = forest.level >= meadow.level ? forest : meadow;
     // the day: sunrise and sunset move with the season
     const len = dayHours(a.declination);
     const rise = 12 - len / 2;
@@ -125,40 +126,38 @@ export class Ambience {
       life;
     const beds = this.beds;
     // the recorded chorus: woodland birds under trees, open-country birds elsewhere
-    beds?.forest.set(song * (h.wild ? h.trees : 0.15), 3);
-    beds?.birds.set(song * (h.wild ? 1 - 0.6 * h.trees : 0.35), 3);
-    const recorded = !!beds && (beds.forest.playing || beds.birds.playing);
+    beds?.forest.set(song * forest.level * (wild ? 1 : 0.22), 0.65, pan(forest));
+    beds?.birds.set(song * meadow.level * (wild ? 0.8 : 0.35), 0.65, pan(meadow));
+    const recorded = land === forest ? beds?.forest.playing : beds?.birds.playing;
     // single synthesised calls: the whole chorus without the beds, a few accents with them
-    const birds = 0.5 * song * (1 + 1.2 * dawn) * (h.wild ? 0.6 + 0.9 * h.trees : 0.4) * (recorded ? 0.3 : 1);
-    if (roll(birds)) this.bird(spring);
+    const nearbyLife = Math.min(1, land.level * 2.5);
+    const birds = 0.8 * song * (1 + 1.2 * dawn) * nearbyLife * (wild ? 1 : 0.4) * (recorded ? 0.3 : 1);
+    if (land.source && roll(birds))
+      this.bird(spring, { ...land.source, y: land.source.y + (land === forest ? 4.8 : 2.2) });
 
     const warmNights = summer + 0.5 * spring + 0.6 * autumn;
-    const crickets = 1.6 * (1 - 0.85 * day) * warmNights * (1 - wet) * life * (h.wild ? 1 : 0.3);
-    if (roll(crickets)) this.cricket();
+    const crickets = 1.6 * (1 - 0.85 * day) * warmNights * (1 - wet) * life * nearbyLife * (wild ? 1 : 0.3);
+    if (land.source && roll(crickets)) this.cricket({ ...land.source, y: land.source.y + 0.12 });
 
     const afternoon = smoothstep(10, 13, a.hour) * (1 - smoothstep(17, 19, a.hour));
-    this.cicada?.set(summer * afternoon * (1 - wet) * life * (h.wild ? 0.4 + 0.6 * h.trees : 0));
+    this.cicada?.set(summer * afternoon * (1 - wet) * life * (wild ? forest.level : 0), pan(forest));
 
     const night = 1 - day;
-    if (h.wild && roll((night * (0.3 + 0.7 * h.trees) * (1 - wet) * life) / 35)) this.owl();
-    if (h.wild && roll(0.8 * night * h.water * (spring + summer) * (1 - 0.5 * wet) * life)) this.frog();
+    if (wild && forest.source && roll((night * forest.level * (1 - wet) * life) / 20))
+      this.owl({ ...forest.source, y: forest.source.y + 5.5 });
+    if (shore.source && roll(1.1 * night * shore.level * (spring + summer) * (1 - 0.5 * wet) * life))
+      this.frog({ ...shore.source });
 
-    // still water in a freeze makes no sound; the recorded river when it has loaded
-    const water = h.water * (1 - 0.8 * winter * smoothstep(0, -3, a.seaTemp));
-    beds?.river.set(water, 2);
-    this.stream?.set(beds?.river.playing ? 0 : water);
-    // a hot spring simmers, and bubbles break on it now and then
-    const near = 1 / (1 + h.spring.d / 5);
-    this.simmer?.set(Number.isFinite(h.spring.d) ? near : 0);
-    if (Number.isFinite(h.spring.d) && roll(4 * near)) this.bubble();
+    const water = current.level * (1 - 0.8 * winter * smoothstep(0, -3, a.seaTemp));
+    beds?.river.set(water, 0.65, pan(current));
+    this.stream?.set(beds?.river.playing ? 0 : water, pan(current));
     // bare winter branches hardly rustle
-    this.leaves?.set(h.wild ? h.trees * smoothstep(1.5, 9, wind) * (1 - 0.7 * winter) : 0);
+    this.leaves?.set(wild ? forest.level * smoothstep(1.5, 9, wind) * (1 - 0.7 * winter) : 0, pan(forest));
   }
 
   /** One bird's phrase: a whistle, a trill, or (in spring) a two-note call. */
-  private bird(spring: number): void {
+  private bird(spring: number, pos: Vec3): void {
     const s = this.synth;
-    const pos = this.around(8, 35, 8);
     const kind = Math.random();
     let t = s.now + 0.02;
     if (spring > 0.5 && kind < 0.12) {
@@ -190,28 +189,17 @@ export class Ambience {
     }
   }
 
-  /** A bubble breaking on a hot spring: a small, rising blop. */
-  private bubble(): void {
-    const s = this.synth;
-    const p = this.here.spring;
-    const pos = { x: p.x + (Math.random() - 0.5) * 3, y: p.y, z: p.z + (Math.random() - 0.5) * 3 };
-    const f = 220 + Math.random() * 260;
-    s.tone({ freq: f, freqEnd: f * 2.2, dur: 0.06, gain: 0.05, pos, bus: 'ambience' });
-  }
-
   /** A cricket's chirp: three tiny pulses. */
-  private cricket(): void {
+  private cricket(pos: Vec3): void {
     const s = this.synth;
-    const pos = this.around(4, 20, 0.3);
     const f = 4300 + Math.random() * 600;
     for (let i = 0; i < 3; i++)
       s.tone({ freq: f, dur: 0.018, gain: 0.02, at: s.now + 0.02 + i * 0.04, pos, bus: 'ambience' });
   }
 
   /** An owl in the woods: a short hoot, then a long one. */
-  private owl(): void {
+  private owl(pos: Vec3): void {
     const s = this.synth;
-    const pos = this.around(25, 60, 10);
     const t = s.now + 0.02;
     s.tone({ freq: 400, freqEnd: 380, dur: 0.3, gain: 0.07, at: t, attack: 0.05, pos, bus: 'ambience' });
     s.tone({
@@ -227,9 +215,8 @@ export class Ambience {
   }
 
   /** A frog croaking two or three times by the water. */
-  private frog(): void {
+  private frog(pos: Vec3): void {
     const s = this.synth;
-    const pos = this.around(5, 25, 0);
     const f = 130 + Math.random() * 60;
     for (let i = 0, n = 2 + Math.floor(Math.random() * 2); i < n; i++)
       s.tone({
@@ -245,7 +232,7 @@ export class Ambience {
   }
 
   dispose(): void {
-    for (const l of [this.cicada, this.stream, this.leaves, this.simmer]) l?.stop();
+    for (const l of [this.cicada, this.stream, this.leaves]) l?.stop();
     if (this.beds) for (const bed of Object.values(this.beds)) bed.stop(0.2);
   }
 }

@@ -18,6 +18,7 @@ export interface GameEvents {
     readonly from: Point3 | null;
     /** A blow up close (it shoves and slows), rather than a shot from range. */
     readonly melee: boolean;
+    readonly fall?: boolean;
   };
   'growth:level': { readonly level: number };
   'growth:points': { readonly gained: number; readonly total: number };
@@ -66,7 +67,7 @@ export interface GameEvents {
   /** A drop of ink falling off the tide curtain (effects only). */
   'tide:drip': { readonly at: Point3 };
   'player:jump': { readonly air: boolean };
-  'player:land': { readonly impact: number };
+  'player:land': { readonly impact: number; readonly water?: boolean };
   /** A swimming stroke kicked: the hands shot forward through the water (where they broke it). */
   'player:stroke': { readonly hands: readonly Point3[]; readonly power: number };
   'player:died': { readonly lostInk: number };

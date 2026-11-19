@@ -6,7 +6,7 @@ import * as THREE from 'three';
 import type { Gesture, HeldItem } from '@/world/net/protocol';
 import { reach } from './arm-ik';
 import type { PlayerPose } from './player-pose';
-import type { Rig } from './player-rig';
+import { PALM, UPPER_ARM, type Rig } from './player-rig';
 
 /** Seconds each attack and skill takes to act out, by what is in hand. An attack faster than
  * this (the rifle) starts again before it ends, which reads as sustained fire. */
@@ -135,6 +135,79 @@ const hold: Hold = { g: new THREE.Vector3(), r: new THREE.Vector3(), twist: 0, l
 const stance: Hold = { g: new THREE.Vector3(), r: new THREE.Vector3(), twist: 0, lean: 0 };
 /** Where the other hand goes, in the torso's space. */
 const off = new THREE.Vector3();
+const wrist = new THREE.Vector3();
+const contact = new THREE.Vector3();
+const handQ = new THREE.Quaternion();
+const foreQ = new THREE.Quaternion();
+const handRotation = new THREE.Euler();
+const rollQ = new THREE.Quaternion();
+const rollAxis = new THREE.Vector3(0, 1, 0);
+
+/** Orient the imported wrist separately from the forearm, then solve to the wrist, not
+ * the middle of a mitten. These hands have long palms; using the old palm offset put the
+ * shaft through the palm while leaving the fingers dangling in front of it. */
+export function alignGrips(r: Rig, item: HeldItem): void {
+  if (!r.gripOffset) return;
+  const prop = r.props[item];
+  const gun = KICK[item] !== undefined;
+  // Keep the rear of a tool clear of the chest, even during recoil and equip transitions.
+  prop.node.position.z = Math.min(prop.node.position.z, gun ? -0.37 : item === 'katana' ? -0.34 : -0.25);
+  prop.node.position.y = Math.max(0.12, Math.min(0.47, prop.node.position.y));
+  if (item === 'brush' || item === 'katana') {
+    // One-handed shafts follow a neutral wrist. The arm supplies the stroke/cut; an
+    // independently rotated prop would fold this long hand back against its forearm.
+    const lengths = r.armLengths!;
+    foreQ.copy(r.armR.quaternion).multiply(r.foreR.quaternion);
+    // Account for the shaft sitting beside the palm, not inside its centre line. Without
+    // this correction, resolving a blended pose repeatedly would creep sideways each frame.
+    for (let i = 0; i < 4; i++) {
+      contact.set(r.gripOffset.x, 0, r.gripOffset.z).applyQuaternion(foreQ);
+      wrist.copy(prop.node.position).sub(contact);
+      reach(r.armR, r.foreR, 1, wrist, [lengths[0], lengths[1] - r.gripOffset.y]);
+      if (item === 'katana')
+        r.foreR.quaternion.multiply(rollQ.setFromAxisAngle(rollAxis, prop.gripRoll ?? 0));
+      foreQ.copy(r.armR.quaternion).multiply(r.foreR.quaternion);
+    }
+    r.palmR.quaternion.identity();
+    r.palmR.position.copy(r.gripOffset);
+    r.palmR.position.y -= lengths[1];
+    prop.node.position.set(0, -lengths[0], 0).applyQuaternion(r.armR.quaternion).add(r.armR.position);
+    prop.node.position.add(contact.copy(r.palmR.position).applyQuaternion(foreQ));
+    prop.node.quaternion.copy(foreQ);
+    return;
+  }
+  for (const side of ['R', 'L'] as const) {
+    if (side === 'L' && !prop.off) continue;
+    const sign = side === 'R' ? 1 : -1;
+    const arm = r[`arm${side}`],
+      fore = r[`fore${side}`],
+      palm = r[`palm${side}`];
+    if (side === 'R') off.copy(prop.node.position);
+    else
+      off
+        .copy(prop.off!)
+        .multiplyScalar(prop.node.scale.x)
+        .applyQuaternion(prop.node.quaternion)
+        .add(prop.node.position);
+    // Trigger hand behind the pistol grip; support hand cups the underside from the left.
+    handRotation.set(
+      side === 'R' && gun ? 1.9 : 0,
+      side === 'L' && gun ? 1.05 : 0,
+      side === 'L' && gun ? Math.PI / 2 : side === 'R' && !gun ? -1.05 : 0,
+    );
+    handQ.setFromEuler(handRotation).premultiply(prop.node.quaternion);
+    contact.copy(r.gripOffset);
+    contact.x *= sign;
+    contact.applyQuaternion(handQ);
+    wrist.copy(off).sub(contact);
+    reach(arm, fore, sign, wrist, r.armLengths);
+    if (side === 'R') prop.node.position.copy(wrist).add(contact);
+    foreQ.copy(arm.quaternion).multiply(fore.quaternion).invert();
+    palm.quaternion.copy(foreQ).multiply(handQ);
+    palm.position.copy(contact).applyQuaternion(foreQ);
+    palm.position.y -= r.armLengths![1];
+  }
+}
 
 function setKey(h: Hold, k: Key): void {
   h.g.set(...k.g);
@@ -203,14 +276,49 @@ function holdFor(item: HeldItem, p: PlayerPose): number {
  * the action, the legs keep going. */
 export function holdPose(r: Rig, p: PlayerPose, item: HeldItem): void {
   const aim = holdFor(item, p);
+  const reachScale = r.gripOffset
+    ? 0.78
+    : r.armLengths
+      ? (r.armLengths[0] + r.armLengths[1]) / (UPPER_ARM + PALM)
+      : 1;
+  if (r.gripOffset) {
+    hold.g.x *= 0.9;
+    hold.g.y += r.armR.position.y - 0.46;
+    hold.g.z -= KICK[item] !== undefined ? 0.18 : 0.08;
+    if (KICK[item] !== undefined) hold.g.y += p.pitch * 0.16 * aim;
+    if (item === 'brush') {
+      const paint = Math.min(1, Math.max(0, p.paint ?? 0));
+      const phase = p.t * 3.8;
+      hold.g
+        .set(0.24, 0.12, -0.29)
+        .lerp(
+          v.set(
+            0.24 + Math.sin(phase * 0.5) * 0.02,
+            0.22 + Math.sin(phase) * 0.065 + p.pitch * 0.1,
+            -0.41 - Math.cos(phase) * 0.015,
+          ),
+          paint,
+        );
+    }
+  } else hold.g.multiplyScalar(reachScale);
   // it bobs with the steps
   hold.g.y += Math.sin(p.walk * 2) * 0.012 * Math.min(1, p.stride);
   const prop = r.props[item];
+  prop.node.scale.setScalar(reachScale);
+  if (r.gripOffset && item === 'katana') prop.gripRoll = THREE.MathUtils.clamp(hold.r.y, -0.7, 1.2);
   // the grip goes where the main hand gets to, so the hand never lets go
-  const grip = reach(r.armR, r.foreR, 1, hold.g);
+  const grip = r.gripOffset ? hold.g : reach(r.armR, r.foreR, 1, hold.g, r.armLengths);
   prop.node.position.copy(grip);
   prop.node.rotation.set(hold.r.x, hold.r.y, hold.r.z);
-  if (prop.off) reach(r.armL, r.foreL, -1, off.copy(prop.off).applyEuler(prop.node.rotation).add(grip));
+  if (r.gripOffset) alignGrips(r, item);
+  else if (prop.off)
+    reach(
+      r.armL,
+      r.foreL,
+      -1,
+      off.copy(prop.off).multiplyScalar(reachScale).applyEuler(prop.node.rotation).add(grip),
+      r.armLengths,
+    );
   r.torso.rotation.y += hold.twist;
   r.torso.rotation.x += hold.lean;
   // the head keeps looking ahead through a twist; at a scope, the cheek goes down to the stock

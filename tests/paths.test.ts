@@ -6,25 +6,30 @@ import { buildChunkGeometry } from '@/systems/wilderness/build-chunk';
 import { generateWildChunk } from '@/world/wilderness/chunk';
 import { createWilderness, townDistance, WATER_LEVEL } from '@/world/wilderness/generator';
 import { pathsOf, type Trail } from '@/world/wilderness/paths';
+import { spawnStoneDistance } from '@/world/wilderness/spawn-circle';
 
-const w = createWilderness(4242);
-const net = pathsOf(w);
-const SIZE = TUNING.world.chunkSize;
-const spawn = net.trailsNear(0, 0, SIZE, SIZE).find((t) => t.id === 'spawn')!;
-const roads = net.trailsNear(-1500, -1500, 1500, 1500).filter((t) => t.id.startsWith('t'));
-const point = (t: Trail, k: number): { x: number; z: number } => ({ x: t.pts[k * 2]!, z: t.pts[k * 2 + 1]! });
-const end = (t: Trail): { x: number; z: number } => point(t, t.pts.length / 2 - 1);
+describe.each([4, 5] as const)('footpaths (terrain %i)', (version) => {
+  const w = createWilderness(4242, [], version);
+  const net = pathsOf(w);
+  const SIZE = TUNING.world.chunkSize;
+  const spawn = net.trailsNear(0, 0, SIZE, SIZE).find((t) => t.id === 'spawn')!;
+  const roads = net.trailsNear(-1500, -1500, 1500, 1500).filter((t) => t.id.startsWith('t'));
+  const point = (t: Trail, k: number): { x: number; z: number } => ({
+    x: t.pts[k * 2]!,
+    z: t.pts[k * 2 + 1]!,
+  });
+  const end = (t: Trail): { x: number; z: number } => point(t, t.pts.length / 2 - 1);
 
-describe('footpaths', () => {
   it('are the same for everyone with the same seed', () => {
-    const again = pathsOf(createWilderness(4242))
+    const again = pathsOf(createWilderness(4242, [], version))
       .trailsNear(0, 0, SIZE, SIZE)
       .find((t) => t.id === 'spawn')!;
     expect(again.pts).toEqual(spawn.pts);
   });
 
   it('lead from spawn to a gate of the first town, over the first river on a bridge', () => {
-    expect(Math.hypot(spawn.pts[0]! - SIZE / 2, spawn.pts[1]! - SIZE / 2)).toBeLessThan(10);
+    expect(spawnStoneDistance(spawn.pts[0]!, spawn.pts[1]!)).toBeLessThan(-0.5);
+    expect(spawnStoneDistance(spawn.pts[2]!, spawn.pts[3]!)).toBeGreaterThan(0.5);
     const [cx, cz] = TUNING.structures.firstCityChunk;
     const town = w.entrancesNear((cx + 0.5) * SIZE, (cz + 0.5) * SIZE, 0)[0]!;
     const gates = townGates(town, w);
@@ -34,7 +39,7 @@ describe('footpaths', () => {
   });
 
   it('link neighbouring towns gate to gate', () => {
-    expect(roads.length).toBeGreaterThan(10);
+    expect(roads.length).toBeGreaterThan(version < 5 ? 10 : 3);
     for (const t of roads) {
       for (const p of [point(t, 0), end(t)]) {
         const town = w.townAt(p.x, p.z, 8);
@@ -73,6 +78,33 @@ describe('footpaths', () => {
         expect(net.bridgeAt(mid, b.z)).not.toBeNull();
       }
     expect(bridges).toBeGreaterThan(0);
+  });
+
+  it('joins each end of the deck to a dry, walkable section of its trail', () => {
+    for (const trail of [spawn, ...roads]) {
+      for (const bridge of trail.bridges) {
+        for (const [x, side] of [
+          [bridge.x0, -1],
+          [bridge.x1, 1],
+        ] as const) {
+          const at = trail.pts.findIndex((v, i) => i % 2 === 0 && v === x && trail.pts[i + 1] === bridge.z);
+          expect(at, trail.id).toBeGreaterThan(0);
+          const neighbours = [point(trail, at / 2 - 1), point(trail, at / 2 + 1)];
+          const bank = neighbours.find((p) => (p.x - x) * side > 0);
+          expect(bank, trail.id).toBeDefined();
+          expect(bank!.z, trail.id).toBe(bridge.z);
+          for (const fraction of [0, 0.25, 0.5, 0.75, 1]) {
+            const qx = x + (bank!.x - x) * fraction;
+            const qz = bridge.z + (bank!.z - bridge.z) * fraction;
+            expect(w.heightAt(qx, qz), trail.id).toBeGreaterThanOrEqual(WATER_LEVEL + 0.05);
+          }
+          expect(Math.abs(w.heightAt(x, bridge.z) - bridge.y)).toBeLessThan(TUNING.player.stepHeight);
+          const deck = neighbours.find((p) => p !== bank)!;
+          expect(deck.z).toBe(bridge.z);
+          expect(net.bridgeAt(deck.x, deck.z)).not.toBeNull();
+        }
+      }
+    }
   });
 
   it('almost never leave you swimming: deep water off a bridge is rare and short', () => {

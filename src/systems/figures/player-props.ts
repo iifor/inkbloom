@@ -9,6 +9,8 @@ import { type Part, RigBuilder } from './figure';
 /** Something held: a few soft parts on a joint whose origin is where the main hand grips it.
  * It points along -z (barrel, blade, bristles, the staff's orb). */
 export interface Prop {
+  /** Forearm pronation for a cut, independent of wrist flexion. */
+  gripRoll?: number;
   readonly node: THREE.Object3D;
   readonly parts: Part[];
   /** Where the other hand holds it, in its own space; null when held in one hand. */

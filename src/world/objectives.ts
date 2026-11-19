@@ -24,6 +24,7 @@ export interface Situation {
   readonly city?: {
     readonly name: string;
     readonly completed: boolean;
+    readonly peaceful?: boolean;
     readonly coloredBlocks: number;
     readonly blocks: number;
     readonly gate: Point;
@@ -66,6 +67,7 @@ export function objective(s: Situation): Objective {
         target: c.nearestWish,
         teach: { id: 'wishes', text: '门口的彩色牌子；都完成后街区繁荣，画室产出颜料' },
       };
+    if (c.peaceful) return { text: `${c.name}安然无恙 · 出村探索`, target: c.gate };
     if (s.generic < 1) {
       if (s.ink >= s.inkPerGeneric && c.studio)
         return { text: '去画室提炼颜料', target: c.studio, teach: { id: 'studio', text: '橙色招牌，按 E' } };

@@ -96,25 +96,16 @@ export function appendPaths(chunk: WildChunk, w: Wilderness, g: GeometryBuilder)
       for (let s = 1; s <= pieces; s++) {
         const next = section(k + s / pieces);
         for (let j = 0; j < ACROSS.length - 1; j++) {
-          const quad = [prev[j]!, next[j]!, next[j + 1]!, prev[j + 1]!] as const;
-          // counter-clockwise seen from above: the cross product of A→B and A→C points up
-          const [A, B, C] = quad;
-          const up = (B.z - A.z) * (C.x - A.x) - (B.x - A.x) * (C.z - A.z);
-          const order = up > 0 ? quad : ([quad[3], quad[2], quad[1], quad[0]] as const);
+          const [a, b, c, d] = [prev[j]!, next[j]!, next[j + 1]!, prev[j + 1]!] as const;
           g.quadSmooth(
-            order[0],
-            order[1],
-            order[2],
-            order[3],
-            [
-              normal(order[0].x, order[0].z),
-              normal(order[1].x, order[1].z),
-              normal(order[2].x, order[2].z),
-              normal(order[3].x, order[3].z),
-            ],
+            a,
+            b,
+            c,
+            d,
+            [normal(a.x, a.z), normal(b.x, b.z), normal(c.x, c.z), normal(d.x, d.z)],
             earth,
           );
-          g.pathEdge([order[0].edge, order[1].edge, order[2].edge, order[3].edge]);
+          g.pathEdge([a.edge, b.edge, c.edge, d.edge]);
         }
         prev = next;
       }
@@ -138,8 +129,7 @@ export function appendPaths(chunk: WildChunk, w: Wilderness, g: GeometryBuilder)
   for (const b of chunk.bridges) appendBridge(b, w, g);
 }
 
-/** Planks across the deck, one every PLANK metres along it (on a world grid, so the paint
- * pass can tell one plank from the next), with a sliver of a gap between them. */
+/** Planks across the deck, roughly one every PLANK metres, with a sliver between them. */
 const PLANK = 0.3;
 const GAP = 0.035;
 const BOX = new THREE.BoxGeometry(1, 1, 1);
@@ -188,18 +178,23 @@ function appendBridge(b: Bridge, w: Wilderness, g: GeometryBuilder): void {
   for (const side of [-1, 1])
     block((b.x0 + b.x1) / 2, b.y - 0.17, b.z + side * (b.half - 0.4), len, 0.16, 0.18, e.set(0, 0, 0), dark);
   // the planks
-  for (let x = Math.ceil(b.x0 / PLANK) * PLANK; x + PLANK <= b.x1 + 1e-6; x += PLANK) {
+  const planks = Math.ceil(len / PLANK);
+  const plankWidth = len / planks;
+  for (let i = 0; i < planks; i++) {
+    const x = b.x0 + (i + 0.5) * plankWidth;
     const r = (k: number) => speck(x, b.z, k);
     const ragL = (r(1) - 0.3) * 0.12;
     const ragR = (r(2) - 0.3) * 0.12;
     const zl = b.z - b.half - ragL;
     const zr = b.z + b.half + ragR;
     e.set((r(3) - 0.5) * 0.03, (r(4) - 0.5) * 0.05, (r(5) - 0.5) * 0.04);
+    const end = i === 0 || i === planks - 1;
+    if (end) e.set(0, 0, 0);
     block(
-      x + PLANK / 2,
+      x,
       b.y - 0.04 + (r(6) - 0.5) * 0.025,
       (zl + zr) / 2,
-      PLANK - GAP,
+      plankWidth - (end ? 0 : GAP),
       0.075,
       zr - zl,
       e,

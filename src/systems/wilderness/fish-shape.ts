@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { color } from '@/content/palette';
 import { ALWAYS_COLOR } from '@/engine/render/geometry-builder';
+import { FISH_SPECIES, type FishSpecies } from '@/content/fish';
 
 // Nose points along +X. Each station describes the half-width, half-height and
 // centre of a cross section, from the narrow tail wrist to the rounded snout.
@@ -19,13 +20,25 @@ const sections = [
 ] as const;
 type Point = readonly [number, number, number];
 
-export function fishShape(): THREE.BufferGeometry {
+export function fishShape(
+  species: FishSpecies = FISH_SPECIES[3]!,
+  atlasSlot = 0,
+  atlasSlots = 1,
+): THREE.BufferGeometry {
   const positions: number[] = [],
     uv: number[] = [],
     indices: number[] = [];
   const point = (x: number, y: number, z: number, u: number, v: number) => {
+    // Keep the longitudinal stations for the tail shader; length is set per instance.
+    // Fins change independently of the body, rather than merely scaling the whole fish.
+    if (v > 0.77) {
+      if (x < -0.48) y *= species.tail;
+      else if (y > 0.145 && Math.abs(z) < 0.03) y = 0.14 + (y - 0.14) * species.dorsal;
+    }
+    y *= species.height;
+    z *= species.width;
     positions.push(x, y, z);
-    uv.push(u, v);
+    uv.push((atlasSlot + 0.005 + u * 0.99) / atlasSlots, v);
     return positions.length / 3 - 1;
   };
   const sides = 16;

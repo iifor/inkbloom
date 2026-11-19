@@ -49,7 +49,8 @@ function suits(w: Wilderness, x: number, z: number): 'no' | 'dry' | 'good' {
   for (let i = -n; i <= n; i++)
     for (let k = -n; k <= n; k++) {
       if (Math.hypot(i, k) * SAMPLE > r + SAMPLE) continue;
-      const h = w.heightAt(x + i * SAMPLE, z + k * SAMPLE);
+      // Search the natural land first; only the selected site's geometry needs roads.
+      const h = w.terrainHeightAt(x + i * SAMPLE, z + k * SAMPLE);
       if (h < WATER_LEVEL + 0.8) return 'no';
       heights.set(`${i},${k}`, h);
       lo = Math.min(lo, h);
@@ -126,11 +127,11 @@ export function arenaAt(w: Wilderness, x: number, z: number): ArenaSite {
   return { x, z, radius: ARENA.radius, cover, trunks, spawns };
 }
 
-const found = new Map<number, ArenaSite>();
+const found = new WeakMap<Wilderness, ArenaSite>();
 
 /** The arena of this world. The first call searches (a few milliseconds); later ones remember. */
 export function findArenaSite(w: Wilderness): ArenaSite {
-  const known = found.get(w.seed);
+  const known = found.get(w);
   if (known) return known;
   // second best: dry but bare, or dry but too flat or rough; last resort: the first spot tried
   let fallback: [number, number] | null = null;
@@ -149,6 +150,6 @@ export function findArenaSite(w: Wilderness): ArenaSite {
     site = arenaAt(w, x, z);
   }
   site ??= arenaAt(w, ...(fallback ?? [ARENA.nearest, 0]));
-  found.set(w.seed, site);
+  found.set(w, site);
   return site;
 }

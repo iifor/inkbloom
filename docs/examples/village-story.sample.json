@@ -1,0 +1,219 @@
+{
+  "status": "hand-authored-design-example-not-runtime-data",
+  "schemaVersion": "proposal-1",
+  "village": {
+    "id": "demo-qingwei",
+    "name": "青苇村",
+    "climate": "河岸温带",
+    "custom": "雨夜给晚归的人留一盏门灯",
+    "conflict": "下游道路受污染，居民对先修通路还是先救人有分歧",
+    "places": [
+      { "id": "clinic", "name": "上游诊所", "safe": true },
+      { "id": "farm", "name": "上游农舍", "safe": true },
+      { "id": "workshop", "name": "石匠家与作坊", "safe": true },
+      { "id": "garden", "name": "药草院", "safe": true },
+      { "id": "post", "name": "信使住处", "safe": true },
+      { "id": "courtyard", "name": "邻里院落", "safe": true },
+      { "id": "dock", "name": "下游渡口", "safe": false }
+    ]
+  },
+  "residents": [
+    {
+      "id": "n01",
+      "name": "林禾",
+      "age": 37,
+      "profession": "doctor",
+      "home": "clinic",
+      "location": "clinic",
+      "state": "settled",
+      "traits": ["急躁", "细心"],
+      "value": "救眼前的人不能一直等准备周全",
+      "contradiction": "怕深水，但仍留在河边诊所",
+      "habit": "反复清点药箱",
+      "wish": "救回弟弟周渡",
+      "knownFacts": ["f01", "f02"]
+    },
+    {
+      "id": "n02",
+      "name": "周渡",
+      "age": 32,
+      "profession": "boatman",
+      "home": "clinic",
+      "location": "dock",
+      "state": "infected",
+      "traits": ["幽默", "守信"],
+      "value": "路通着，人才能互相照应",
+      "contradiction": "常说不必担心，却把答应过的事都压在自己身上",
+      "habit": "检查腰间旧绳结",
+      "wish": "恢复下游渡运",
+      "knownFacts": ["f01", "f03"]
+    },
+    {
+      "id": "n03",
+      "name": "田穗",
+      "age": 45,
+      "profession": "farmer",
+      "home": "farm",
+      "location": "farm",
+      "state": "settled",
+      "traits": ["节俭", "谨慎"],
+      "value": "留住种子才有下一季",
+      "contradiction": "舍不得用储粮，但会分给真正需要的人",
+      "habit": "重新绑紧麻袋",
+      "wish": "保住未污染的种子",
+      "knownFacts": ["f01", "f03"]
+    },
+    {
+      "id": "n04",
+      "name": "陈榆",
+      "age": 49,
+      "profession": "mason",
+      "home": "workshop",
+      "location": "workshop",
+      "state": "settled",
+      "traits": ["慢热", "执拗"],
+      "value": "稳固的路才能一直救人",
+      "contradiction": "反对冒进，却已把材料搬到离危险最近的路口",
+      "habit": "摸一摸补过的石缝",
+      "wish": "修好通往渡口的路",
+      "knownFacts": ["f01", "f02"]
+    },
+    {
+      "id": "n05",
+      "name": "叶岚",
+      "age": 34,
+      "profession": "gardener",
+      "home": "garden",
+      "location": "garden",
+      "state": "settled",
+      "traits": ["安静", "好奇"],
+      "value": "试新办法也要留下能比较的旧办法",
+      "contradiction": "愿意试验，却很难接受自己心爱的植物试种失败",
+      "habit": "给花盆做木牌",
+      "wish": "恢复诊所药草圃",
+      "knownFacts": ["f01"]
+    },
+    {
+      "id": "n06",
+      "name": "阿棠",
+      "age": 24,
+      "profession": "courier",
+      "home": "post",
+      "location": "post",
+      "state": "settled",
+      "traits": ["健谈", "认真"],
+      "value": "送到的消息能让人安心",
+      "contradiction": "善于安慰别人，却怕承认自己没能送到信",
+      "habit": "抚平水湿的信封",
+      "wish": "与周渡送完下游的信",
+      "knownFacts": ["f01"]
+    },
+    {
+      "id": "n07",
+      "name": "沈婆婆",
+      "age": 68,
+      "profession": "civilian",
+      "home": "courtyard",
+      "location": "courtyard",
+      "state": "settled",
+      "traits": ["爱念叨", "心软"],
+      "value": "先让邻里有饭吃，再争对错",
+      "contradiction": "嘴上嫌人来得勤，没人来时却一直往门外看",
+      "habit": "给门口等候的人添茶",
+      "wish": "等大家回来开一次邻里饭桌",
+      "knownFacts": ["f01"]
+    },
+    {
+      "id": "n08",
+      "name": "小满",
+      "age": 21,
+      "profession": "apprentice",
+      "home": "garden",
+      "location": "garden",
+      "state": "settled",
+      "traits": ["好奇", "急切"],
+      "value": "试过才知道能不能做好",
+      "contradiction": "想尽快证明自己，又舍不得丢掉失败样片",
+      "habit": "收藏调色样片",
+      "wish": "调出耐雨的门牌颜色",
+      "knownFacts": ["f01"]
+    }
+  ],
+  "facts": [
+    {
+      "id": "f01",
+      "kind": "world_event",
+      "subjects": [],
+      "place": "dock",
+      "text": "墨潮使下游道路危险",
+      "witnesses": ["n01", "n02", "n03", "n04", "n05", "n06", "n07", "n08"]
+    },
+    {
+      "id": "f02",
+      "kind": "conversation",
+      "subjects": ["n01", "n04"],
+      "place": "clinic",
+      "text": "林禾与陈榆讨论过先救人还是先修通路",
+      "witnesses": ["n01", "n04"]
+    },
+    {
+      "id": "f03",
+      "kind": "past_help",
+      "subjects": ["n02", "n03"],
+      "place": "farm",
+      "text": "墨潮来前周渡替田穗护送过种子",
+      "witnesses": ["n02", "n03"]
+    }
+  ],
+  "relationships": [
+    {
+      "from": "n01",
+      "to": "n02",
+      "type": "sibling",
+      "trust": 0.9,
+      "reason": "亲姐弟，姐姐随母姓、弟弟随父姓；姐姐担心弟弟"
+    },
+    {
+      "from": "n02",
+      "to": "n01",
+      "type": "sibling",
+      "trust": 0.95,
+      "reason": "亲姐弟，姐姐随母姓、弟弟随父姓；相信姐姐，但不愿总被照顾"
+    },
+    { "from": "n01", "to": "n04", "type": "disagreement", "trust": 0.5, "reason": "认为救援不该等修路完成" },
+    { "from": "n04", "to": "n01", "type": "disagreement", "trust": 0.65, "reason": "认可医生，但担心她冒险" },
+    { "from": "n03", "to": "n02", "type": "gratitude", "trust": 0.85, "reason": "记得护送种子的帮助" },
+    { "from": "n02", "to": "n06", "type": "colleague", "trust": 0.8, "reason": "一起配送下游的信件" },
+    { "from": "n06", "to": "n02", "type": "colleague", "trust": 0.9, "reason": "约好一起恢复下游配送" },
+    { "from": "n01", "to": "n05", "type": "colleague", "trust": 0.8, "reason": "诊所使用药草院的供给" },
+    { "from": "n05", "to": "n01", "type": "colleague", "trust": 0.75, "reason": "向医生请教药草用途" },
+    { "from": "n05", "to": "n08", "type": "mentor", "trust": 0.7, "reason": "教调色植物与观察方法" },
+    { "from": "n08", "to": "n05", "type": "student", "trust": 0.9, "reason": "尊敬老师，又想尽早独立" },
+    { "from": "n07", "to": "n04", "type": "neighbor", "trust": 0.8, "reason": "常给忙着修东西的邻居送饭" },
+    { "from": "n04", "to": "n07", "type": "neighbor", "trust": 0.85, "reason": "帮沈婆婆修过院门" },
+    { "from": "n03", "to": "n07", "type": "neighbor", "trust": 0.75, "reason": "一起准备邻里饭桌" },
+    { "from": "n07", "to": "n03", "type": "neighbor", "trust": 0.8, "reason": "惦记田穗家里的种子" },
+    { "from": "n06", "to": "n08", "type": "friend", "trust": 0.7, "reason": "一起收集外地门牌的画样" },
+    { "from": "n08", "to": "n06", "type": "friend", "trust": 0.8, "reason": "从信使带回的画样寻找灵感" }
+  ],
+  "plannedEvents": [
+    {
+      "id": "demo-reunion",
+      "template": "reunion",
+      "participants": ["n01", "n02"],
+      "place": "clinic",
+      "requires": [{ "residentId": "n02", "state": "settled" }],
+      "text": "周渡安全归来后，林禾查看他的伤势",
+      "committed": false
+    },
+    {
+      "id": "demo-neighbor-meal",
+      "template": "shared_meal",
+      "participants": ["n02", "n03", "n07"],
+      "place": "courtyard",
+      "requires": [{ "residentId": "n02", "state": "settled" }],
+      "text": "邻里在周渡归来后一起准备饭桌",
+      "committed": false
+    }
+  ]
+}

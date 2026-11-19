@@ -16,6 +16,10 @@ export interface Trail {
 }
 
 export interface Rig {
+  /** Imported characters can keep their own limb proportions when reaching for props. */
+  readonly armLengths?: readonly [number, number];
+  /** Imported hands: wrist-to-grip in the hand's neutral axes (right hand; mirror x for left). */
+  readonly gripOffset?: THREE.Vector3;
   readonly root: THREE.Object3D;
   readonly hips: THREE.Object3D;
   readonly torso: THREE.Object3D;

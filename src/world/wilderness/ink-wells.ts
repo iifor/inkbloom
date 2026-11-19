@@ -67,16 +67,16 @@ function findWell(w: Wilderness, cx: number, cz: number): InkWell | null {
         ),
     );
     if (!(wall > 30 && wall < TUNING.drain.innerRadius + 50)) continue;
-    const y = w.heightAt(x, z);
+    const y = w.terrainHeightAt(x, z);
     if (y < WATER_LEVEL + 1) continue;
-    if (Math.hypot(w.heightAt(x + 4, z) - y, w.heightAt(x, z + 4) - y) > 1.5) continue;
+    if (Math.hypot(w.terrainHeightAt(x + 4, z) - y, w.terrainHeightAt(x, z + 4) - y) > 1.5) continue;
     if (pathsOf(w).edgeDistance(x, z) < 6) continue;
     // clear of the chunk's ruins and pigment sources, and of hot springs
     if (near9(cx, cz, (ax, az) => ruinsInChunk(w, ax, az)).some((r) => Math.hypot(r.x - x, r.z - z) < 25))
       continue;
     if (sourcesInChunk(w, cx, cz).some((s) => Math.hypot(s.x - x, s.z - z) < 10)) continue;
     if (springsNear(w, x, z, 20).length) continue;
-    return { id: `w${cx}_${cz}`, cx, cz, x, y, z, seed: h };
+    return { id: `w${cx}_${cz}`, cx, cz, x, y: w.heightAt(x, z), z, seed: h };
   }
   return null;
 }

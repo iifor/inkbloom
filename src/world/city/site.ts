@@ -4,7 +4,7 @@
 import { TUNING } from '@/content/tuning';
 import { Rng } from '../math/rng';
 import type { SurfaceInfo, SurfaceKind } from '../paint/surfaces';
-import { WATER_LEVEL } from '../wilderness/generator';
+import { WATER_LEVEL } from '../wilderness/water-level';
 
 export const ROAD_NONE = 0;
 export const ROAD_ALLEY = 1;

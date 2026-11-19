@@ -2,6 +2,7 @@
 // and depth and paints the frame (see renderer.ts for the look). The sky and the water come in
 // as chunks from sky-paint.ts and water-paint.ts.
 import { MAX_COLORS, PALETTE, color } from '@/content/palette';
+import { TUNING } from '@/content/tuning';
 import { BANK_HEIGHT, WATER_LEVEL } from '@/world/wilderness/generator';
 import { wildernessDrainGLSL } from './ink-material';
 import { LAMP_COUNT, LAMP_REACH, LIT_ROOMS } from './lamps';
@@ -42,7 +43,6 @@ uniform float uReversedDepth;
 uniform sampler2D uNoise;
 uniform sampler2D uRivers;
 uniform vec4 uRiverGrid;
-uniform vec2 uRiverLane;
 uniform float uAspect;
 uniform vec3 uColors[${MAX_COLORS}];
 uniform float uSolid[${MAX_COLORS}];
@@ -302,6 +302,9 @@ void main() {
     float seasonKind = seasonKindOf(s.g);
     vec3 base = seasonal(paletteColor(s.g), seasonKind, wpos.xz);
     int pigment = indexOf(s.g);
+    // At first-person distance the skin needs a broad warm shading ramp; the
+    // world's cel-shadow threshold otherwise turns small joints into purple blocks.
+    bool nearSkin = figure && d < 0.85 && (pigment == ${color('skinLight')} || pigment == ${color('skinWarm')} || pigment == ${color('skinDeep')});
     bool cedar = pigment == uCedar;
     bool crown = cedar || seasonKind > 1.5;
 
@@ -571,6 +574,12 @@ void main() {
     // (a person's shade keeps a slightly softer edge: the shadow of an arm across a chest is
     // only a few of the shadow map's steps wide, and a hard edge would show them)
     if (figure) lit = smoothstep(-0.04, 0.24, turned);
+    if (nearSkin) {
+      // Broad fill preserves the palm and knuckle volume when the world shadow
+      // map covers the whole hand with the same value.
+      float form = dot(normalize(nView), normalize(vec3(-0.5, 0.6, 0.65)));
+      lit = mix(smoothstep(-0.75, 1.0, ndl), smoothstep(-0.25, 1.0, form), 0.65) * 0.85;
+    }
     float full = smoothstep(0.5, 0.72, turned);
     if (fish) {
       base = fishPaint;
@@ -586,7 +595,9 @@ void main() {
     // bridge or a post should sit in the picture's key, not be its darkest thing)
     bool timber = built && (pigment == ${color('bark')} || pigment == ${color('brown')}) && !crown;
     if (timber) shadowTint = shadowTint * 1.3 + vec3(0.09, 0.06, 0.03) * byDay;
+    if (nearSkin) shadowTint = mix(shadowTint, uSunColor * vec3(0.65, 0.46, 0.34), 0.72 * (1.0 - uNight));
     vec3 light = mix(shadowTint, uSunColor * (0.96 + 0.08 * full), lit);
+    if (nearSkin) light *= 0.82;
     // on a broken-cloud day the clouds' shadows sail across the land with the wind
     if (uCloudShade > 0.0) {
       float cs = fbm2((wpos.xz - uDrift) * 0.006 + 11.0);
@@ -677,6 +688,7 @@ void main() {
     // distance until only the shape is left.
     if (figure) {
       float wide = max(1.0, uRes.y / 900.0) * 1.3 * (1.0 - smoothstep(22.0, 45.0, d));
+      if (nearSkin) wide *= 0.6;
       float line = 0.0;
       for (int k = 0; k < 4; k++) {
         vec2 o = (k == 0 ? vec2(1.0, 0.0) : k == 1 ? vec2(-1.0, 0.0) : k == 2 ? vec2(0.0, 1.0) : vec2(0.0, -1.0)) * wide * px;
@@ -685,7 +697,7 @@ void main() {
         if (beside.b < 3.0 || beside.b > 7.0 || besideDepth - d > 0.05 + 0.02 * d) line = 1.0;
         else line = max(line, smoothstep(0.95, 1.35, distance(vec2(beside.b - 4.0, beside.a), s.ba)));
       }
-      col = mix(col, vec3(0.3, 0.19, 0.14) * mix(light, vec3(1.0), 0.3), line * 0.85 * min(wide, 1.0));
+      col = mix(col, vec3(0.3, 0.19, 0.14) * mix(light, vec3(1.0), 0.3), line * (nearSkin ? 0.5 : 0.85) * min(wide, 1.0));
     }
     // at night, lamps are lit behind some windows of the streets that have their colour back
     // (each window is lit or dark as a whole, and shows its own room: by day only a hint of
@@ -730,7 +742,11 @@ ${waterGLSL}
     vec3 haze = horizonOf(rd);
     haze = mix(drainedAt(haze), haze, skySat);
     // mist and rain thicken it and pull it close
-    col = mix(col, haze, (1.0 - exp(-d * (0.0042 + uFog * 0.035))) * mix(0.85, 0.97, uFog));
+    float airDistance = length(vpos);
+    float air = 1.0 - exp(-max(0.0, airDistance - 35.0) * (0.00065 + uFog * 0.012));
+    // Beyond the landscape's readable layers, blend its outer edge into the sky.
+    air = max(air, smoothstep(${TUNING.world.landscape.hazeStart.toFixed(1)}, ${TUNING.world.landscape.hazeEnd.toFixed(1)}, airDistance));
+    col = mix(col, haze, air);
     // a rainbow stands in the rain between here and far hills, not on what is close by
     if (uRainbow > 0.0) col = withRainbow(col, rainbowOf(rd) * vec4(1.0, 1.0, 1.0, uRainbow * smoothstep(60.0, 300.0, d) * skySat));
   }

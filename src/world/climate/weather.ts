@@ -40,7 +40,8 @@ export interface Weather {
 }
 
 /** The parts of the land the weather reads. */
-export type WeatherLand = Pick<Wilderness, 'seed' | 'climate' | 'heightAt'>;
+export type WeatherLand = Pick<Wilderness, 'seed' | 'climate' | 'heightAt'> &
+  Partial<Pick<Wilderness, 'terrainHeightAt'>>;
 
 export type WeatherAt = (clock: number, x: number, z: number) => Weather;
 
@@ -130,7 +131,8 @@ export function createWeather(land: WeatherLand): WeatherAt {
 
   return (clock, x, z) => {
     const c = land.climate(x, z);
-    const height = Math.max(0, land.heightAt(x, z));
+    // Local road excavation does not change regional weather or trigger road surveys.
+    const height = Math.max(0, (land.terrainHeightAt ?? land.heightAt)(x, z));
     const cal = calendarAt(clock);
     const h = humidity(clock, x, z, c.moisture);
     const cloud = smoothstep(W.cloudFrom, W.cloudFull, h);

@@ -13,6 +13,7 @@ import { seasonBlend } from '@/world/climate/calendar';
 import { snowCover } from '@/world/climate/temperature';
 import { springsNear } from '@/world/wilderness/landmarks';
 import { pathsOf } from '@/world/wilderness/paths';
+import { spawnStoneDistance } from '@/world/wilderness/spawn-circle';
 
 export type Footing = 'grass' | 'stone' | 'sand' | 'rock' | 'trail' | 'wood' | 'shallows';
 
@@ -41,7 +42,7 @@ export function groundUnder(ctx: GameContext): Ground {
   // in a hot spring's pool
   if (wild && springsNear(wilderness, x, z, 8).some((s) => Math.hypot(s.x - x, s.z - z) < s.r))
     return { footing: 'shallows', snow: 0, wet: 0, leaves: 0 };
-  if (!wild) return { footing: 'stone', snow, wet: w.wet, leaves: 0 };
+  if (!wild || spawnStoneDistance(x, z) <= 0) return { footing: 'stone', snow, wet: w.wet, leaves: 0 };
   // on a footpath's bridge (on the deck, not swimming under it), or on the path itself
   const paths = pathsOf(wilderness);
   const bridge = paths.bridgeAt(x, z);

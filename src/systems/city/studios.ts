@@ -10,9 +10,11 @@ import { ALWAYS_COLOR, GeometryBuilder } from '@/engine/render/geometry-builder'
 import type { GameContext } from '@/game/types';
 import { type CityLayout, groundAt } from '@/world/city/layout';
 import { studioOpen } from '@/world/city/features';
+import { WindFlags } from '@/engine/render/wind-flags';
 
 export class Studios {
   private readonly mesh: THREE.Mesh;
+  private readonly flags: WindFlags;
   private readonly release: (() => void)[] = [];
 
   constructor(
@@ -24,6 +26,7 @@ export class Studios {
     root: THREE.Object3D,
   ) {
     const g = new GeometryBuilder();
+    this.flags = new WindFlags(root, ctx.wilderness.seed);
     const flag = color('orange');
     const pole = color('brown');
     const solid = (c: number) => ({ px: c, nx: c, pz: c, nz: c, py: c, ny: c });
@@ -43,7 +46,16 @@ export class Studios {
       slab(0, b.hd + 0.2, 2.7, 3.6, 3.4, 0.4, flag);
       // pole and flag on the front edge of the roof, so the roof never hides them
       slab(0, b.hd - 0.4, b.height, b.height + 7, 0.3, 0.3, pole);
-      slab(1.8, b.hd - 0.4, b.height + 4.6, b.height + 6.8, 3.4, 0.12, flag);
+      this.flags.add({
+        x: b.x + Math.sin(b.angle) * (b.hd - 0.4),
+        y: b.base + b.height + 6.8,
+        z: b.z + Math.cos(b.angle) * (b.hd - 0.4),
+        width: 3.4,
+        height: 2.2,
+        color: flag,
+        phase: b.x * 0.37 + b.z * 0.19,
+        surface: ALWAYS_COLOR,
+      });
       g.append(h, new THREE.Matrix4().makeRotationY(b.angle).setPosition(b.x, b.base, b.z));
     }
     this.mesh = new THREE.Mesh(g.build(), material);
@@ -62,6 +74,10 @@ export class Studios {
         }),
       );
     });
+  }
+
+  update(dt: number): void {
+    this.flags.update(dt);
   }
 
   private label(i: number): string {
@@ -119,6 +135,7 @@ export class Studios {
   }
 
   dispose(): void {
+    this.flags.dispose();
     for (const r of this.release) r();
     this.mesh.geometry.dispose();
     this.mesh.removeFromParent();

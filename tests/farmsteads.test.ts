@@ -1,0 +1,53 @@
+import { expect, it } from 'vitest';
+import { TUNING } from '@/content/tuning';
+import { PhysicsWorld } from '@/engine/physics/world';
+import { GeometryBuilder } from '@/engine/render/geometry-builder';
+import { buildFarmstead } from '@/systems/wilderness/build-farmstead';
+import { generateWildChunk } from '@/world/wilderness/chunk';
+import { farmsteadInChunk } from '@/world/wilderness/farmsteads';
+import { createWilderness, WATER_LEVEL } from '@/world/wilderness/generator';
+import { pathsOf } from '@/world/wilderness/paths';
+
+it('streams an isolated farmstead with a clear yard, a solid fence and an open gate', () => {
+  const w = createWilderness(4242);
+  const old = createWilderness(w.seed, [], 3);
+  const size = TUNING.world.chunkSize;
+  let chunk;
+  for (let cz = -3; cz <= 3 && !chunk; cz++)
+    for (let cx = -3; cx <= 3 && !chunk; cx++) {
+      if (!farmsteadInChunk(w, cx, cz, [])) continue;
+      const candidate = generateWildChunk(w, cx, cz);
+      if (candidate.farmstead) chunk = candidate;
+    }
+  expect(chunk).toBeDefined();
+  const { cx, cz, x0, z0, trees, farmstead } = chunk!;
+  const yard = farmstead!;
+  expect(generateWildChunk(old, cx, cz).farmstead).toBeNull();
+  expect(generateWildChunk(createWilderness(w.seed), cx, cz).farmstead).toEqual(yard);
+  expect(yard.x - yard.hw).toBeGreaterThan(x0);
+  expect(yard.x + yard.hw).toBeLessThan(x0 + size);
+  expect(yard.z - yard.hd).toBeGreaterThan(z0);
+  expect(yard.z + yard.hd).toBeLessThan(z0 + size);
+  expect(yard.buildings.length).toBeGreaterThanOrEqual(1);
+  expect(yard.buildings.length).toBeLessThanOrEqual(3);
+  expect(trees.some((t) => Math.abs(t.x - yard.x) <= yard.hw && Math.abs(t.z - yard.z) <= yard.hd)).toBe(
+    false,
+  );
+  for (let x = yard.x - yard.hw; x <= yard.x + yard.hw; x += 2)
+    for (let z = yard.z - yard.hd; z <= yard.z + yard.hd; z += 2) {
+      expect(w.heightAt(x, z)).toBeGreaterThan(WATER_LEVEL);
+      expect(pathsOf(w).edgeDistance(x, z)).toBeGreaterThan(0);
+    }
+
+  const physics = new PhysicsWorld(8);
+  const mesh = new GeometryBuilder();
+  buildFarmstead(mesh, w, yard, (min, max, data) => physics.addBox('farmstead', min, max, data));
+  const entry = yard.z + yard.front * yard.hd;
+  const towards = { x: 0, y: 0, z: -yard.front };
+  const from = (x: number) => ({ x, y: w.heightAt(x, entry) + 0.5, z: entry + yard.front });
+  expect(physics.raycast(from(yard.x), towards, 2)).toBeNull();
+  expect(physics.raycast(from(yard.x + 3), towards, 2)).not.toBeNull();
+  expect(mesh.build().getAttribute('position').count).toBeGreaterThan(0);
+  physics.removeGroup('farmstead');
+  expect(physics.boxCount).toBe(0);
+});

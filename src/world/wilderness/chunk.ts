@@ -10,6 +10,7 @@ import { type Lookout, lookoutsInChunk, type Spring, springsInChunk } from './la
 import { type Bridge, pathsOf } from './paths';
 import { type PigmentSource, sourcesInChunk } from './sources';
 import { type Ruin, ruinsInChunk } from './ruins';
+import { type Farmstead, farmsteadInChunk } from './farmsteads';
 
 export interface Tree {
   readonly x: number;
@@ -45,6 +46,7 @@ export interface WildChunk {
   /** Hot springs and summit lookouts whose middle is in this chunk (see landmarks.ts). */
   readonly springs: readonly Spring[];
   readonly lookouts: readonly Lookout[];
+  readonly farmstead: Farmstead | null;
 }
 
 /** Bamboo clumps: the chance per terrain cell deep in a grove, metres tall, clump spread. */
@@ -56,15 +58,31 @@ const PATH_ROOM = 2.5;
 export const chunkKey = (cx: number, cz: number): string => `${cx},${cz}`;
 
 export function generateWildChunk(w: Wilderness, cx: number, cz: number): WildChunk {
+  const steps = generateWildChunkSteps(w, cx, cz);
+  let next = steps.next();
+  while (!next.done) next = steps.next();
+  return next.value;
+}
+
+/** Stream the data too: yielding only during mesh construction leaves terrain sampling
+ * and vegetation placement as one large, uninterruptible frame. */
+export function* generateWildChunkSteps(
+  w: Wilderness,
+  cx: number,
+  cz: number,
+): Generator<void, WildChunk, void> {
   const size = TUNING.world.chunkSize;
   const cell = TUNING.world.cellSize;
   const n = size / cell;
   const x0 = cx * size;
   const z0 = cz * size;
+  // Road earthworks query 64 m spatial buckets plus their shoulders. Prepare the
+  // overlapping routes separately so the first height sample cannot build them all.
+  yield* pathsOf(w).prepare(x0 - 96, z0 - 96, x0 + size + 96, z0 + size + 96);
   const heights = new Float32Array(n * n);
   const biomes = new Uint8Array(n * n);
   let hasWater = false;
-  for (let iz = 0; iz < n; iz++)
+  for (let iz = 0; iz < n; iz++) {
     for (let ix = 0; ix < n; ix++) {
       const x = x0 + (ix + 0.5) * cell;
       const z = z0 + (iz + 0.5) * cell;
@@ -73,6 +91,8 @@ export function generateWildChunk(w: Wilderness, cx: number, cz: number): WildCh
       biomes[iz * n + ix] = w.biomeAt(x, z);
       if (h < WATER_LEVEL) hasWater = true;
     }
+    yield;
+  }
 
   const trees: Tree[] = [];
   // bamboo stands in place of the trees in a grove; a flower sea is open ground
@@ -83,7 +103,7 @@ export function generateWildChunk(w: Wilderness, cx: number, cz: number): WildCh
     ix >= 0 && iz >= 0 && ix < n && iz < n
       ? heights[iz * n + ix]!
       : w.heightAt(x0 + (ix + 0.5) * cell, z0 + (iz + 0.5) * cell);
-  for (let iz = 0; iz < n; iz++)
+  for (let iz = 0; iz < n; iz++) {
     for (let ix = 0; ix < n; ix++) {
       const biome = BIOMES[biomes[iz * n + ix]!]!;
       const h = hashAt(w.seed, 'tree', cx * n + ix, cz * n + iz);
@@ -132,13 +152,18 @@ export function generateWildChunk(w: Wilderness, cx: number, cz: number): WildCh
         color: biome.treeColor,
       });
     }
+    yield;
+  }
 
   const sources = sourcesInChunk(w, cx, cz);
+  yield;
   const ruins = ruinsInChunk(w, cx, cz);
+  yield;
   // now and then a great old tree stands alone in the open, the others giving it room
   const paths = pathsOf(w);
   const offPath = (x: number, z: number): boolean => paths.edgeDistance(x, z) > PATH_ROOM;
   const great = greatTreeIn(w, cx, cz, sources, ruins);
+  yield;
   // springs and lookouts here and next door: trees near a chunk's edge give them room too
   const springs = springsInChunk(w, cx, cz);
   const lookouts = lookoutsInChunk(w, cx, cz);
@@ -149,7 +174,14 @@ export function generateWildChunk(w: Wilderness, cx: number, cz: number): WildCh
       for (const l of lookoutsInChunk(w, cx + dx, cz + dz)) marks.push({ x: l.x, z: l.z, room: 7 });
       const well = inkWellInChunk(w, cx + dx, cz + dz);
       if (well) marks.push({ x: well.x, z: well.z, room: 6 });
+      yield;
     }
+  const farmstead = farmsteadInChunk(w, cx, cz, [
+    ...marks,
+    ...sources.map((p) => ({ x: p.x, z: p.z, room: 4 })),
+    ...ruins.map((r) => ({ x: r.x, z: r.z, room: 16 })),
+    ...(great ? [{ x: great.x, z: great.z, room: GREAT.room }] : []),
+  ]);
   // keep trees off sources, ruins, paths and landmarks so they stay visible and reachable
   const clearTrees = trees.filter(
     (t) =>
@@ -157,6 +189,11 @@ export function generateWildChunk(w: Wilderness, cx: number, cz: number): WildCh
       !ruins.some((r) => Math.hypot(t.x - r.x, t.z - r.z) < 14) &&
       !(great && Math.hypot(t.x - great.x, t.z - great.z) < GREAT.room) &&
       !marks.some((m) => Math.hypot(t.x - m.x, t.z - m.z) < m.room) &&
+      !(
+        farmstead &&
+        Math.abs(t.x - farmstead.x) < farmstead.hw + 2.5 &&
+        Math.abs(t.z - farmstead.z) < farmstead.hd + 2.5
+      ) &&
       offPath(t.x, t.z),
   );
   if (great) clearTrees.push(great);
@@ -166,9 +203,7 @@ export function generateWildChunk(w: Wilderness, cx: number, cz: number): WildCh
       const mx = (b.x0 + b.x1) / 2;
       if (mx < x0 || mx >= x0 + size || b.z < z0 || b.z >= z0 + size) continue;
       // paths that cross the river at the same spot share one bridge: the widest of theirs
-      const at = bridges.findIndex(
-        (o) => b.x0 < o.x1 && o.x0 < b.x1 && Math.abs(b.z - o.z) < b.half + o.half + 1,
-      );
+      const at = bridges.findIndex((o) => b.x0 === o.x0 && b.x1 === o.x1 && b.z === o.z);
       if (at < 0) bridges.push(b);
       else if (b.half > bridges[at]!.half) bridges[at] = b;
     }
@@ -188,6 +223,7 @@ export function generateWildChunk(w: Wilderness, cx: number, cz: number): WildCh
     bridges,
     springs,
     lookouts,
+    farmstead,
   };
 }
 

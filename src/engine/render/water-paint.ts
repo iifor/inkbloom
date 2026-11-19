@@ -4,43 +4,28 @@
 // the sun's web of light on the bed in the shallows, and foam along the shore.
 import * as THREE from 'three';
 import { MAX_COLORS } from '@/content/palette';
-import { TUNING } from '@/content/tuning';
-import { RIVER_LANE, RIVER_X, WATER_LEVEL } from '@/world/wilderness/generator';
+import { CURRENT_STEP } from '@/world/wilderness/water-current';
+import { WATER_LEVEL } from '@/world/wilderness/water-level';
 
 /** Ripple rings kept at once: six for the player, the rest for fish. */
 export const WAKE_COUNT = 18;
-/** The rivers' table: lanes around the player and samples along each. */
-export const RIVER_ROWS = 3;
 export const RIVER_SAMPLES = 129;
-/** A river's current mid-channel, metres a second, and the seconds of one flow phase. */
-const FLOW_SPEED = 1.3;
 const FLOW_CYCLE = 2;
 
 /** The current's functions: riverFlow and currentRipple. */
 export const riverGLSL = /* glsl */ `
-/**
- * The river current at p: xy its velocity (metres a second, downstream along +z), z how much
- * of it is river (1 in mid-channel, 0 at the bank and in still water). The rivers' middles
- * and half-widths come from a small table around the player (see setRivers).
- */
+/** The surface velocity in xy, and the blend between still and flowing ripples in z. */
 vec3 riverFlow(vec2 p) {
-  float lane = floor((p.x - uRiverLane.x) / uRiverLane.y + 0.5);
-  float row = lane - uRiverGrid.x;
-  float u = (p.y - uRiverGrid.y) / uRiverGrid.z;
-  if (row < 0.0 || row > ${RIVER_ROWS - 1}.0 || u < 0.0 || u > ${RIVER_SAMPLES - 2}.0) return vec3(0.0);
-  float v = (row + 0.5) / ${RIVER_ROWS}.0;
-  vec2 a = texture2D(uRivers, vec2((u + 0.5) / ${RIVER_SAMPLES}.0, v)).rg;
-  vec2 b = texture2D(uRivers, vec2((u + 1.5) / ${RIVER_SAMPLES}.0, v)).rg;
-  float middle = uRiverLane.x + lane * uRiverLane.y + a.x;
-  float across = abs(p.x - middle) / a.y;
-  float strength = 1.0 - smoothstep(0.55, 1.05, across);
-  vec2 dir = normalize(vec2((b.x - a.x) / uRiverGrid.z, 1.0));
-  // fastest mid-channel, slowing towards the banks
-  return vec3(dir * ${FLOW_SPEED.toFixed(2)} * (1.0 - 0.6 * across * across), strength);
+  vec2 cell = (p - uRiverGrid.xy) / uRiverGrid.z;
+  vec2 edge = min(cell, vec2(uRiverGrid.w - 1.0) - cell);
+  float margin = min(edge.x, edge.y);
+  if (!uWildWater || margin <= 0.0) return vec3(0.0);
+  vec2 velocity = texture2D(uRivers, (cell + 0.5) / uRiverGrid.w).rg * smoothstep(0.0, 8.0, margin);
+  return vec3(velocity, smoothstep(0.025, 0.8, length(velocity)));
 }
 /** Ripples stretched along the current. */
 float currentRipple(vec2 p, vec3 flow) {
-  vec2 dir = normalize(flow.xy + vec2(0.0, 1e-4));
+  vec2 dir = flow.xy / max(1e-4, length(flow.xy));
   vec2 q = vec2(dot(p, vec2(dir.y, -dir.x)), dot(p, dir));
   return vnoise(vec2(q.x * 1.6, q.y * 0.35)) * 0.6 + vnoise(q * 2.3) * 0.4;
 }`;
@@ -131,8 +116,9 @@ export const waterGLSL = /* glsl */ `
       // still water ripples in place; in a river the ripples stretch along the current and are
       // carried downstream: two copies drifting half a cycle apart, each faded out as it
       // starts over (the two-phase flow technique)
-      float still = vnoise(vec2(rp.x * 0.35 + uTime * 0.25, rp.y * 1.6)) * 0.6 + vnoise(rp * 2.3 - uTime * 0.4) * 0.4;
+      float still = vnoise(vec2(rp.x * 0.35 + uTime * 0.06, rp.y * 1.6)) * 0.6 + vnoise(rp * 2.3 - uTime * 0.09) * 0.4;
       vec3 flow = riverFlow(rp);
+      float rapids = smoothstep(0.55, 2.35, length(flow.xy));
       float ph0 = fract(uTime / ${FLOW_CYCLE.toFixed(1)});
       float ph1 = fract(ph0 + 0.5);
       float swap = abs(ph0 - 0.5) * 2.0;
@@ -167,7 +153,7 @@ export const waterGLSL = /* glsl */ `
           vec2 rim = min(suv, 1.0 - suv);
           vec3 bank = bankPaint(texture2D(tScene, suv), at2);
           // paler with distance, like everything far off
-          bank = mix(bank, horizonOf(rdir), 1.0 - exp(-(d + gone) * 0.0042));
+          bank = mix(bank, horizonOf(rdir), 1.0 - exp(-(d + gone) * 0.00065));
           reflected = mix(reflected, bank, smoothstep(0.0, 0.06, min(rim.x, rim.y)) * 0.85);
           break;
         }
@@ -186,7 +172,7 @@ export const waterGLSL = /* glsl */ `
         water = mix(paletteColor(float(uWater)) * light, reflected, fres);
         water += vec3(0.92, 0.96, 1.0) * smoothstep(0.76, 0.8, rip) * 0.22 * lit * (1.0 - uNight);
         // where a river runs fast, its ripples break into streaks of white
-        water += vec3(0.95, 0.97, 1.0) * smoothstep(0.7, 0.86, rip) * flow.z * 0.3 * mix(light, vec3(1.0), 0.4);
+        water += vec3(0.95, 0.97, 1.0) * smoothstep(0.7, 0.86, rip) * rapids * 0.3 * mix(light, vec3(1.0), 0.4);
         float glint = pow(max(0.0, dot(rdir, uSun)), 120.0) * step(0.55, vnoise(rp * 5.0 + uTime * 1.3));
         water += uSunColor * glint * 1.4 * (1.0 - uNight);
         // rain: each drop that lands starts a small ring spreading out and fading, more of them
@@ -220,7 +206,7 @@ export const waterGLSL = /* glsl */ `
         float laced = mix(vnoise((rp - drift0) * 1.6 + sway), vnoise((rp - drift1) * 1.6 + sway), swap);
         float lace = smoothstep(0.5, 0.78, mix(vnoise(rp * 1.6 + sway), laced, flow.z));
         vec3 foam = vec3(0.95, 0.97, 0.98) * mix(light, vec3(1.0), 0.4);
-        col = mix(col, mix(drainedAt(foam), foam, sat), shore * lace * 0.55 * (1.0 - 0.6 * uNight));
+        col = mix(col, mix(drainedAt(foam), foam, sat), shore * lace * rapids * 0.55 * (1.0 - 0.6 * uNight));
       }
     }
     // a thin bright line where each of the swimmer's arms breaks the surface
@@ -229,33 +215,21 @@ export const waterGLSL = /* glsl */ `
       col = mix(col, vec3(0.94, 0.97, 1.0) * mix(light, vec3(1.0), 0.5), meniscus * 0.45 * (1.0 - 0.6 * uNight));
     }`;
 
-/** River middles and half-widths around the player, as a texture for the paint pass. */
+/** The surface velocity field around the player, as a texture for the paint pass. */
 export class RiverTable {
-  private readonly data = new Uint16Array(RIVER_SAMPLES * RIVER_ROWS * 2);
+  private readonly data = new Uint16Array(RIVER_SAMPLES * RIVER_SAMPLES * 2);
   readonly texture = Object.assign(
-    new THREE.DataTexture(this.data, RIVER_SAMPLES, RIVER_ROWS, THREE.RGFormat, THREE.HalfFloatType),
+    new THREE.DataTexture(this.data, RIVER_SAMPLES, RIVER_SAMPLES, THREE.RGFormat, THREE.HalfFloatType),
     { magFilter: THREE.LinearFilter, minFilter: THREE.LinearFilter },
   );
 
-  /**
-   * Where the rivers run around the player: `RIVER_ROWS` lanes from `lane`, sampled every
-   * `step` metres of z from `z0`; `at(lane, z)` gives a river's middle and half-width.
-   */
-  set(
-    lane: number,
-    z0: number,
-    step: number,
-    at: (lane: number, z: number) => { x: number; half: number },
-  ): void {
-    const data = this.data;
-    const spawnX = TUNING.world.chunkSize / 2 + RIVER_X;
-    for (let r = 0; r < RIVER_ROWS; r++)
-      for (let k = 0; k < RIVER_SAMPLES; k++) {
-        const river = at(lane + r, z0 + k * step);
-        // relative to the lane's own line, so half floats keep centimetres
-        const i = (r * RIVER_SAMPLES + k) * 2;
-        data[i] = THREE.DataUtils.toHalfFloat(river.x - spawnX - (lane + r) * RIVER_LANE);
-        data[i + 1] = THREE.DataUtils.toHalfFloat(river.half);
+  set(x0: number, z0: number, at: (x: number, z: number) => { x: number; z: number }): void {
+    for (let row = 0; row < RIVER_SAMPLES; row++)
+      for (let column = 0; column < RIVER_SAMPLES; column++) {
+        const v = at(x0 + column * CURRENT_STEP, z0 + row * CURRENT_STEP);
+        const i = (row * RIVER_SAMPLES + column) * 2;
+        this.data[i] = THREE.DataUtils.toHalfFloat(v.x);
+        this.data[i + 1] = THREE.DataUtils.toHalfFloat(v.z);
       }
     this.texture.needsUpdate = true;
   }

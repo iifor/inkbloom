@@ -58,8 +58,8 @@ it('keeps the triangle order of loose faces and indexed templates in a merged me
   plane.dispose();
 });
 
-describe('great trees', () => {
-  const w = createWilderness(4242);
+describe.each([4, 5] as const)('great trees (terrain %i)', (version) => {
+  const w = createWilderness(4242, [], version);
   const found: { cx: number; cz: number; t: Tree }[] = [];
   for (let cx = -8; cx <= 8; cx++)
     for (let cz = -8; cz <= 8; cz++) {
@@ -68,9 +68,9 @@ describe('great trees', () => {
     }
 
   it('stand now and then, alone, on gentle dry open ground', () => {
-    // a few in every stretch of country (towns take half the land), not a forest of them
+    // Sparse settlement regions leave more countryside available for solitary great trees.
     expect(found.length).toBeGreaterThan(289 * 0.05);
-    expect(found.length).toBeLessThan(289 * 0.2);
+    expect(found.length).toBeLessThan(289 * (version < 5 ? 0.2 : 0.25));
     for (const { cx, cz, t } of found) {
       expect(t.kind).toBe('great');
       expect(t.height).toBeGreaterThan(15);
@@ -85,7 +85,8 @@ describe('great trees', () => {
   });
 
   it('stands in a town too, near its square', () => {
-    const e = w.entranceInCell(1, 1)!;
+    const e = w.entrancesNear(960, 960).find((t) => t.chunks >= 3)!;
+    expect(e).toBeDefined();
     const city = townLayout(e, w);
     const great = city.trees.filter((t) => t.kind === 'great');
     expect(great).toHaveLength(1);

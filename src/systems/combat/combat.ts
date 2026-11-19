@@ -150,7 +150,11 @@ export class CombatSystem implements System, CombatApi {
     this.shieldT = seconds;
   }
 
-  damagePlayer(amount: number, from?: THREE.Vector3, opts: { readonly melee?: boolean } = {}): void {
+  damagePlayer(
+    amount: number,
+    from?: THREE.Vector3,
+    opts: { readonly melee?: boolean; readonly fall?: boolean } = {},
+  ): void {
     // in the arena only the server hurts the player
     if (!this.alive || this.grace > 0 || this.ctx.player.flying || this.byServer) return;
     const melee = opts.melee === true;
@@ -173,11 +177,12 @@ export class CombatSystem implements System, CombatApi {
       absorbed,
       from: from ? { x: from.x, y: from.y, z: from.z } : null,
       melee,
+      fall: opts.fall,
     });
-    if (this.hp <= 0) this.die();
+    if (this.hp <= 0) this.die(opts.fall);
   }
 
-  private die(): void {
+  private die(fall = false): void {
     this.alive = false;
     this.deadFor = 0;
     const p = this.ctx.player.position;
@@ -186,9 +191,10 @@ export class CombatSystem implements System, CombatApi {
     this.ctx.apply({ kind: 'death', scene: this.ctx.scenes.active.ref, x: p.x, y: p.y, z: p.z });
     const lost = before - this.ctx.state.inventory.ink;
     this.ctx.events.emit('player:died', { lostInk: lost });
+    const cause = fall ? '摔倒了' : '被墨吞没了';
     this.ctx.events.emit('toast', {
       // the objective then points back to the dropped ink
-      text: lost > 0 ? `被墨吞没了，掉了 ${lost} 墨` : '被墨吞没了',
+      text: lost > 0 ? `${cause}，掉了 ${lost} 墨` : cause,
       seconds: 5,
     });
   }

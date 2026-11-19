@@ -1,10 +1,25 @@
-// The world's calendar: a pure function of the play clock. A day lasts `TUNING.day.length`
+// The world's calendar: a pure function of environment time. A day lasts `TUNING.day.length`
 // seconds, a season `TUNING.season.days` days, and the year starts on the first day of spring.
 // As in the traditional calendar, the equinoxes and solstices fall in the middle of their
 // seasons, so midsummer is the longest day. Everything that changes with the time of day or the
 // time of year reads it from here.
 import { TUNING } from '@/content/tuning';
 import { smoothstep } from '../math/noise';
+import type { WorldState } from '../state';
+
+/** Local accelerated seasons persist per world; multiplayer keeps the server's shared date. */
+export function calendarClock(state: Pick<WorldState, 'clock' | 'calendarOffset'>, online = false): number {
+  return state.clock + (online ? 0 : state.calendarOffset);
+}
+
+export function yearDuration(scale: number): string {
+  const seconds = Math.round((TUNING.day.length * TUNING.season.days * 4) / scale);
+  if (seconds < 60) return `一年约 ${seconds} 秒`;
+  const minutes = Math.floor(seconds / 60),
+    rest = seconds % 60;
+  if (minutes < 60) return `一年约 ${minutes} 分${rest ? ` ${rest} 秒` : ''}`;
+  return `一年约 ${Math.floor(minutes / 60)} 小时${minutes % 60 ? ` ${minutes % 60} 分` : ''}`;
+}
 
 /** Earth's axial tilt, radians: how far the sun's path moves north and south over a year. */
 const TILT = (23.44 * Math.PI) / 180;

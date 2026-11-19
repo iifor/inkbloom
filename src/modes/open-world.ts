@@ -55,6 +55,7 @@ export interface OpenWorld {
   readonly player: PlayerSystem;
   readonly save: SaveSystem;
   readonly loop: Loop;
+  readonly clock: ClockSystem;
   readonly audio: AudioSystem;
   readonly playtest: PlaytestSystem;
   /** The server world this client is in; null when playing alone. */
@@ -81,7 +82,7 @@ export function startOpenWorld(opts: {
   ctx.events = new EventBus<GameEvents>();
   ctx.renderer = new InkRenderer(opts.canvas);
   ctx.input = new Input(opts.canvas, lifetime.signal);
-  ctx.wilderness = createWilderness(opts.state.seed);
+  ctx.wilderness = createWilderness(opts.state.seed, opts.state.legacyTowns, opts.state.terrainVersion);
   const cities = new CityRegistry(ctx);
   ctx.cities = cities;
   // a town nobody here has walked to yet still has a layout: work it out when a patch needs it
@@ -218,6 +219,7 @@ export function startOpenWorld(opts: {
     interactions,
     panel,
     belt,
+    { id: 'walking-hands', update: (dt) => player.updateHands(dt, belt.inHand()) },
     inkDrop,
     objectives,
     hud,
@@ -249,6 +251,7 @@ export function startOpenWorld(opts: {
   loop.start();
 
   return {
+    clock,
     ctx,
     scenes,
     belt,
