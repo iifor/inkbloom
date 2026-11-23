@@ -540,18 +540,28 @@ function buildWell(g: GeometryBuilder, at: Vec3Like, group: string, physics: Col
   const wood = color('bark');
   const tile = color('clayTile');
   const m = new THREE.Matrix4();
-  const ring = new THREE.CylinderGeometry(1.1, 1.2, 0.9, 14, 1, true);
-  g.mesh(ring, m.makeTranslation(at.x, at.y + 0.45, at.z), stone);
-  ring.dispose();
-  const lip = new THREE.TorusGeometry(1.12, 0.14, 4, 14).rotateX(Math.PI / 2);
-  g.mesh(lip, m.makeTranslation(at.x, at.y + 0.9, at.z), stone);
-  lip.dispose();
-  const all = (c: number) => ({ px: c, nx: c, pz: c, nz: c, py: c });
-  g.box(
-    { x: at.x - 1, y: at.y + 0.35, z: at.z - 1 },
-    { x: at.x + 1, y: at.y + 0.4, z: at.z + 1 },
-    all(color('water')),
+  const sides = 14;
+  const innerRadius = 0.98;
+  const waterHeight = 0.4;
+  // One stone profile runs up the outside, over the rim and down the inside to the water.
+  const wall = new THREE.LatheGeometry(
+    [
+      new THREE.Vector2(1.2, -0.2),
+      new THREE.Vector2(1.1, 0.76),
+      new THREE.Vector2(1.26, 0.9),
+      new THREE.Vector2(1.12, 1.04),
+      new THREE.Vector2(innerRadius, 0.9),
+      new THREE.Vector2(innerRadius, waterHeight),
+    ],
+    sides,
   );
+  g.mesh(wall, m.makeTranslation(at.x, at.y, at.z), stone);
+  wall.dispose();
+  // Match the inner wall's corners so the water meets the stone on every side.
+  const water = new THREE.CircleGeometry(innerRadius, sides, -Math.PI / 2).rotateX(-Math.PI / 2);
+  g.mesh(water, m.makeTranslation(at.x, at.y + waterHeight, at.z), color('water'));
+  water.dispose();
+  const all = (c: number) => ({ px: c, nx: c, pz: c, nz: c, py: c });
   for (const x of [-1.25, 1.25])
     g.box(
       { x: at.x + x - 0.09, y: at.y, z: at.z - 0.09 },

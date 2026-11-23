@@ -52,36 +52,10 @@ export class CourierViewArms {
     const { model, rig } = this.actor;
     // Retain the skeleton and the author's topology. Only the triangle index is cropped;
     // shared source geometry and the full third-person character remain untouched.
-    model.traverse((object) => {
-      if (!(object instanceof THREE.Mesh)) return;
-      if (!(object instanceof THREE.SkinnedMesh)) {
-        object.visible = false;
-        return;
-      }
-      const geometry = object.geometry;
-      const joints = geometry.getAttribute('skinIndex');
-      const weights = geometry.getAttribute('skinWeight');
-      const arms = object.skeleton.bones.map((bone) =>
-        /^(upperarm|lowerarm|hand|index_\d+|middle_\d+|ring_\d+|pinky_\d+|thumb_\d+)_[lr]$/.test(bone.name),
-      );
-      const keep = (vertex: number): boolean => {
-        let weight = 0;
-        for (let component = 0; component < 4; component++)
-          if (arms[joints.getComponent(vertex, component)]) weight += weights.getComponent(vertex, component);
-        return weight > 0.65;
-      };
-      const indices: number[] = [];
-      const index = geometry.index;
-      const count = index?.count ?? joints.count;
-      for (let i = 0; i < count; i += 3) {
-        const a = index ? index.getX(i) : i;
-        const b = index ? index.getX(i + 1) : i + 1;
-        const c = index ? index.getX(i + 2) : i + 2;
-        if (keep(a) && keep(b) && keep(c)) indices.push(a, b, c);
-      }
-      geometry.setIndex(indices);
-      object.visible = indices.length > 0;
-    });
+    this.actor.retainTriangles(
+      /^(upperarm|lowerarm|hand|index_\d+|middle_\d+|ring_\d+|pinky_\d+|thumb_\d+)_[lr]$/,
+      (weight) => weight > 0.65,
+    );
     rig.hips.position.set(0, 0, 0);
     rig.torso.position.set(0, 0, 0);
     rig.armL.position.set(-0.34, -0.36, 0);

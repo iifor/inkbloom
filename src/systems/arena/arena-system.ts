@@ -112,7 +112,7 @@ export class ArenaSystem implements System, ArenaApi {
     this.t += dt;
     while (this.feed.length && this.t - this.feed[0]!.t > FEED_SECONDS) this.feed.shift();
     if (!this.inside) return;
-    // out past the wall (the wall stops walking; flying does not): that is leaving
+    // A player who flies over the perimeter and stays outside has left the arena.
     const p = this.ctx.player.position;
     const far = Math.hypot(p.x - this.site.x, p.z - this.site.z) > this.site.radius + 6;
     this.outside = far ? this.outside + dt : 0;

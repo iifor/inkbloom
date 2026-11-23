@@ -29,6 +29,7 @@ export interface House {
 
 export const DOOR_WIDTH = 1.6;
 export const DOOR_HEIGHT = 2.4;
+const CEILING_THICKNESS = 0.12;
 const wood = color('bark'),
   stone = color('rock'),
   glass = color('glass');
@@ -167,7 +168,7 @@ function buildOpenShell(g: GeometryBuilder, h: House, collide: BoxSink): void {
   }
   const eave = base + height;
   g.box(
-    v(x0 + thickness, eave - 0.12, z0 + thickness),
+    v(x0 + thickness, eave - CEILING_THICKNESS, z0 + thickness),
     v(x1 - thickness, eave, z1 - thickness),
     allFaces(wood),
   );
@@ -247,9 +248,9 @@ function addFacade(g: GeometryBuilder, h: House, box: BoxSink): void {
         v(-side.x, 0, -side.z),
       );
     };
-    // the stone footing stands out under the sill beam; posts and beams are proud of the plaster
+    // Break the footing and sill beam at the doorway so they never cover the bottom of the door.
     const baseTrim = (y0: number, y1: number, depth: number, tint: number) => {
-      if (h.enterable && f === front) {
+      if (f === front) {
         slab(lo, h.doorAt - DOOR_WIDTH / 2, y0, y1, depth, tint);
         slab(h.doorAt + DOOR_WIDTH / 2, hi, y0, y1, depth, tint);
       } else slab(lo, hi, y0, y1, depth, tint);
@@ -577,26 +578,42 @@ function addRoof(g: GeometryBuilder, h: House, box: BoxSink, detail: boolean): v
       );
     }
   }
-  // The physics world uses boxes. Four nested steps approximate the pitched top
-  // for landing and picking; none stretches to the ridge height at the eaves.
-  for (let i = 0; i < 4; i++) {
-    const f = (i + 0.5) / 4;
-    const half = across * (1 - i / 4),
-      length = Math.min(along, end - cut * f);
-    const surfaceFaces = allFaces(roof);
-    if (cut === 0 && walls) {
-      if (ridgeX) {
-        surfaceFaces.px = walls.px;
-        surfaceFaces.nx = walls.nx;
-      } else {
-        surfaceFaces.pz = walls.pz;
-        surfaceFaces.nz = walls.nz;
-      }
+  const surfaceFaces = allFaces(roof);
+  if (cut === 0 && walls) {
+    if (ridgeX) {
+      surfaceFaces.px = walls.px;
+      surfaceFaces.nx = walls.nx;
+    } else {
+      surfaceFaces.pz = walls.pz;
+      surfaceFaces.nz = walls.nz;
     }
-    box(
-      axis(-length, eave + (rise * i) / 4, -half),
-      axis(length, eave + (rise * (i + 1)) / 4, half),
-      surfaces ? { faces: surfaceFaces } : {},
-    );
+  }
+  const data = surfaces ? { faces: surfaceFaces } : {};
+  const roofBox = (u0: number, u1: number, y0: number, y1: number, t0: number, t1: number) => {
+    if (u0 < u1 && y0 < y1 && t0 < t1) box(axis(u0, y0, t0), axis(u1, y1, t1), data);
+  };
+  // Cover each height band's widest section, including the eaves and overhanging ends.
+  // The rendered sag can only lower the ridge, so a landing stays above the visible pitch.
+  const bands = 8;
+  const ceiling = eave - CEILING_THICKNESS;
+  const level = (fraction: number) => edge + (top - edge) * fraction;
+  for (let i = 0; i < bands; i++) {
+    const fraction = i / bands;
+    const half = run * (1 - fraction);
+    const length = end - cut * fraction;
+    const bottom = i === 0 ? edge - 0.18 : level(fraction);
+    const upper = level((i + 1) / bands);
+    if (!h.enterable || bottom >= ceiling) {
+      roofBox(-length, length, bottom, upper, -half, half);
+      continue;
+    }
+    // Below the ceiling, cover only the roof outside the room's footprint.
+    const lowerTop = Math.min(upper, ceiling);
+    const roomEnd = Math.min(length, along);
+    roofBox(-length, -roomEnd, bottom, lowerTop, -half, half);
+    roofBox(roomEnd, length, bottom, lowerTop, -half, half);
+    roofBox(-roomEnd, roomEnd, bottom, lowerTop, -half, -across);
+    roofBox(-roomEnd, roomEnd, bottom, lowerTop, across, half);
+    roofBox(-length, length, ceiling, upper, -half, half);
   }
 }

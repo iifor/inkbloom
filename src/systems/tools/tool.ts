@@ -76,7 +76,8 @@ export class ToolBelt implements System {
       player.gliding ||
       player.flying ||
       player.falling ||
-      !!player.resting;
+      !!player.resting ||
+      player.gettingUp === true;
     if (stowed !== this.stowed) {
       this.stowed = stowed;
       if (stowed) this.active?.onUnequip?.();

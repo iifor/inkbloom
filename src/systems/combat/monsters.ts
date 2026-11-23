@@ -18,8 +18,10 @@ import { color } from '@/content/palette';
 import { TUNING } from '@/content/tuning';
 import { type Body, type PhysicsWorld, makeBody } from '@/engine/physics/world';
 import { ALWAYS_COLOR, GeometryBuilder } from '@/engine/render/geometry-builder';
+import type { Point3 } from '@/game/events';
 import type { GameContext, HitOptions, TargetHit, TargetSource } from '@/game/types';
 import { findPath, type NavGrid, type Waypoint } from '@/world/nav/path';
+import { WATER_LEVEL } from '@/world/wilderness/water-level';
 import { MonsterFigures, type Pose } from './monster-figure';
 
 const FEEL = TUNING.combat.feel;
@@ -59,6 +61,8 @@ const VIEW_MARGIN = 6;
 const JUMP_MARGIN = 0.35;
 /** How far ahead of its body a monster looks for a ledge. */
 const LEDGE_PROBE = 0.35;
+const DROWN_TIME = 1.3;
+const KNOCK_TIME = 0.3;
 
 /** Ids are unique across every group, so overlays can track one monster. */
 let nextId = 1;
@@ -87,6 +91,8 @@ interface Monster {
   sidestepDir: number;
   strafe: number;
   hurtT: number;
+  knockT: number;
+  waterT: number;
   /** Seconds left reeling from a broken attack: it neither moves nor attacks. */
   stunT: number;
   /** Seconds its drawn pose holds still after a heavy hit, and the pose held. */
@@ -124,6 +130,7 @@ const _viewMatrix = new THREE.Matrix4();
 const _sphere = new THREE.Sphere();
 const _dir = new THREE.Vector3();
 const _eye = new THREE.Vector3();
+const _sight = new THREE.Vector3();
 
 export interface SpawnOptions {
   /** Group label so a set (e.g. a tide's monsters) can be cleared together. */
@@ -178,6 +185,8 @@ export class MonsterGroup implements TargetSource {
       jumpT: 0,
       strafe: Math.random() < 0.5 ? 1 : -1,
       hurtT: 0,
+      knockT: 0,
+      waterT: 0,
       stunT: 0,
       freezeT: 0,
       pose: null,
@@ -251,6 +260,8 @@ export class MonsterGroup implements TargetSource {
             b.vel.x += _to.x * opts.knock;
             b.vel.z += _to.z * opts.knock;
             b.vel.y = Math.max(b.vel.y, 2);
+            m.knockT = KNOCK_TIME;
+            if (m.act?.kind === 'lunge') m.act = null;
           }
         }
         const at = { x: m.body.pos.x, y: m.body.pos.y + m.def.height * 0.5, z: m.body.pos.z };
@@ -266,9 +277,7 @@ export class MonsterGroup implements TargetSource {
           });
           return false;
         }
-        this.remove(m);
-        this.ctx.events.emit('monster:died', { at, id: m.id, amount: dealt, colors: m.colors });
-        m.onDefeat?.();
+        this.defeat(m, at, dealt);
         return true;
       },
     };
@@ -310,14 +319,20 @@ export class MonsterGroup implements TargetSource {
     m.act = null;
   }
 
+  private defeat(m: Monster, at: Point3, amount: number): void {
+    m.hp = 0;
+    this.remove(m);
+    this.ctx.events.emit('monster:died', { at, id: m.id, amount, colors: m.colors });
+    m.onDefeat?.();
+  }
+
   private sees(m: Monster): boolean {
     const p = m.body.pos;
     _eye.set(p.x, p.y + m.def.height * 0.8, p.z);
-    _to.subVectors(this.ctx.player.eye, _eye);
-    const dist = _to.length();
+    _sight.subVectors(this.ctx.player.eye, _eye);
+    const dist = _sight.length();
     if (dist < 1e-3) return true;
-    _to.divideScalar(dist);
-    const hit = this.physics.raycast(_eye, _to, dist);
+    const hit = this.physics.raycast(_eye, _sight.divideScalar(dist), dist);
     return hit === null;
   }
 
@@ -350,7 +365,7 @@ export class MonsterGroup implements TargetSource {
       _dir.set(goal.x - p.x, 0, goal.z - p.z).normalize();
       return;
     }
-    if ((!m.path || m.repathT <= 0) && this.plans < PLANS_PER_FRAME) {
+    if (m.repathT <= 0 && this.plans < PLANS_PER_FRAME) {
       this.plans++;
       m.path = findPath(this.nav, p, goal);
       m.repathT = 0.7 + Math.random() * 0.5;
@@ -360,6 +375,46 @@ export class MonsterGroup implements TargetSource {
     const wp = m.path?.[0] ?? goal;
     _dir.set(wp.x - p.x, 0, wp.z - p.z);
     if (_dir.lengthSq() > 1e-6) _dir.normalize();
+  }
+
+  /** Check the next stretch of bank. A bridge deck within stepping reach counts as dry support. */
+  private waterAhead(b: Body, dx: number, dz: number, distance: number): boolean {
+    const ground = this.physics.ground;
+    const length = Math.hypot(dx, dz);
+    if (!ground || length < 1e-3) return false;
+    const reach = distance + b.halfW;
+    const samples = Math.ceil(reach / 0.65);
+    const probeY = Math.max(WATER_LEVEL + 0.05, b.pos.y + b.stepHeight + 0.05);
+    for (let i = 1; i <= samples; i++) {
+      const scale = (reach * i) / (samples * length);
+      const x = b.pos.x + dx * scale;
+      const z = b.pos.z + dz * scale;
+      if (ground(x, z) > WATER_LEVEL) continue;
+      if (this.physics.groundBelow(x, probeY, z, probeY - WATER_LEVEL) === null) return true;
+    }
+    return false;
+  }
+
+  private sinkInWater(m: Monster, dt: number): boolean {
+    const b = m.body;
+    if (b.pos.y >= WATER_LEVEL - 0.08) {
+      m.waterT = 0;
+      return false;
+    }
+    m.waterT += dt;
+    if (m.waterT >= DROWN_TIME) {
+      this.defeat(m, { x: b.pos.x, y: WATER_LEVEL, z: b.pos.z }, 0);
+      return true;
+    }
+    m.act = null;
+    m.path = null;
+    m.canSee = false;
+    m.aggro = false;
+    b.vel.x *= Math.exp(-5 * dt);
+    b.vel.z *= Math.exp(-5 * dt);
+    b.vel.y = Math.max(-2.2, b.vel.y - GRAVITY * dt);
+    this.physics.moveBody(b, dt);
+    return true;
   }
 
   update(dt: number): void {
@@ -373,6 +428,11 @@ export class MonsterGroup implements TargetSource {
       }
       const b = m.body;
       const def = m.def;
+      if (b.pos.y < -50) {
+        this.remove(m);
+        continue;
+      }
+      m.knockT -= dt;
       if (m.act)
         m.act.t +=
           dt / (m.act.kind === 'melee' ? MELEE_TIME : m.act.kind === 'lunge' ? LUNGE_TIME : SPIT_TIME);
@@ -384,6 +444,7 @@ export class MonsterGroup implements TargetSource {
       m.repathT -= dt;
       m.seeT -= dt;
       m.jumpT -= dt;
+      if (this.sinkInWater(m, dt)) continue;
       _to.set(pp.x - b.pos.x, 0, pp.z - b.pos.z);
       const dist = _to.length();
       if (dist > 1e-3) _to.divideScalar(dist);
@@ -407,7 +468,6 @@ export class MonsterGroup implements TargetSource {
       if (m.aggro && !reeling) {
         const a = def.attack;
         if (!m.canSee) this.follow(m, pp);
-        else m.path = null;
         if (a.kind === 'melee') {
           if (m.canSee && dist > a.range * 0.8) _dir.copy(_to);
           // wind up first; the blow lands partway through the swing, if the player is still there
@@ -430,7 +490,16 @@ export class MonsterGroup implements TargetSource {
             else _dir.set(-_to.z * m.strafe, 0, _to.x * m.strafe).addScaledVector(_to, 0.3);
             if (Math.random() < dt * 0.5) m.strafe = -m.strafe;
           }
-          if (!m.act && m.canSee && dist < a.range && Math.abs(pp.y - b.pos.y) < 2 && m.attackT <= 0) {
+          const lungeReach = a.dash * LUNGE_TIME * (1 - LUNGE_GOES);
+          if (
+            !m.act &&
+            m.canSee &&
+            dist < a.range &&
+            Math.abs(pp.y - b.pos.y) < 2 &&
+            m.attackT <= 0 &&
+            m.knockT <= 0 &&
+            !this.waterAhead(b, _to.x, _to.z, lungeReach)
+          ) {
             m.act = { kind: 'lunge', t: 0, done: false };
             m.attackT = a.cooldown;
           }
@@ -466,8 +535,15 @@ export class MonsterGroup implements TargetSource {
         m.act.done = true;
         this.spit(m, att.speed, att.damage);
       }
-      const dashing =
+      let dashing =
         m.act?.kind === 'lunge' && att.kind === 'lunge' && m.act.t >= LUNGE_GOES && !reeling ? m.act : null;
+      if (
+        dashing &&
+        att.kind === 'lunge' &&
+        this.waterAhead(b, dashing.dx ?? 0, dashing.dz ?? 0, att.dash * dt)
+      ) {
+        m.act = dashing = null;
+      }
       if (dashing && !dashing.done) {
         // passing the player's body (feet to head) on the way through
         const dy = pp.y - b.pos.y;
@@ -493,6 +569,12 @@ export class MonsterGroup implements TargetSource {
       if (m.sidestepT > 0 && !this.nav)
         _dir.set(-_dir.z * m.sidestepDir, 0, _dir.x * m.sidestepDir).add(_to.clone().multiplyScalar(0.3));
       if (_dir.lengthSq() > 1) _dir.normalize();
+      // Direct pursuit can see across a river even though the navigation grid can't cross it.
+      const lookAhead = speed * 0.2;
+      if (speed > 0 && this.waterAhead(b, _dir.x, _dir.z, lookAhead)) {
+        if (!m.aggro || _dir.dot(_to) > 0.25) this.follow(m, m.aggro ? pp : m.home);
+        if (this.waterAhead(b, _dir.x, _dir.z, lookAhead)) _dir.set(0, 0, 0);
+      }
       const tx = _dir.x * speed;
       const tz = _dir.z * speed;
       if (dashing && att.kind === 'lunge') {
@@ -502,6 +584,9 @@ export class MonsterGroup implements TargetSource {
         b.vel.x += THREE.MathUtils.clamp(tx - b.vel.x, -ACCEL * dt, ACCEL * dt);
         b.vel.z += THREE.MathUtils.clamp(tz - b.vel.z, -ACCEL * dt, ACCEL * dt);
       }
+      // Brake at the bank, but let a shove carry them into the water.
+      const travel = Math.hypot(b.vel.x, b.vel.z) * dt;
+      if (m.knockT <= 0 && this.waterAhead(b, b.vel.x, b.vel.z, travel)) b.vel.x = b.vel.z = 0;
       b.vel.y -= GRAVITY * dt;
       this.physics.moveBody(b, dt);
       const rise =
@@ -514,10 +599,6 @@ export class MonsterGroup implements TargetSource {
       } else if (b.hitWall && m.aggro && m.sidestepT <= 0) {
         m.sidestepT = 0.6;
         m.sidestepDir = Math.random() < 0.5 ? 1 : -1;
-      }
-      if (b.pos.y < -50) {
-        this.remove(m);
-        continue;
       }
       // face the player when after them, otherwise the way it walks; turn smoothly
       const moving = Math.hypot(b.vel.x, b.vel.z);

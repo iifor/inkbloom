@@ -65,6 +65,8 @@ export interface PlayerApi {
   readonly falling: boolean;
   readonly waterMode: 'dry' | 'wading' | 'swimming';
   readonly resting: 'sitting' | 'lying' | null;
+  /** Still rising out of a resting pose; hands come back when the view settles. */
+  readonly gettingUp?: boolean;
   /** Push the player along a direction for a moment (dodges, dash attacks). */
   dash(dir: THREE.Vector3, distance: number, seconds: number): void;
   readonly dashing: boolean;

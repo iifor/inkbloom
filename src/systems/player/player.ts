@@ -2,7 +2,7 @@
 // separate modules that adjust velocity here, not as branches inside this file.
 import * as THREE from 'three';
 import { BIOMES } from '@/content/biomes';
-import type { Look } from '@/content/characters';
+import { defaultLook, type Look } from '@/content/characters';
 import { color } from '@/content/palette';
 import { TUNING } from '@/content/tuning';
 import { type Body, makeBody } from '@/engine/physics/world';
@@ -13,6 +13,7 @@ import { pathsOf } from '@/world/wilderness/paths';
 import { spawnStoneDistance } from '@/world/wilderness/spawn-circle';
 import { villageLawnKind } from '@/world/city/lawn';
 import { JumpWindow } from './jump-window';
+import { RestBody } from './rest-body';
 import { SwimArms } from './swim-arms';
 import { WalkArms } from './walk-arms';
 import type { InHand } from '@/systems/tools/tool';
@@ -26,7 +27,10 @@ const PUNCH_RETURN = 14;
 const STEP_RETURN = 18;
 const LAND_RECOVERY = 0.28;
 const GRASS = color('grass');
-const REST_EYE = { sitting: 0.95, lying: 0.27 } as const;
+const REST_VIEW = {
+  sitting: { height: 1.04, ahead: 0.25, pitch: -0.32, minPitch: -1.15, maxPitch: 0.62, yawLimit: 1.05 },
+  lying: { height: 0.5, ahead: -0.72, pitch: 0.42, minPitch: -0.42, maxPitch: 1.48, yawLimit: 0.58 },
+} as const;
 const REST_SECONDS = { sitting: 0.8, lying: 1.05, standing: 0.52 } as const;
 
 export class PlayerSystem implements System, PlayerApi {
@@ -44,11 +48,16 @@ export class PlayerSystem implements System, PlayerApi {
   gliding = false;
   waterMode: PlayerApi['waterMode'] = 'dry';
   resting: PlayerApi['resting'] = null;
-  private restDrop = 0;
+  private readonly restPose = { sitting: 0, lying: 0, groundPitch: 0, groundRoll: 0 };
+  private readonly restFrame = new THREE.Euler(0, 0, 0, 'YXZ');
+  private readonly restEyeOffset = new THREE.Vector3();
+  private restYaw = 0;
   private restTilt = 0;
   private restRoll = 0;
-  private restTransition = { time: 1, drop: 0, tilt: 0, roll: 0, phase: 0 };
-  private beforeLyingPitch = 0;
+  private restTransition = { time: 1, sitting: 0, lying: 0, tilt: 0, roll: 0, phase: 0 };
+  private beforeRestPitch = 0;
+  private restBody: RestBody | null = null;
+  private look = defaultLook('courier');
   private swimBlend = 0;
   private readonly arms: SwimArms;
   private readonly walkArms: WalkArms;
@@ -91,6 +100,8 @@ export class PlayerSystem implements System, PlayerApi {
     this.waitForGliderRelease = !value && this.ctx.input.held('jump');
     this.landRecovery = 0;
     this.body.onGround = false;
+    this.body.stepHeight = value ? 0 : P.stepHeight;
+    this.body.noSnap = value;
     this.body.vel.y = 0;
     this.airJumps = 0;
     this.jump.consume();
@@ -107,6 +118,10 @@ export class PlayerSystem implements System, PlayerApi {
 
   get grounded(): boolean {
     return this.body.onGround;
+  }
+
+  get gettingUp(): boolean {
+    return !this.resting && this.restTransition.time < 1;
   }
 
   get speed(): number {
@@ -153,8 +168,10 @@ export class PlayerSystem implements System, PlayerApi {
     this.body.landVel = 0;
     this.waterMode = 'dry';
     this.resting = null;
-    this.restDrop = this.restTilt = this.restRoll = 0;
+    this.restPose.sitting = this.restPose.lying = 0;
+    this.restTilt = this.restRoll = 0;
     this.restTransition.time = 1;
+    this.restBody?.hide();
     this.swimBlend = 0;
     this.stepOffset = 0;
     this.dip = 0;
@@ -207,15 +224,21 @@ export class PlayerSystem implements System, PlayerApi {
   private setRest(next: PlayerApi['resting']): void {
     if (next === this.resting) return;
     const viewPitch = this.pitch + this.restTilt;
-    if (this.resting === 'lying') this.pitch = this.beforeLyingPitch;
-    if (next === 'lying') {
-      this.beforeLyingPitch = this.pitch;
-      this.pitch = 1.25;
+    if (next) {
+      if (!this.resting) {
+        this.beforeRestPitch = this.pitch;
+        this.restYaw = this.yaw;
+        this.alignRestToGround();
+      }
+      this.pitch = REST_VIEW[next].pitch;
+    } else {
+      this.pitch = this.beforeRestPitch;
     }
     this.restTilt = viewPitch - this.pitch;
     this.restTransition = {
       time: 0,
-      drop: this.restDrop,
+      sitting: this.restPose.sitting,
+      lying: this.restPose.lying,
       tilt: this.restTilt,
       roll: this.restRoll,
       phase: Math.random() * Math.PI * 2,
@@ -223,25 +246,57 @@ export class PlayerSystem implements System, PlayerApi {
     this.resting = next;
   }
 
+  private alignRestToGround(): void {
+    const { x, z } = this.position;
+    const { heightAt } = this.ctx.wilderness;
+    const c = Math.cos(this.restYaw);
+    const s = Math.sin(this.restYaw);
+    const sample = (ahead: number, side: number): number =>
+      heightAt(x - s * ahead + c * side, z - c * ahead - s * side);
+    this.restPose.groundPitch = Math.atan2(sample(0.95, 0) - sample(-0.95, 0), 1.9);
+    this.restPose.groundRoll = Math.atan2(sample(0, 0.42) - sample(0, -0.42), 0.84);
+  }
+
   private updateRestView(dt: number): void {
     const t = this.restTransition;
     if (t.time >= 1) return;
     t.time = Math.min(1, t.time + dt / REST_SECONDS[this.resting ?? 'standing']);
     const ease = THREE.MathUtils.smoothstep(t.time, 0, 1);
-    const target = this.resting ? P.eyeHeight - REST_EYE[this.resting] : 0;
-    this.restDrop = THREE.MathUtils.lerp(t.drop, target, ease);
+    this.restPose.sitting = THREE.MathUtils.lerp(t.sitting, this.resting === 'sitting' ? 1 : 0, ease);
+    this.restPose.lying = THREE.MathUtils.lerp(t.lying, this.resting === 'lying' ? 1 : 0, ease);
     this.restTilt = t.tilt * (1 - ease);
     // One gentle, randomly phased sway per motion. It starts and ends at rest.
     const sway = t.time === 1 ? 0 : Math.sin(Math.PI * t.time) * Math.sin(t.phase + 9 * t.time);
     this.restRoll = t.roll * (1 - ease) + sway * 0.009;
   }
 
+  private drawRestBody(dt: number): void {
+    if ((!this.resting && !this.gettingUp) || !this.ctx.combat.alive) {
+      this.restBody?.hide();
+      return;
+    }
+    const { scene } = this.ctx.renderer;
+    if (!scene) return;
+    this.restBody ??= new RestBody(scene);
+    this.restBody.draw(dt, this.look, this.position, this.restYaw, this.restPose);
+  }
+
   update(dt: number): void {
     const { input } = this.ctx;
     const look = input.takeLook();
     this.yaw += look.yaw;
-    this.pitch = THREE.MathUtils.clamp(this.pitch + look.pitch, -1.5, 1.5);
-    if (input.pressed('debugFly')) this.flying = !this.flying;
+    if (this.resting) {
+      const view = REST_VIEW[this.resting];
+      const yawLimit = THREE.MathUtils.lerp(
+        REST_VIEW.sitting.yawLimit,
+        REST_VIEW.lying.yawLimit,
+        this.restPose.lying,
+      );
+      this.yaw = this.restYaw + THREE.MathUtils.clamp(this.yaw - this.restYaw, -yawLimit, yawLimit);
+      this.pitch = THREE.MathUtils.clamp(this.pitch + look.pitch, view.minPitch, view.maxPitch);
+    } else this.pitch = THREE.MathUtils.clamp(this.pitch + look.pitch, -1.5, 1.5);
+    if (!this.ctx.combat.alive) this.flying = false;
+    else if (input.pressed('debugFly')) this.flying = !this.flying;
     if (!input.held('jump')) this.waitForGliderRelease = false;
     this.landRecovery = Math.max(0, this.landRecovery - dt);
     this.knockT -= dt;
@@ -304,6 +359,7 @@ export class PlayerSystem implements System, PlayerApi {
     this.stepFeel(dt);
     const kicked = this.arms.update(dt, this.swimBlend, this.body.vel, this.yaw, this.pitch);
     this.syncCamera();
+    this.drawRestBody(dt);
     if (kicked && this.waterMode === 'swimming') {
       const hands = this.arms.hands();
       for (const h of hands) h.y = WATER_LEVEL;
@@ -425,19 +481,22 @@ export class PlayerSystem implements System, PlayerApi {
   }
 
   private fly(dt: number): void {
+    if (dt <= 0) return;
     const { input } = this.ctx;
     const b = this.body;
-    const speed = P.flySpeed * (input.held('sprint') ? 3 : 1);
-    let up = 0;
-    if (input.held('jump')) up += 1;
-    if (input.held('crouch')) up -= 1;
-    b.pos.x += this.wish.x * speed * dt;
-    b.pos.z += this.wish.z * speed * dt;
-    // free flight still keeps out of the ground (feet a little over it, or over the water) and
-    // under a ceiling high enough to see the land as a map
+    const speed = P.flySpeed * (input.held('sprint') ? 3 : 1) * (this.slowT > 0 ? this.slowFactor : 1);
+    const pushed = this.knockT > 0;
+    if (!pushed) b.vel.set(this.wish.x * speed, 0, this.wish.z * speed);
+    const up = Number(input.held('jump')) - Number(input.held('crouch'));
+    // Flight steers without gravity. Use the same swept body as walking and gliding so fast
+    // travel and vertical steering are both stopped by solid scenery.
     const floor = Math.max(this.ctx.wilderness.heightAt(b.pos.x, b.pos.z), WATER_LEVEL) + 0.2;
-    b.pos.y = THREE.MathUtils.clamp(b.pos.y + up * speed * dt, floor, Math.max(floor, P.flyCeiling));
-    b.vel.set(0, 0, 0);
+    const targetY = THREE.MathUtils.clamp(b.pos.y + up * speed * dt, floor, Math.max(floor, P.flyCeiling));
+    b.vel.y = THREE.MathUtils.clamp((targetY - b.pos.y) / dt, -speed, speed);
+    this.ctx.scenes.active.physics.moveBody(b, dt);
+    b.onGround = false;
+    if (!pushed) b.vel.set(0, 0, 0);
+    else b.vel.y = 0;
   }
 
   /** Head bob from walking and the spring back from a landing dip (presentation only). */
@@ -453,13 +512,22 @@ export class PlayerSystem implements System, PlayerApi {
   private syncCamera(): void {
     const cam = this.ctx.renderer.camera;
     const head = this.arms.head;
+    const { sitting, lying, groundPitch, groundRoll } = this.restPose;
+    const resting = sitting + lying;
+    const standing = 1 - resting;
+    const ahead = REST_VIEW.sitting.ahead * sitting + REST_VIEW.lying.ahead * lying;
+    const restHeight = REST_VIEW.sitting.height * sitting + REST_VIEW.lying.height * lying;
+    this.restFrame.set(groundPitch * resting, this.restYaw, groundRoll * resting);
+    this.restEyeOffset.set(0, restHeight, -ahead).applyEuler(this.restFrame);
     // The aim origin follows the stair-smoothed view, so a brush or shot still matches
     // the crosshair. The collision body stays on the real tread throughout.
-    this.eye.set(
-      this.body.pos.x,
-      this.body.pos.y + P.eyeHeight + this.stepOffset - this.swimBlend * 0.74 - this.restDrop,
-      this.body.pos.z,
-    );
+    this.eye.copy(this.body.pos).add(this.restEyeOffset);
+    this.eye.y += P.eyeHeight * standing + this.stepOffset - this.swimBlend * 0.74;
+    if (lying > 0)
+      this.eye.y = Math.max(
+        this.eye.y,
+        this.ctx.wilderness.heightAt(this.eye.x, this.eye.z) + cam.near + 0.08,
+      );
     // the stroke rocks the head: up to breathe, on with the kick (presentation only, like shake)
     const surge = this.speed > 0.3 ? (head.surge * this.swimBlend) / this.speed : 0;
     // walking: the head rises and falls with each step and sways a little; a landing dips it.
@@ -478,8 +546,11 @@ export class PlayerSystem implements System, PlayerApi {
     // a little shake decays quickly; it never touches the aim the player sees in yaw/pitch
     this.shakeAmt = Math.max(0, this.shakeAmt - 1 / 30);
     const s = this.shakeAmt * this.shakeAmt * 0.04;
+    const minPitch =
+      -1.5 * standing + REST_VIEW.sitting.minPitch * sitting + REST_VIEW.lying.minPitch * lying;
+    const maxPitch = 1.5 * standing + REST_VIEW.sitting.maxPitch * sitting + REST_VIEW.lying.maxPitch * lying;
     cam.rotation.set(
-      THREE.MathUtils.clamp(this.pitch + this.restTilt, -1.5, 1.5) +
+      THREE.MathUtils.clamp(this.pitch + this.restTilt, minPitch, maxPitch) +
         this.punchAmt +
         head.nod * this.swimBlend +
         (Math.random() - 0.5) * s,
@@ -491,8 +562,9 @@ export class PlayerSystem implements System, PlayerApi {
     this.forward.set(0, 0, -1).applyQuaternion(cam.quaternion);
   }
 
-  /** Draw the swimming arms in this character's skin and coat. */
+  /** Use the chosen character for the first-person body and hands. */
   setLook(look: Look): void {
+    this.look = look;
     this.arms.setLook(look);
     this.walkArms.setLook(look);
   }
@@ -508,12 +580,13 @@ export class PlayerSystem implements System, PlayerApi {
       dt,
       this,
       held,
-      this.ctx.combat.alive && this.swimBlend <= 0.025 && !this.resting,
+      this.ctx.combat.alive && this.swimBlend <= 0.025 && !this.resting && !this.gettingUp,
       brace,
     );
   }
 
   dispose(): void {
+    this.restBody?.dispose();
     this.arms.dispose();
     this.walkArms.dispose();
   }

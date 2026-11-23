@@ -41,6 +41,8 @@ const MAP = {
   legR: 'thigh_r',
   shinL: 'calf_l',
   shinR: 'calf_r',
+  footL: 'foot_l',
+  footR: 'foot_r',
 } as const;
 type Joint = keyof typeof MAP;
 
@@ -81,6 +83,8 @@ export function courierRig(model: THREE.Object3D): Rig {
     legR = joint('thigh_r', hips);
   const shinL = joint('calf_l', legL),
     shinR = joint('calf_r', legR);
+  const footL = joint('foot_l', shinL),
+    footR = joint('foot_r', shinR);
   const props = buildProps(torso);
   // The support hand sits under the receiver, within this character's shorter forearm reach.
   for (const item of ['rifle', 'sniper', 'launcher'] as const) props[item].off!.set(-0.015, 0.035, -0.17);
@@ -99,6 +103,8 @@ export function courierRig(model: THREE.Object3D): Rig {
     legR,
     shinL,
     shinR,
+    footL,
+    footR,
     hipsY: hips.position.y,
     trails: [],
     parts: [],
@@ -211,9 +217,43 @@ export class CourierActor {
     this.model.name = 'QuaterniusCourier';
   }
 
+  /** Keep first-person triangles by their skin weights without changing the shared model. */
+  retainTriangles(bones: RegExp, keepWeight: (weight: number) => boolean): void {
+    this.model.traverse((object) => {
+      if (!(object instanceof THREE.Mesh)) return;
+      if (!(object instanceof THREE.SkinnedMesh)) {
+        object.visible = false;
+        return;
+      }
+      const geometry = object.geometry;
+      const joints = geometry.getAttribute('skinIndex');
+      const weights = geometry.getAttribute('skinWeight');
+      const matching = object.skeleton.bones.map((bone) => bones.test(bone.name));
+      const keep = (vertex: number): boolean => {
+        let weight = 0;
+        for (let component = 0; component < 4; component++)
+          if (matching[joints.getComponent(vertex, component)])
+            weight += weights.getComponent(vertex, component);
+        return keepWeight(weight);
+      };
+      const indices: number[] = [];
+      const index = geometry.index;
+      const count = index?.count ?? joints.count;
+      for (let i = 0; i < count; i += 3) {
+        const a = index ? index.getX(i) : i;
+        const b = index ? index.getX(i + 1) : i + 1;
+        const c = index ? index.getX(i + 2) : i + 2;
+        if (keep(a) && keep(b) && keep(c)) indices.push(a, b, c);
+      }
+      geometry.setIndex(indices);
+      object.visible = indices.length > 0;
+    });
+  }
+
   pose(look: Look, pose: PlayerPose): void {
     const dt = pose.t - this.lastT;
     const continuous =
+      !pose.rest &&
       dt > 0 &&
       dt <= 0.25 &&
       this.model.visible &&
@@ -282,7 +322,13 @@ export class CourierActor {
     this.lastT = pose.t;
     this.lastAt.set(pose.x, pose.y, pose.z);
     this.lastHeld = held;
-    const relaxed = pose.swim ? 0.28 : pose.glide ? 0.04 : 0.18 + Math.min(1, pose.stride) * 0.25;
+    const relaxed = pose.rest
+      ? 0.18 + 0.18 * pose.rest.sitting + 0.1 * pose.rest.lying
+      : pose.swim
+        ? 0.28
+        : pose.glide
+          ? 0.04
+          : 0.18 + Math.min(1, pose.stride) * 0.25;
     this.applyRig(
       look,
       THREE.MathUtils.lerp(relaxed, 1, held ? this.fingerGrip : 0),
@@ -359,6 +405,7 @@ export class CourierFigures {
   constructor(
     private readonly parent: THREE.Object3D,
     private readonly material: THREE.Material,
+    private readonly hideHead = false,
   ) {}
   begin(): void {
     this.used = 0;
@@ -373,6 +420,7 @@ export class CourierFigures {
     let actor = this.actors[this.used++];
     if (!actor) {
       actor = new CourierActor(template, this.material);
+      if (this.hideHead) actor.retainTriangles(/^(Head|neck_01)$/, (weight) => weight < 0.25);
       this.parent.add(actor.model);
       this.actors.push(actor);
     }

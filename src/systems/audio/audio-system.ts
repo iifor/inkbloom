@@ -241,18 +241,39 @@ export class AudioSystem implements System {
     const s = this.synth;
     const delay = distance / 343;
     const near = 1 - Math.min(1, distance / 900);
-    if (distance < 250)
-      s.noise({ dur: 0.25, gain: 0.35 * near, type: 'bandpass', freq: 1400, freqEnd: 500, delay });
+    const crack = Math.max(0, 1 - distance / 350);
+    if (crack > 0)
+      s.noise({
+        dur: 0.34,
+        gain: 0.28 * crack,
+        type: 'bandpass',
+        freq: 2200,
+        freqEnd: 520,
+        q: 0.55,
+        attack: 0.012,
+        delay,
+      });
     s.noise({
-      dur: 2.2 + 1.5 * (1 - near),
-      gain: 0.25 + 0.6 * near,
+      dur: 4.8,
+      gain: 0.2 + 0.48 * near,
       type: 'lowpass',
-      freq: 500,
-      freqEnd: 60,
-      attack: 0.05,
+      freq: 190 + 450 * near,
+      freqEnd: 110,
+      q: 0,
+      attack: 0.75 - 0.58 * near,
       delay,
     });
-    s.tone({ freq: 55, freqEnd: 32, dur: 1.8, gain: 0.15 + 0.3 * near, delay: delay + 0.1 });
+    // A broad, overlapping swell gives the roll a second rise without a pitched beat.
+    s.noise({
+      dur: 3.6,
+      gain: 0.15 + 0.26 * near,
+      type: 'lowpass',
+      freq: 240 + 100 * near,
+      freqEnd: 85,
+      q: 0,
+      attack: 0.9,
+      delay: delay + 0.25 + Math.random() * 0.5,
+    });
   }
 
   /** Start audio from a user gesture (browser rule), and load the recordings. */

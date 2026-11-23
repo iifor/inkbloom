@@ -65,7 +65,7 @@ export class CombatOverlay implements System {
       }),
       on('monster:interrupted', (e) => this.number(e.at, '破招', 'interrupt')),
       on('monster:died', (e) => {
-        this.number(e.at, e.amount, 'kill');
+        this.number(e.at, e.amount > 0 ? e.amount : '溺亡', 'kill');
         this.dropBar(e.id);
       }),
       on('player:hurt', (e) => {

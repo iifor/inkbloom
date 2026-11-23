@@ -156,7 +156,7 @@ export class CombatSystem implements System, CombatApi {
     opts: { readonly melee?: boolean; readonly fall?: boolean } = {},
   ): void {
     // in the arena only the server hurts the player
-    if (!this.alive || this.grace > 0 || this.ctx.player.flying || this.byServer) return;
+    if (!this.alive || this.grace > 0 || this.byServer) return;
     const melee = opts.melee === true;
     if (melee && from) {
       // a blow shoves the player away from it and checks their stride for a moment

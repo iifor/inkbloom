@@ -59,9 +59,10 @@ export class PlayerFigures {
   constructor(
     private readonly parent: THREE.Object3D,
     private readonly material: THREE.Material,
+    private readonly hideHead = false,
   ) {
     this.figures = new FigureRenderer(parent, material);
-    this.couriers = new CourierFigures(parent, material);
+    this.couriers = new CourierFigures(parent, material, hideHead);
   }
 
   /** One more of this weapon this frame, at a prop's joint. */
@@ -90,6 +91,13 @@ export class PlayerFigures {
     let r = this.rigs.get(key);
     if (!r) {
       r = characterRig(key);
+      if (this.hideHead) {
+        const headParts = new Set<THREE.Object3D>();
+        r.head.traverse((node) => headParts.add(node));
+        for (let i = r.parts.length - 1; i >= 0; i--) {
+          if (headParts.has(r.parts[i]!.node)) r.parts.splice(i, 1);
+        }
+      }
       this.rigs.set(key, r);
       const colors = characterDef(key).colors as Record<string, ColorKey>;
       this.fixed.set(key, new Map(Object.entries(colors).map(([slot, c]) => [slot, color(c)])));

@@ -84,24 +84,46 @@ vec3 wakeLight(vec2 surface, float surfaceDist) {
 /** Metres from the eye within which a figure is the swimmer's own arms (see swim-arms.ts). */
 export const OWN_ARMS = 1.2;
 
-/** Raindrop rings on the water at `p` (metres): a few staggered layers of cells, each drop in a
- * cell landing on its own beat and spreading a ring. Returns how much ring is here, 0..1. */
+/** Overlapping circular wave packets, as in Unity's RainRipples. Their radial slopes perturb
+ * the reflection normal; a separate crest mask keeps the rings visible under overcast skies. */
 export const rainRingsGLSL = /* glsl */ `
-float rainRings(vec2 p, float rain) {
-  float ring = 0.0;
-  for (int k = 0; k < 3; k++) {
-    vec2 q = p * 4.5 + float(k) * vec2(3.7, 1.3);
-    vec2 id = floor(q);
-    float seed = hash21(id + float(k) * 17.0);
-    // only some cells have a drop: more in a downpour
-    if (seed > 0.25 + 0.75 * rain) continue;
-    vec2 at = id + 0.2 + 0.6 * hash22(id + 4.0);
-    float age = fract(uTime * (1.1 + 0.6 * seed) + seed * 7.0);
-    float r = length(q - at);
-    float edge = abs(r - age * 0.45);
-    ring = max(ring, (1.0 - smoothstep(0.0, 0.05 + 0.04 * age, edge)) * (1.0 - age) * (1.0 - age));
+vec3 rainRings(vec2 p, vec2 current, float density) {
+  const float cellSize = 0.9;
+  const float waveNumber = 46.0;
+  const float windowRate = 3.14159265 / 0.34;
+  vec2 cell = floor(p / cellSize);
+  vec2 drift = current * (0.12 / max(1.0, length(current) * 0.5));
+  vec2 slope = vec2(0.0);
+  float crests = 0.0;
+  // The maximum radius plus drift is smaller than one cell. Include neighbors so rings
+  // cross cell boundaries instead of getting cut off.
+  for (int z = -1; z <= 1; z++) {
+    for (int x = -1; x <= 1; x++) {
+      vec2 id = cell + vec2(float(x), float(z));
+      vec2 seed = hash22(id);
+      float period = mix(1.3, 2.1, seed.x);
+      float phase = uTime / period + seed.y;
+      float age = fract(phase) * period;
+      if (age >= 1.1) continue;
+      vec2 event = id + floor(phase) * vec2(1.73, 2.41);
+      float drop = 1.0 - smoothstep(density - 0.1, density, hash21(event + 7.8));
+      if (drop <= 0.0) continue;
+      vec2 center = (id + mix(vec2(0.1), vec2(0.9), hash22(event + 4.0))) * cellSize;
+      vec2 delta = p - center - drift * age;
+      float r = length(delta);
+      float edge = r - age * mix(0.32, 0.5, seed.y);
+      if (edge < -0.27 || edge > 0.07) continue;
+      float windowPhase = (edge + 0.27) * windowRate;
+      float window = sin(windowPhase);
+      float carrier = edge * waveNumber;
+      float fade = drop * smoothstep(0.01, 0.14, age) * (1.0 - smoothstep(0.38, 1.1, age));
+      // Differentiate the windowed sine along the radius to get the surface slope.
+      float waveSlope = cos(carrier) * window * window + (2.0 * windowRate / waveNumber) * sin(carrier) * window * cos(windowPhase);
+      slope -= (delta / max(r, 0.03)) * waveSlope * fade;
+      crests += max(0.0, sin(carrier)) * window * window * fade;
+    }
   }
-  return ring;
+  return vec3(clamp(slope, -1.0, 1.0), min(1.0, crests));
 }`;
 
 export const waterGLSL = /* glsl */ `
@@ -111,6 +133,7 @@ export const waterGLSL = /* glsl */ `
       // water mirrors the painted sky, more so at a glancing angle; slow ripple bands drift
       // across it and the sun glints off their crests
       vec3 eye = uInvView[3].xyz;
+      float surfaceY = submerged ? ${WATER_LEVEL} : wpos.y;
       float t = clamp((eye.y - ${WATER_LEVEL}) / max(0.001, eye.y - wpos.y), 0.0, 1.0);
       vec2 rp = submerged ? mix(eye.xz, wpos.xz, t) : wpos.xz;
       // still water ripples in place; in a river the ripples stretch along the current and are
@@ -125,14 +148,23 @@ export const waterGLSL = /* glsl */ `
       vec2 drift0 = flow.xy * ph0 * ${FLOW_CYCLE.toFixed(1)};
       vec2 drift1 = flow.xy * ph1 * ${FLOW_CYCLE.toFixed(1)};
       float rip = mix(still, mix(currentRipple(rp - drift0, flow), currentRipple(rp - drift1, flow), swap), flow.z);
-      vec3 rdir = reflect(rd, normalize(vec3((rip - 0.5) * 0.12, 1.0, (rip - 0.5) * 0.06)));
+      vec3 rainRipples = vec3(0.0);
+      if (uRainfall > 0.01 && eye.y > surfaceY && !fish) {
+        float range = 1.0 - smoothstep(9.0, 30.0, length(vec3(rp - eye.xz, surfaceY - eye.y)));
+        if (range > 0.0) {
+          float strength = smoothstep(0.01, 0.28, uRainfall) * range;
+          rainRipples = rainRings(rp, flow.xy * flow.z, mix(0.25, 0.98, uRainfall)) * strength;
+        }
+      }
+      vec2 surfaceSlope = (rip - 0.5) * vec2(0.12, 0.06) + rainRipples.xy * 0.14;
+      vec3 rdir = reflect(rd, normalize(vec3(surfaceSlope.x, 1.0, surfaceSlope.y)));
       float grazing = 1.0 - clamp(-rd.y, 0.0, 1.0);
       vec3 reflected = skyPaint(rdir);
       // What stands on the bank is mirrored too: follow the reflected ray out over the water
       // in lengthening strides, and where it passes behind something the frame holds above
       // the waterline, paint that. (Only what is on screen can be mirrored; the rest is sky.)
       if (!fish && rdir.y > 0.01) {
-        vec3 from = vec3(rp.x, ${WATER_LEVEL}, rp.y);
+        vec3 from = vec3(rp.x, surfaceY, rp.y);
         float stride = 0.5;
         float gone = 0.0;
         for (int k = 0; k < 14; k++) {
@@ -149,7 +181,7 @@ export const waterGLSL = /* glsl */ `
           vec4 c2 = uInvProj * vec4(suv * 2.0 - 1.0, -1.0, 1.0);
           vec3 ray2 = c2.xyz / c2.w;
           vec3 at2 = (uInvView * vec4(ray2 * (d2 / -ray2.z), 1.0)).xyz;
-          if (at2.y < ${WATER_LEVEL} + 0.05) continue;
+          if (at2.y < surfaceY + 0.05) continue;
           vec2 rim = min(suv, 1.0 - suv);
           vec3 bank = bankPaint(texture2D(tScene, suv), at2);
           // paler with distance, like everything far off
@@ -175,12 +207,9 @@ export const waterGLSL = /* glsl */ `
         water += vec3(0.95, 0.97, 1.0) * smoothstep(0.7, 0.86, rip) * rapids * 0.3 * mix(light, vec3(1.0), 0.4);
         float glint = pow(max(0.0, dot(rdir, uSun)), 120.0) * step(0.55, vnoise(rp * 5.0 + uTime * 1.3));
         water += uSunColor * glint * 1.4 * (1.0 - uNight);
-        // rain: each drop that lands starts a small ring spreading out and fading, more of them
-        // the harder it rains; too fine to see far off
-        if (uRainfall > 0.01) {
-          float rings = rainRings(rp, uRainfall) * (1.0 - smoothstep(8.0, 28.0, d));
-          water = mix(water, vec3(0.9, 0.94, 0.98) * mix(light, vec3(1.0), 0.5), rings * 0.55);
-        }
+        float rippleShade = clamp(dot(rainRipples.xy, vec2(0.09, -0.07)), -0.1, 0.1);
+        water *= 1.0 + rippleShade;
+        water = mix(water, vec3(0.82, 0.9, 0.98) * mix(light, vec3(1.0), 0.45), rainRipples.z * 0.42);
         opacity = submerged ? smoothstep(0.0, 0.22, waterDepth) * mix(0.38, 0.8, smoothstep(0.2, 3.0, waterDepth)) : 1.0;
         // seen at a glancing angle even shallow water is a mirror: the bed shows only when
         // one looks down into it

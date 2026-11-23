@@ -6,7 +6,7 @@ import { heldIn, holdPose } from './player-hold';
 import type { Rig } from './player-rig';
 import { swimArms } from './player-swim';
 
-/** What another player's figure is doing this frame. */
+/** What a player's figure is doing this frame. */
 export interface PlayerPose {
   readonly x: number;
   readonly y: number;
@@ -22,6 +22,13 @@ export interface PlayerPose {
   readonly glide: boolean;
   /** Swimming in deep water: lying along the surface, arms stroking, legs kicking. */
   readonly swim?: boolean;
+  /** Blend from standing into the two resting poses. */
+  readonly rest?: {
+    readonly sitting: number;
+    readonly lying: number;
+    readonly groundPitch: number;
+    readonly groundRoll: number;
+  };
   /** 0..1 flinch from a hit, or 0. */
   readonly hurt: number;
   /** 0..1 through being swallowed by ink, or -1 while alive. */
@@ -50,11 +57,62 @@ const JOINTS = [
   'legR',
   'shinL',
   'shinR',
+  'footL',
+  'footR',
 ] as const;
+
+function poseRest(r: Rig, { sitting, lying }: NonNullable<PlayerPose['rest']>): void {
+  const standing = 1 - sitting - lying;
+  const blend = (upright: number, seated: number, flat: number): number =>
+    upright * standing + seated * sitting + flat * lying;
+  const seatHeight = 0.155;
+  const seatTilt = 0.2;
+  const seatElbow = r.armLengths ? 0.55 : 0.95;
+  const backTilt = 1.5;
+  r.hips.position.y = blend(r.hips.position.y, seatHeight, 0.22);
+  r.hips.rotation.x = blend(r.hips.rotation.x, seatTilt, backTilt);
+  r.torso.rotation.x = blend(r.torso.rotation.x, -0.26, 0.015);
+  for (const side of ['L', 'R'] as const) {
+    const sign = side === 'L' ? -1 : 1;
+    const leg = r[`leg${side}`];
+    const shin = r[`shin${side}`];
+    const foot = r[`foot${side}`];
+    const arm = r[`arm${side}`].rotation;
+    const fore = r[`fore${side}`].rotation;
+    const thighPitch = 1.62 - sign * 0.06;
+    // Fit the knee bend to each rig's own thigh, shin and ankle lengths. The soles stay close
+    // to their neutral height while the ankles keep the boots pointed forward.
+    const kneeY =
+      seatHeight +
+      leg.position.y * Math.cos(seatTilt) -
+      leg.position.z * Math.sin(seatTilt) +
+      shin.position.y * Math.cos(thighPitch) -
+      shin.position.z * Math.sin(thighPitch);
+    const ankleY = r.hipsY + leg.position.y + shin.position.y + foot.position.y + 0.02;
+    const shinLength = Math.hypot(foot.position.y, foot.position.z);
+    const shinPitch =
+      Math.acos(Math.max(0, Math.min(1, (kneeY - ankleY) / shinLength))) +
+      Math.atan2(foot.position.z, -foot.position.y);
+    const flatThighPitch = 1.57 + sign * 0.025;
+    const flatShinPitch = 1.54;
+    leg.rotation.set(
+      blend(leg.rotation.x, thighPitch - seatTilt, flatThighPitch - backTilt),
+      blend(leg.rotation.y, -sign * 0.13, -sign * 0.08),
+      0,
+      'YXZ',
+    );
+    shin.rotation.x = blend(shin.rotation.x, shinPitch - thighPitch, flatShinPitch - flatThighPitch);
+    foot.rotation.x = blend(0, 0.14 - shinPitch, 1.14 - flatShinPitch);
+    arm.x = blend(arm.x, 0.34, -0.23);
+    arm.z = blend(arm.z, sign * 0.2, sign * 0.34);
+    fore.x = blend(fore.x, seatElbow, 0.09);
+    fore.z = blend(fore.z, -sign * 0.15, -sign * 0.06);
+  }
+}
 
 /** Pose a rig for one frame (exported for tests). */
 export function posePlayer(r: Rig, p: PlayerPose): void {
-  for (const k of JOINTS) r[k].rotation.set(0, 0, 0);
+  for (const k of JOINTS) r[k].rotation.set(0, 0, 0, 'XYZ');
   if (r.gripOffset) {
     for (const side of ['L', 'R'] as const) {
       const palm = r[`palm${side}`];
@@ -123,6 +181,7 @@ export function posePlayer(r: Rig, p: PlayerPose): void {
     r.armR.rotation.set(-0.3, 0, 0.6);
     lift = 0.6;
   }
+  if (p.rest) poseRest(r, p.rest);
   const item = heldIn(p);
   if (item) holdPose(r, p, item);
   if (p.hurt > 0) {
@@ -140,7 +199,13 @@ export function posePlayer(r: Rig, p: PlayerPose): void {
   }
 
   r.root.position.set(p.x, p.y, p.z);
-  r.root.rotation.set(0, p.yaw, 0);
+  const onGround = p.rest ? p.rest.sitting + p.rest.lying : 0;
+  r.root.rotation.set(
+    (p.rest?.groundPitch ?? 0) * onGround,
+    p.yaw,
+    (p.rest?.groundRoll ?? 0) * onGround,
+    'YXZ',
+  );
   if (p.dying > 0.6) {
     // once the ink has climbed to the head, the figure slumps into a puddle
     const d = (p.dying - 0.6) / 0.4;

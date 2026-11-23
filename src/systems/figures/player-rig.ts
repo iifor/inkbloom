@@ -35,6 +35,8 @@ export interface Rig {
   readonly legR: THREE.Object3D;
   readonly shinL: THREE.Object3D;
   readonly shinR: THREE.Object3D;
+  readonly footL: THREE.Object3D;
+  readonly footR: THREE.Object3D;
   readonly trails: readonly Trail[];
   readonly hipsY: number;
   readonly parts: Part[];
@@ -80,16 +82,17 @@ function body(b: RigBuilder, o: BodyOpts) {
   const root = new THREE.Object3D();
   const hips = b.joint(root, 0, HIPS_Y, 0);
   b.blob(hips, 0, 0, 0, o.chest[0] * 0.85, 0.12, o.chest[2] * 0.95, 'trousers');
-  const leg = (sx: number): [THREE.Object3D, THREE.Object3D] => {
+  const leg = (sx: number) => {
     const t = b.limb(hips, sx * 0.09, -0.02, 0, 0.44, o.leg, 'trousers');
     const s = b.limb(t.joint, 0, t.end, 0, 0.42, o.leg * 0.88, o.shin);
     // a round knee, so a bent leg stays one form instead of two links pinched together
     b.blob(s.joint, 0, 0, 0, o.leg * 0.92, o.leg * 0.92, o.leg * 0.92, o.shin);
-    b.blob(s.joint, 0, s.end + 0.035, -0.045, o.leg * 1.05, 0.06, 0.13, 'boots');
-    return [t.joint, s.joint];
+    const foot = b.joint(s.joint, 0, s.end + 0.035, 0);
+    b.blob(foot, 0, 0, -0.045, o.leg * 1.05, 0.06, 0.13, 'boots');
+    return [t.joint, s.joint, foot] as const;
   };
-  const [legL, shinL] = leg(-1);
-  const [legR, shinR] = leg(1);
+  const [legL, shinL, footL] = leg(-1);
+  const [legR, shinR, footR] = leg(1);
   const torso = b.joint(hips, 0, 0.02, 0);
   // a chest over a narrower waist, so the body tapers instead of being one egg
   b.blob(torso, 0, 0.32, 0, o.chest[0], o.chest[1] * 0.78, o.chest[2], 'coat');
@@ -128,7 +131,24 @@ function body(b: RigBuilder, o: BodyOpts) {
     b.blob(head, sx * 0.052, 0.16, -0.132 - o.faceZ, 0.027, 0.038, 0.018, 'eye');
     b.blob(head, sx * 0.088, 0.105, -0.118 - o.faceZ, 0.032, 0.018, 0.014, 'blush');
   }
-  return { root, hips, torso, head, armL, armR, foreL, foreR, palmL, palmR, legL, legR, shinL, shinR };
+  return {
+    root,
+    hips,
+    torso,
+    head,
+    armL,
+    armR,
+    foreL,
+    foreR,
+    palmL,
+    palmR,
+    legL,
+    legR,
+    shinL,
+    shinR,
+    footL,
+    footR,
+  };
 }
 
 /** A joint that trails behind; parts hung from it swing with it. */

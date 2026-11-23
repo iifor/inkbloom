@@ -25,9 +25,9 @@ export function cityNav(l: CityLayout): NavGrid {
       if (ix < 0 || iz < 0 || ix >= l.n || iz >= l.n) return false;
       const i = iz * l.n + ix;
       if (blocked.has(i)) return false;
-      if (ix === 0 || iz === 0 || ix === l.n - 1 || iz === l.n - 1)
-        return l.roads[i] !== ROAD_NONE || (!l.water[i] && l.buildingOf[i] === 0);
-      return l.roads[i] !== ROAD_NONE || (l.blockOf[i] !== 0 && l.buildingOf[i] === 0);
+      if (l.roads[i] !== ROAD_NONE) return true; // river crossings on roads have bridge decks
+      if (l.water[i] || l.buildingOf[i] !== 0) return false;
+      return ix === 0 || iz === 0 || ix === l.n - 1 || iz === l.n - 1 || l.blockOf[i] !== 0;
     },
   };
 }
