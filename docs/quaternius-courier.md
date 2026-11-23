@@ -1,5 +1,7 @@
 # Quaternius B 角色预览
 
+> 2026-11-23：已扩展至全部 11 套 Quaternius 服装、5 个 KayKit 职业身份及村民预览。当前接入与贴图说明见 [character-packs.md](character-packs.md)；下文保留最初信使适配的记录及当时测试结果。
+
 当前信使使用 **Ultimate Modular Men Pack / Adventurer**，即用户选定的 B 套装。保留原作者的头身比、外套、裤子、靴子、背包、低多边形轮廓和蒙皮，只规范坐标、静止骨骼与颜色槽。
 
 启动 `npm run dev`，打开：

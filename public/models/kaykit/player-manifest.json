@@ -1,0 +1,32 @@
+[
+  {
+    "file": "player-barbarian.glb",
+    "preparedSource": "barbarian.glb",
+    "sourceSha256": "c6312f14ff500fb4552151b4c102d5e8a43aecd966018d91e51703634f981c74",
+    "outputSha256": "5bceec290d7a089af74deec450a8c1f23fbceef21b66705e10f82eac74f74f57"
+  },
+  {
+    "file": "player-knight.glb",
+    "preparedSource": "knight.glb",
+    "sourceSha256": "c2463ea553888b332fe82d635498e3359dd9224bb850e58262c94a11dbec3313",
+    "outputSha256": "d3cde59b63ddf8f63d67c1cd86eaa0c054da641ceaf6c17e2071b2b1a82366cc"
+  },
+  {
+    "file": "player-mage.glb",
+    "preparedSource": "mage.glb",
+    "sourceSha256": "0a5c0bfd4d8dddb2a3117be36a1f24c33a2fdc3b44cbea0592af9941a58d4355",
+    "outputSha256": "bbf7a4930cf7bdd79285a7b1b1905d8a79157e9a5cbfacaf2ef3099ab96cc354"
+  },
+  {
+    "file": "player-rogue-hooded.glb",
+    "preparedSource": "rogue-hooded.glb",
+    "sourceSha256": "4a54d518c68376d7ceff40fca0971a94968a698d477d8a2527af118dfc355dba",
+    "outputSha256": "ac1b1108f8702412fb223e589e7147c26db465afefec2e88e1bc3c1ba9cf4af6"
+  },
+  {
+    "file": "player-rogue.glb",
+    "preparedSource": "rogue.glb",
+    "sourceSha256": "fa216cd86b1abf6635778dfafa19e717a1bf892c6adce078daf304f0e34d113c",
+    "outputSha256": "84b45072db5098d23edf542567c33496cc83fc8e9c68449ff5294e42ca257c5f"
+  }
+]

@@ -34,9 +34,6 @@ export interface Situation {
     readonly guards: number;
     readonly nearestGuard: Point | null;
     readonly holdsWeapon: boolean;
-    /** The player's block is 有色 but residents still have wishes. */
-    readonly wishes: number;
-    readonly nearestWish: Point | null;
   };
 }
 
@@ -60,12 +57,6 @@ export function objective(s: Situation): Objective {
         teach: c.holdsWeapon
           ? { id: 'attack', text: '按住左键攻击' }
           : { id: 'draw-weapon', text: '按 2 拿武器' },
-      };
-    if (c.wishes > 0)
-      return {
-        text: `还有 ${c.wishes} 位居民有心愿`,
-        target: c.nearestWish,
-        teach: { id: 'wishes', text: '门口的彩色牌子；都完成后街区繁荣，画室产出颜料' },
       };
     if (c.peaceful) return { text: `${c.name}安然无恙 · 出村探索`, target: c.gate };
     if (s.generic < 1) {

@@ -13,7 +13,6 @@ import {
   serializeWorld,
 } from '@/world/state';
 import { BRUSH_TIERS } from '@/content/brush-tiers';
-import { REQUEST_RULES } from '@/content/requests';
 import { ENEMIES } from '@/content/enemies';
 import { LEVEL_XP, MILESTONES, XP } from '@/content/progression';
 import { afterArmor, levelOf, stats } from '@/world/progression';
@@ -41,7 +40,7 @@ const SKEL: CitySkeleton = {
   ],
   homeStudio: 0,
   monsters: [],
-  requests: [],
+  residents: [],
 };
 const SOURCE: PigmentSource = {
   id: '1,2:0',
@@ -515,8 +514,7 @@ describe('ruins', () => {
   });
 });
 
-describe('resident requests and thriving', () => {
-  const walls = { px: 0, nx: 1, pz: 3, nz: 4 };
+describe('thriving studios', () => {
   const WALLED: SurfaceInfo[] = [0, 1, 2, 3, 4].map((i) => ({
     kind: 'wall',
     chunk: 0,
@@ -529,61 +527,18 @@ describe('resident requests and thriving', () => {
     ...SKEL,
     chunks: 1,
     surfaces: WALLED,
-    requests: [
-      {
-        building: 0,
-        chunk: 0,
-        kind: 'recolor',
-        color: color('red'),
-        count: 0,
-        resident: '老陈',
-        line: '',
-        door: { x: 0, z: 0 },
-        walls,
-      },
-      {
-        building: 1,
-        chunk: 0,
-        kind: 'fetch',
-        color: color('blue'),
-        count: 4,
-        resident: '阿梅',
-        line: '',
-        door: { x: 0, z: 0 },
-        walls,
-      },
-    ],
   };
   const rc: PatchContext = { ...ctx, cityOf: (id) => (id === 'c' ? R : null) };
 
-  it('checks the wish before accepting it', () => {
+  it('starts production when the last surface is restored', () => {
     const s = createWorldState('w', 1);
-    expect(applyPatch(s, { kind: 'request', city: 'c', request: 0 }, rc).ok).toBe(false);
-    for (const i of [0, 1, 3, 4])
-      applyPatch(s, { kind: 'paint', city: 'c', surface: i, color: color('red') }, rc);
-    expect(applyPatch(s, { kind: 'request', city: 'c', request: 0 }, rc).ok).toBe(true);
-    expect(applyPatch(s, { kind: 'request', city: 'c', request: 0 }, rc).ok).toBe(false);
-    s.inventory.generic = 3;
-    expect(applyPatch(s, { kind: 'request', city: 'c', request: 1 }, rc).ok).toBe(false);
-    s.inventory.generic = 5;
-    s.unlocked = s.unlocked.filter((c) => c !== color('blue'));
-    expect(applyPatch(s, { kind: 'request', city: 'c', request: 1 }, rc)).toEqual({
-      ok: false,
-      reason: '还没有宝蓝的蜡笔',
-    });
-    s.unlocked.push(color('blue'));
-    expect(applyPatch(s, { kind: 'request', city: 'c', request: 1 }, rc).ok).toBe(true);
-    expect(s.inventory.generic).toBe(1 + REQUEST_RULES.reward.generic);
-  });
-
-  it('turns a coloured block with all wishes done into a producing studio', () => {
-    const s = createWorldState('w', 1);
+    s.clock = 700;
     s.inventory.generic = 30;
     for (const i of [0, 1, 3, 4])
       applyPatch(s, { kind: 'paint', city: 'c', surface: i, color: color('red') }, rc);
     expect(applyPatch(s, { kind: 'collectStock', city: 'c', studio: 0 }, rc).ok).toBe(false); // not thriving
-    applyPatch(s, { kind: 'request', city: 'c', request: 0 }, rc);
-    applyPatch(s, { kind: 'request', city: 'c', request: 1 }, rc);
+    expect(s.cities.get('c')!.stockFrom[0]).toBe(-1);
+    expect(applyPatch(s, { kind: 'restore', city: 'c', surface: 2 }, rc).ok).toBe(true);
     const saved = s.cities.get('c')!;
     expect(saved.stockFrom[0]).toBe(s.clock);
     s.clock += TUNING.economy.studioStockSeconds * 2.5;
@@ -595,8 +550,40 @@ describe('resident requests and thriving', () => {
     applyPatch(s, { kind: 'collectStock', city: 'c', studio: 0 }, rc);
     expect(s.inventory.generic).toBe(g + 2 + TUNING.economy.studioStockCap);
     const back = deserializeWorld(serializeWorld(s)).cities.get('c')!;
-    expect([...back.requestsDone]).toEqual([1, 1]);
     expect(back.stockFrom).toEqual(saved.stockFrom);
+  });
+  it('lets a fully coloured v6 block collect once even if its studio never started', () => {
+    const s = createWorldState('w', 1);
+    cityStates(s, 'c', R).states.fill(ORIGINAL);
+    const raw = JSON.parse(serializeWorld(s));
+    raw.version = 6;
+    raw.clock = TUNING.economy.studioStockSeconds * 20;
+    const migrated = deserializeWorld(JSON.stringify(raw));
+    expect(applyPatch(migrated, { kind: 'collectStock', city: 'c', studio: 0 }, rc).ok).toBe(true);
+    expect(migrated.inventory.generic).toBe(s.inventory.generic + TUNING.economy.studioStockCap);
+    const reloaded = deserializeWorld(serializeWorld(migrated));
+    expect(applyPatch(reloaded, { kind: 'collectStock', city: 'c', studio: 0 }, rc).ok).toBe(false);
+  });
+
+  it('reads a v6 town, drops obsolete flags and keeps its earned stock and inventory', () => {
+    const s = createWorldState('w', 1);
+    const { states } = cityStates(s, 'c', R);
+    states.fill(ORIGINAL);
+    states[0] = DRAINED;
+    const raw = JSON.parse(serializeWorld(s));
+    raw.version = 6;
+    Object.assign(raw.cities.c, { rf: 123, rd: 'AQE=', sk: [120] });
+    raw.clock = 120 + 2 * TUNING.economy.studioStockSeconds;
+    const migrated = deserializeWorld(JSON.stringify(raw));
+    expect(migrated.inventory).toEqual(s.inventory);
+    expect(cityStates(migrated, 'c', R).states).toEqual(states);
+    const saved = JSON.parse(serializeWorld(migrated)).cities.c;
+    expect(saved.sk).toEqual([120]);
+    expect(saved).not.toHaveProperty('rd');
+    expect(saved).not.toHaveProperty('rf');
+    expect(applyPatch(migrated, { kind: 'collectStock', city: 'c', studio: 0 }, rc).ok).toBe(true);
+    expect(migrated.inventory.generic).toBe(s.inventory.generic + 2);
+    expect(applyPatch(migrated, { kind: 'collectStock', city: 'c', studio: 0 }, rc).ok).toBe(false);
   });
 });
 

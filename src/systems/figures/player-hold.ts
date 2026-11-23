@@ -327,4 +327,11 @@ export function holdPose(r: Rig, p: PlayerPose, item: HeldItem): void {
 }
 
 /** What is drawn in hand: nothing while gliding (both hands on the plane) or swimming. */
-export const heldIn = (p: PlayerPose): HeldItem | null => (p.held && !p.glide && !p.swim ? p.held : null);
+export const heldIn = (p: PlayerPose): HeldItem | null =>
+  p.held &&
+  !p.glide &&
+  !p.swim &&
+  !(p.flight && p.flight.blend > 0) &&
+  !(p.rest && p.rest.sitting + p.rest.lying > 0.0001)
+    ? p.held
+    : null;

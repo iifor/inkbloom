@@ -54,6 +54,7 @@ export const KEYS: Readonly<Record<string, Action>> = {
   Digit3: 'slot3',
   Digit4: 'slot4',
   Escape: 'pause',
+  KeyP: 'pause',
   Tab: 'character',
   KeyJ: 'goal',
   F2: 'debugFly',

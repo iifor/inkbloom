@@ -33,7 +33,7 @@ export class Marker implements Tool {
       });
       if (r.ok)
         this.ctx.events.emit('toast', {
-          text: '在已恢复的城或标记旁按 F 传送',
+          text: '在可用祭坛旁长按 E，或在墨迹标记旁长按 F 传送',
           seconds: 5,
           once: 'mark-travel',
         });

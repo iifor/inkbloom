@@ -1,12 +1,20 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { clone } from 'three/examples/jsm/utils/SkeletonUtils.js';
-import { HAIR_COLORS, SKIN_TONES, type Look } from '@/content/characters';
-import { color, type ColorKey } from '@/content/palette';
+import {
+  characterModel,
+  characterModelPath,
+  HAIR_COLORS,
+  SKIN_TONES,
+  type Look,
+  type CharacterKey,
+} from '@/content/characters';
+import { PALETTE, color, type ColorKey } from '@/content/palette';
 import { buildProps } from './player-props';
 import { posePlayer, type PlayerPose } from './player-pose';
 import { alignGrips, heldIn } from './player-hold';
 import type { Rig } from './player-rig';
+import { characterMaterial, enableCharacterPaint } from '@/engine/render/character-paint';
 
 const FIXED: Record<string, ColorKey> = {
   coat: 'limewash',
@@ -18,15 +26,30 @@ const FIXED: Record<string, ColorKey> = {
   paper: 'cream',
   button: 'yellow',
 };
-let template: THREE.Group | null = null;
-let pending: Promise<THREE.Group> | null = null;
+const templates = new Map<CharacterKey, THREE.Group>();
+const pending = new Map<CharacterKey, Promise<THREE.Group>>();
+const paletteSlots = new Map<string, number>(PALETTE.map((p, i) => [p.key, i]));
 export const COURIER_PALM_OFFSET = 0.15;
 
 /** One download shared by selection previews, the world lineup and remote players. */
-export function loadCourier(): Promise<THREE.Group> {
-  return (pending ??= new GLTFLoader()
-    .loadAsync(`${import.meta.env.BASE_URL}models/quaternius/modular-adventurer.glb`)
-    .then((gltf) => (template = gltf.scene)));
+export function loadCourier(character: CharacterKey = 'courier'): Promise<THREE.Group> {
+  const file = characterModelPath(character);
+  if (!file) return Promise.reject(new Error(`No imported model for ${character}`));
+  let request = pending.get(character);
+  if (!request) {
+    request = new GLTFLoader()
+      .loadAsync(`${import.meta.env.BASE_URL}${file}`)
+      .then((gltf) => {
+        templates.set(character, gltf.scene);
+        return gltf.scene;
+      })
+      .catch((error) => {
+        pending.delete(character);
+        throw error;
+      });
+    pending.set(character, request);
+  }
+  return request;
 }
 
 const MAP = {
@@ -71,14 +94,22 @@ export function courierRig(model: THREE.Object3D): Rig {
     foreR = joint('lowerarm_r', armR);
   const upper = at('upperarm_l').distanceTo(at('lowerarm_l'));
   const lower = at('lowerarm_l').distanceTo(at('hand_l'));
+  // KayKit supplies a grip marker inside its authored hand. Use it instead of
+  // the longer Quaternius palm offset so short hands stay on the tool handle.
+  const gripOffset = model.getObjectByName('grip_r')
+    ? at('grip_r').sub(at('hand_r'))
+    : new THREE.Vector3(-0.032, -COURIER_PALM_OFFSET, 0);
   foreL.position.set(0, -upper, 0);
   foreR.position.set(0, -upper, 0);
   const palmL = new THREE.Object3D(),
     palmR = new THREE.Object3D();
   foreL.add(palmL);
   foreR.add(palmR);
-  palmL.position.set(0.032, -lower - COURIER_PALM_OFFSET, 0);
-  palmR.position.set(-0.032, -lower - COURIER_PALM_OFFSET, 0);
+  palmL.position.copy(gripOffset);
+  palmL.position.x *= -1;
+  palmL.position.y -= lower;
+  palmR.position.copy(gripOffset);
+  palmR.position.y -= lower;
   const legL = joint('thigh_l', hips),
     legR = joint('thigh_r', hips);
   const shinL = joint('calf_l', legL),
@@ -110,7 +141,7 @@ export function courierRig(model: THREE.Object3D): Rig {
     parts: [],
     props,
     armLengths: [upper, lower],
-    gripOffset: new THREE.Vector3(-0.032, -COURIER_PALM_OFFSET, 0),
+    gripOffset,
   };
 }
 
@@ -160,6 +191,7 @@ export class CourierActor {
     this.material = material.clone();
     // Keep the live world uniforms shared; only the per-character ink threshold is private.
     this.material.uniforms = { ...material.uniforms, uCourierInkTo: { value: -1e6 } };
+    enableCharacterPaint(this.material);
     this.material.vertexShader = `uniform float uCourierInkTo;\n${material.vertexShader}`.replace(
       'float idx = aColor;',
       `float idx = world.y < uCourierInkTo ? ${color('ink')}.0 : aColor;`,
@@ -205,6 +237,10 @@ export class CourierActor {
       obj.geometry = obj.geometry.clone();
       const n = obj.geometry.getAttribute('position').count;
       obj.geometry.setAttribute('aColor', new THREE.Float32BufferAttribute(new Float32Array(n), 1));
+      obj.geometry.setAttribute(
+        'aCharacterMaterial',
+        new THREE.Float32BufferAttribute(new Float32Array(n).fill(characterMaterial(slot, -1)), 1),
+      );
       obj.geometry.setAttribute(
         'aSurface',
         new THREE.Float32BufferAttribute(new Float32Array(n).fill(-2), 1),
@@ -254,6 +290,8 @@ export class CourierActor {
     const dt = pose.t - this.lastT;
     const continuous =
       !pose.rest &&
+      // Flight already blends the seated pose against the unfolding vehicle.
+      !(pose.flight && pose.flight.blend > 0) &&
       dt > 0 &&
       dt <= 0.25 &&
       this.model.visible &&
@@ -323,7 +361,7 @@ export class CourierActor {
     this.lastAt.set(pose.x, pose.y, pose.z);
     this.lastHeld = held;
     const relaxed = pose.rest
-      ? 0.18 + 0.18 * pose.rest.sitting + 0.1 * pose.rest.lying
+      ? 0.18 - 0.14 * pose.rest.sitting
       : pose.swim
         ? 0.28
         : pose.glide
@@ -377,7 +415,9 @@ export class CourierActor {
               ? color(HAIR_COLORS[look.hair] ?? HAIR_COLORS[0])
               : slot === 'accent'
                 ? look.accent
-                : color(FIXED[slot] ?? 'cream');
+                : FIXED[slot]
+                  ? color(FIXED[slot])
+                  : (paletteSlots.get(slot) ?? color('cream'));
         const attr = mesh.geometry.getAttribute('aColor') as THREE.BufferAttribute;
         (attr.array as Float32Array).fill(pigment);
         attr.needsUpdate = true;
@@ -399,39 +439,47 @@ export class CourierActor {
 
 /** A frame pool: each visible courier owns its skeleton and colours, even in multiplayer. */
 export class CourierFigures {
-  private readonly actors: CourierActor[] = [];
-  private used = 0;
-  private requested = false;
+  private readonly pools = new Map<CharacterKey, { actors: CourierActor[]; used: number }>();
+  private readonly requested = new Set<CharacterKey>();
   constructor(
     private readonly parent: THREE.Object3D,
     private readonly material: THREE.Material,
     private readonly hideHead = false,
   ) {}
   begin(): void {
-    this.used = 0;
+    for (const pool of this.pools.values()) pool.used = 0;
   }
   draw(look: Look, pose: PlayerPose): Rig | null {
-    if (look.character !== 'courier' || !(this.material instanceof THREE.ShaderMaterial)) return null;
-    if (!this.requested && typeof window !== 'undefined') {
-      this.requested = true;
-      void loadCourier().catch((error) => console.warn('信使模型未加载，使用原有角色。', error));
+    if (!characterModel(look.character) || !(this.material instanceof THREE.ShaderMaterial)) return null;
+    if (!this.requested.has(look.character) && typeof window !== 'undefined') {
+      this.requested.add(look.character);
+      void loadCourier(look.character).catch((error) =>
+        console.warn('角色模型未加载，使用备用外观。', error),
+      );
     }
+    const template = templates.get(look.character);
     if (!template) return null;
-    let actor = this.actors[this.used++];
+    let pool = this.pools.get(look.character);
+    if (!pool) {
+      pool = { actors: [], used: 0 };
+      this.pools.set(look.character, pool);
+    }
+    let actor = pool.actors[pool.used++];
     if (!actor) {
       actor = new CourierActor(template, this.material);
       if (this.hideHead) actor.retainTriangles(/^(Head|neck_01)$/, (weight) => weight < 0.25);
       this.parent.add(actor.model);
-      this.actors.push(actor);
+      pool.actors.push(actor);
     }
     actor.pose(look, pose);
     return actor.rig;
   }
   end(): void {
-    for (let i = this.used; i < this.actors.length; i++) this.actors[i]!.model.visible = false;
+    for (const pool of this.pools.values())
+      for (let i = pool.used; i < pool.actors.length; i++) pool.actors[i]!.model.visible = false;
   }
   dispose(): void {
-    for (const actor of this.actors) actor.dispose();
-    this.actors.length = 0;
+    for (const pool of this.pools.values()) for (const actor of pool.actors) actor.dispose();
+    this.pools.clear();
   }
 }

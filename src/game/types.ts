@@ -8,7 +8,7 @@ import type { CityLayout } from '@/world/city/layout';
 import type { WeaponKey } from '@/content/weapons';
 import type { ArenaMode, ArenaState, Team } from '@/world/arena/match';
 import type { ArenaSite } from '@/world/arena/site';
-import type { ActKind, PlayerInfo } from '@/world/net/protocol';
+import type { ActKind, PlayerInfo, RestMotion } from '@/world/net/protocol';
 import type { Patch, PatchResult } from '@/world/patch';
 import type { SceneRef, WorldState } from '@/world/state';
 import type { Entrance, Wilderness } from '@/world/wilderness/generator';
@@ -42,7 +42,15 @@ export interface GameScene {
   dispose(): void;
 }
 
-export interface Interactable {
+export interface InteractionAction {
+  label(): string | null;
+  activate(): void;
+  readonly holdSeconds?: number;
+  canHold?(): boolean;
+  onHold?(progress: number): void;
+}
+
+export interface Interactable extends InteractionAction {
   readonly scene: string;
   readonly pos: THREE.Vector3;
   readonly radius: number;
@@ -50,7 +58,7 @@ export interface Interactable {
   label(): string | null;
   activate(): void;
   /** Optional second action on F, shown under the main prompt (null hides it). */
-  alt?: { label(): string | null; activate(): void };
+  alt?: InteractionAction;
 }
 
 export interface PlayerApi {
@@ -67,6 +75,7 @@ export interface PlayerApi {
   readonly resting: 'sitting' | 'lying' | null;
   /** Still rising out of a resting pose; hands come back when the view settles. */
   readonly gettingUp?: boolean;
+  readonly restMotion?: RestMotion;
   /** Push the player along a direction for a moment (dodges, dash attacks). */
   dash(dir: THREE.Vector3, distance: number, seconds: number): void;
   readonly dashing: boolean;
@@ -95,10 +104,12 @@ export interface SceneApi {
   /** Where to come back after being knocked out at `near`: the main street inside a town; in
    * the wilderness, the nearest restored town's main street or the world spawn. */
   respawnPoint(near: THREE.Vector3): { pos: THREE.Vector3; yaw: number };
-  /** Go to a travel stop (a restored town's main street, or an ink mark), from anywhere. */
+  /** Fade to an unlocked altar or ink mark. Gameplay invokes this after a held interaction. */
   travelTo(id: string): void;
+  /** Resolve again during the fade so offline/arena/death cancels a friend visit. */
+  travelNear(target: () => { pos: THREE.Vector3; name: string } | null): boolean;
   /** The action at a travel stop (on `key`, F unless given): go to the next stop on the ring. */
-  travelAction(from: string, key?: 'E' | 'F'): { label(): string | null; activate(): void };
+  travelAction(from: string, key?: 'E' | 'F'): InteractionAction;
   /** Go to a town's main street. */
   enterCity(entrance: Entrance): void;
 }
@@ -228,6 +239,8 @@ export interface ArenaApi {
   readonly site: ArenaSite;
   /** Whether this player is in the arena (fighting, or waiting for a round). */
   readonly inside: boolean;
+  /** Waiting for the server to remove this player from the arena. */
+  readonly leaving: boolean;
   /** How it stands, as the server last said (null until anyone has been in). */
   readonly state: ArenaState | null;
   /** This player's id on the server. */
@@ -243,6 +256,10 @@ export interface ArenaApi {
 
 /** This client's part in a server world. */
 export interface NetApi {
+  readonly friends: readonly FriendStatus[];
+  readonly friendGuide: string;
+  trackFriend(id: number): void;
+  visitFriend(id: number): boolean;
   /** Whether this client runs the town's ink tide and erosion (one player per town does). */
   keeps(town: string): boolean;
   /** Everyone else in the world. */
@@ -253,6 +270,16 @@ export interface NetApi {
   readonly down: string | null;
   sendPatch(patch: Patch): void;
   leave(): void;
+}
+
+export interface FriendStatus {
+  readonly id: number;
+  readonly name: string;
+  readonly detail: string;
+  readonly tracking: boolean;
+  readonly canTrack: boolean;
+  readonly canVisit: boolean;
+  readonly reason: string;
 }
 
 export const sceneKey = (ref: SceneRef): string => (ref.kind === 'wild' ? 'wild' : `city:${ref.id}`);

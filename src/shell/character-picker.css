@@ -1,0 +1,251 @@
+/* The central frame contains the live game canvas, so its camera aspect follows the paper opening. */
+#overlay.side {
+  align-items: center;
+  padding: clamp(8px, 2.6vmin, 34px);
+  background: radial-gradient(ellipse at 50% 26%, #eee2bc, #c9bfa0 74%, #aba68e);
+}
+#overlay.side .menu-body {
+  width: min(1440px, 100%);
+  height: min(860px, 100%);
+  padding: 0;
+  background: #f8f1df;
+  overflow: hidden;
+}
+#overlay.side .menu-body::before {
+  display: none;
+}
+.picker {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  width: 100%;
+  height: 100%;
+  text-align: left;
+}
+.picker header,
+.picker footer {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 14px clamp(14px, 2vw, 32px);
+}
+.picker header {
+  justify-content: space-between;
+  border-bottom: 1px solid #ccbda1;
+}
+#overlay .picker h2 {
+  margin: 0;
+  font-size: clamp(23px, 2.5vw, 36px);
+}
+#overlay .picker header label {
+  width: auto;
+  font-size: 14px;
+  color: var(--ink-soft);
+}
+#overlay .picker header input {
+  width: clamp(95px, 16vw, 210px);
+  min-width: 0;
+  padding: 7px 10px;
+}
+.picker-main {
+  display: grid;
+  grid-template-columns: clamp(128px, 17%, 220px) minmax(0, 1fr) clamp(205px, 24%, 310px);
+  min-height: 0;
+}
+.picker h3,
+#overlay .picker [data-status] {
+  margin: 0;
+  color: var(--wood-dark);
+  font: 600 17px/1.4 var(--hand);
+}
+.picker-list,
+.picker-tools {
+  padding: clamp(12px, 1.45vw, 23px);
+  min-height: 0;
+  min-width: 0;
+}
+.picker-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+#overlay .picker .chars {
+  display: flex;
+  flex-direction: column;
+  overflow: auto;
+  max-height: none;
+  min-height: 0;
+  gap: 3px;
+}
+#overlay .picker .chars .char {
+  flex: none;
+  padding: 8px 11px;
+  font-size: 15px;
+  border-radius: 5px;
+  border: 1px solid transparent;
+  box-shadow: none;
+  background: transparent;
+}
+#overlay .picker .chars .char:hover {
+  background: #ebe2c9;
+  transform: none;
+}
+#overlay .picker .chars .char.on {
+  background: #446c50;
+  color: #fff7e4;
+}
+#overlay .picker .picker-switch {
+  margin-top: auto;
+  font-size: 13px;
+  padding: 8px 2px;
+}
+.picker figure {
+  margin: 0;
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  border-inline: 1px solid #c9b999;
+  background: #e7e4d0;
+}
+.picker-stage {
+  min-height: 0;
+  min-width: 0;
+  position: relative;
+  overflow: hidden;
+}
+.picker-stage #view {
+  position: absolute;
+  inset: 0;
+}
+.picker figcaption {
+  padding: 10px 16px;
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  background: #f1e8d3;
+}
+.picker figcaption b {
+  flex: none;
+  color: var(--wood-dark);
+  font: 600 20px var(--hand);
+}
+.picker figcaption span {
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+.picker-tools {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+#overlay .picker .character-motion-preview {
+  position: static;
+  width: 100%;
+  padding: 0;
+  color: var(--ink);
+  background: none;
+  border: none;
+  box-shadow: none;
+}
+.picker .preview-heading {
+  display: grid;
+  gap: 9px;
+}
+.picker .preview-heading > div,
+.picker [aria-label='动作'] {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+#overlay .picker .character-motion-preview button {
+  width: 100%;
+  margin: 0;
+  padding: 6px 2px;
+  font-size: 14px;
+  border-radius: 6px;
+  box-shadow: none;
+  background: #faf5e7;
+  border: 1px solid #c8b997;
+}
+#overlay .picker .character-motion-preview button[aria-pressed='true'] {
+  background: #556d50;
+  color: #fff9e9;
+  border-color: #556d50;
+}
+#overlay .picker .character-motion-preview label {
+  font-size: 13px;
+}
+#overlay .picker .character-motion-preview label[hidden] {
+  display: none;
+}
+.picker input[type='range'] {
+  min-width: 0;
+}
+.picker-colors {
+  border-top: 1px solid #cfbfa1;
+  margin-top: 18px;
+  padding-top: 14px;
+}
+.picker .swatches {
+  gap: 7px;
+  margin-top: 10px;
+  padding: 2px;
+}
+.picker .swatches span {
+  width: 100%;
+  font-size: 13px;
+}
+#overlay .picker button.swatch {
+  width: 24px;
+  height: 24px;
+  border-width: 1px;
+}
+.picker footer {
+  justify-content: flex-end;
+  border-top: 1px solid #ccbda1;
+}
+#overlay .picker footer button {
+  width: auto;
+  min-width: 100px;
+  margin: 0;
+  padding: 8px 20px;
+  font-size: 16px;
+}
+@media (max-width: 720px) {
+  #overlay.side {
+    padding: 4px;
+  }
+  .picker header,
+  .picker footer {
+    padding: 8px 12px;
+    gap: 8px;
+  }
+  .picker-main {
+    grid-template: minmax(0, 1.1fr) minmax(0, 1fr) / minmax(0, 0.85fr) minmax(0, 1.15fr);
+  }
+  .picker figure {
+    grid-row: 1;
+    grid-column: 1 / -1;
+    border: 0;
+    border-bottom: 1px solid #c9b999;
+  }
+  .picker figcaption {
+    padding: 5px 12px;
+  }
+  .picker figcaption b {
+    font-size: 16px;
+  }
+  .picker figcaption span {
+    font-size: 12px;
+  }
+  .picker-list,
+  .picker-tools {
+    padding: 8px 12px;
+  }
+  .picker-list {
+    gap: 5px;
+    border-right: 1px solid #c9b999;
+  }
+  #overlay .picker .chars .char {
+    padding: 6px 8px;
+  }
+}

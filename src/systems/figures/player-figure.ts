@@ -29,6 +29,8 @@ import { heldIn } from './player-hold';
 import { type PlayerPose, posePlayer } from './player-pose';
 import { type Rig, characterRig } from './player-rig';
 import { CourierFigures } from './quaternius-courier';
+import { PaperPlanes } from './paper-plane';
+import { brushPaint } from './brush-model';
 
 export { ACTION_SECONDS } from './player-hold';
 export type { PlayerPose } from './player-pose';
@@ -40,10 +42,6 @@ const INK = color('ink');
 const FACE = { eye: color(FACE_COLORS.eye), blush: color(FACE_COLORS.blush) };
 const SKIN = SKIN_TONES.map((k) => color(k));
 const HAIR = HAIR_COLORS.map((k) => color(k));
-/** A weapon prop wears the weapon's own colours, as in the hand of the one holding it. */
-const WEAPON_LOOK = new Map<string, readonly [number, number]>(WEAPONS.map((w) => [w.key, w.look]));
-const PROP_PAINT: Readonly<Record<string, number>> = { wood: color('brown'), metal: color('charcoal') };
-
 const IS_WEAPON = new Set<string>(WEAPONS.map((w) => w.key));
 
 /** Every player figure in a scene: two instanced meshes for the bodies, one per weapon carried. */
@@ -52,6 +50,7 @@ export class PlayerFigures {
   private readonly fixed = new Map<CharacterKey, Map<string, number>>();
   private readonly figures: FigureRenderer;
   private readonly couriers: CourierFigures;
+  private readonly planes: PaperPlanes;
   private readonly at = new THREE.Vector3();
   /** The weapons in hand, each its model instanced (colours are in the model). */
   private readonly weapons = new Map<WeaponKey, { mesh: THREE.InstancedMesh; used: number }>();
@@ -63,6 +62,7 @@ export class PlayerFigures {
   ) {
     this.figures = new FigureRenderer(parent, material);
     this.couriers = new CourierFigures(parent, material, hideHead);
+    this.planes = new PaperPlanes(parent, material);
   }
 
   /** One more of this weapon this frame, at a prop's joint. */
@@ -106,16 +106,19 @@ export class PlayerFigures {
   }
 
   begin(): void {
+    this.planes.begin();
     this.figures.begin();
     this.couriers.begin();
     for (const w of this.weapons.values()) w.used = 0;
   }
 
-  draw(look: Look, p: PlayerPose): void {
+  draw(look: Look, p: PlayerPose, head?: THREE.Vector3): void {
+    this.planes.draw(p);
     const imported = this.couriers.draw(look, p);
     const r = imported ?? this.rig(look.character);
     if (!imported) posePlayer(r, p);
     r.root.updateMatrixWorld(true);
+    if (head) head.setFromMatrixPosition(r.head.matrixWorld);
     const fixed = this.fixed.get(look.character)!;
     const skin = SKIN[look.skin] ?? SKIN[0]!;
     const hair = HAIR[look.hair] ?? HAIR[0]!;
@@ -145,23 +148,14 @@ export class PlayerFigures {
       if (p.dying < 0.3) this.carry(item as WeaponKey, r.props[item].node.matrixWorld);
       return;
     }
-    const own = WEAPON_LOOK.get(item);
     this.figures.add(r.props[item].parts, (part) => {
       if (inkTo > -Infinity && this.at.setFromMatrixPosition(part.node.matrixWorld).y < inkTo) return INK;
-      switch (part.paint) {
-        case 'main':
-          return own?.[0] ?? INK;
-        case 'trim':
-          return own?.[1] ?? INK;
-        case 'bristle':
-          return look.accent;
-        default:
-          return PROP_PAINT[part.paint] ?? INK;
-      }
+      return brushPaint(part.paint, look.accent);
     });
   }
 
   end(): void {
+    this.planes.end();
     this.figures.end();
     this.couriers.end();
     for (const w of this.weapons.values()) {
@@ -171,6 +165,7 @@ export class PlayerFigures {
   }
 
   dispose(): void {
+    this.planes.dispose();
     this.figures.dispose();
     this.couriers.dispose();
     // the models are shared (player-props.ts); only the meshes are this renderer's

@@ -7,7 +7,8 @@ import { defaultLook } from '@/content/characters';
 import { type Vec, sees } from '@/world/arena/hits';
 import type { Outgoing } from '@/world/net/arena-host';
 import { WorldHost } from '@/world/net/host';
-import { GROUNDED, PROTOCOL, type ServerMessage, type Vec3, parseClientMessage } from '@/world/net/protocol';
+import { FLYING, GLIDING, GROUNDED, PROTOCOL, type ServerMessage, type Vec3, parseClientMessage } from '@/world/net/protocol';
+import { deserializeSlice } from '@/world/net/slices';
 import { createWorldState } from '@/world/state';
 import { createWilderness } from '@/world/wilderness/generator';
 
@@ -159,6 +160,33 @@ describe('the arena on the world host', () => {
     expect(state?.t === 'arena' && state.state.members.map((m) => m.id)).toEqual([a]);
   });
 
+  it('keeps flight and perimeter escapes out of arena movement and preserves the return position', () => {
+    const { h, site, put, join, pair } = setup();
+    const fighter = join(1);
+    const observer = join(2);
+    const [initial, valid] = pair();
+    put(fighter, { x: 0, y: 10, z: 0 });
+    put(observer, initial);
+    h.arena.join(fighter);
+    put(fighter, valid);
+    const position: Vec3 = [valid.x, valid.y, valid.z];
+    for (const [p, f] of [
+      [position, FLYING],
+      [position, GLIDING],
+      [[site.x + site.radius + 1, valid.y, site.z], GROUNDED],
+      [[valid.x, valid.y + 30, valid.z], 0],
+    ] as const) {
+      h.move(fighter, { p, f, v: [0, 0, 0], yaw: 0, pitch: 0 }, wild, null);
+      expect(h.nearby(observer).find((m) => m.id === fighter)).toMatchObject({ p: position, f: GROUNDED });
+    }
+    expect(h.arena.has(fighter)).toBe(true);
+    expect(deserializeSlice(h.sliceOf(fighter)!).player).toMatchObject({ scene: wild, x: 0, y: 10, z: 0 });
+    h.arena.leave(fighter);
+    expect(h.arena.has(fighter)).toBe(false);
+    h.move(fighter, { p: [0, 20, 0], f: FLYING, v: [0, 0, 0], yaw: 0, pitch: 0 }, wild, null);
+    expect(deserializeSlice(h.sliceOf(fighter)!).player?.y).toBe(20);
+  });
+
   it('checks act and arena messages field by field', () => {
     expect(parseClientMessage(JSON.stringify({ t: 'arena', a: 'join' }))).toEqual({ t: 'arena', a: 'join' });
     expect(parseClientMessage(JSON.stringify({ t: 'arena', a: 'vote', mode: 'teams' }))).toMatchObject({
@@ -233,5 +261,9 @@ describe('the arena over WebSockets', () => {
     a.send({ t: 'act', w: 'rifle', k: 'shot', o: [p[0], p[1] + EYE, p[2]], d: [0, 0, -1], at: 0 });
     const seen = await b.waitFor((m) => m.t === 'act');
     expect(seen).toMatchObject({ from: aid, w: 'rifle', k: 'shot' });
+    a.got.length = 0;
+    a.send({ t: 'arena', a: 'leave' });
+    const left = await a.waitFor((m) => m.t === 'arena' && !m.state.members.some((m) => m.id === aid));
+    expect(left).toMatchObject({ t: 'arena', state: { members: [{ id: expect.any(Number) }] } });
   });
 });

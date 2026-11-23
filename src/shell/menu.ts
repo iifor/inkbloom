@@ -1,7 +1,7 @@
-// The overlay menus: main menu at start, pause menu when the mouse is released, and the
+// The overlay menus: main menu at start, pause menu on Escape, and the
 // character, settings, world list and controls screens. Plain DOM; worlds switch by reloading
-// the page with ?world=<id>, so every world starts from a clean session. The character screen
-// sits on the left so the chosen look can stand in the world on the right (CharacterPreview).
+// the page with ?world=<id>, so every world starts from a clean session.
+import './character-picker.css';
 import {
   CHARACTERS,
   HAIR_COLORS,
@@ -24,8 +24,12 @@ import {
 } from '@/world/settings';
 import { yearDuration } from '@/world/climate/calendar';
 import type { WorldState } from '@/world/state';
+import type { FriendStatus } from '@/game/types';
+import { mountFriends } from './friends-panel';
+import { VILLAGER_MODELS, VILLAGER_ROLES, type VillagerModel } from '@/systems/figures/kaykit-villager';
 
-export type Screen = 'main' | 'pause' | 'character' | 'join' | 'settings' | 'worlds' | 'controls' | 'arena';
+export type Screen =
+  'main' | 'pause' | 'character' | 'join' | 'settings' | 'worlds' | 'controls' | 'arena' | 'friends';
 
 /** The arena as the menu shows it. */
 export interface ArenaInfo {
@@ -42,6 +46,7 @@ export interface ArenaInfo {
 
 /** The server world this game is in, for the menu. */
 export interface Online {
+  readonly friends: readonly FriendStatus[];
   readonly address: string;
   readonly max: number;
   /** Everyone else's names. */
@@ -64,10 +69,14 @@ export interface MenuActions {
   saveProfile(p: Profile): void;
   /** Stand `look` in the world beside the menu, or take it away with null. */
   preview(look: Look | null): void;
+  previewVillager?(key: VillagerModel): void;
+  mountPreview?(stage: HTMLElement, controls: HTMLElement): void;
   /** Colours offered as the accent: the crayons found in this world. */
   accents(): readonly number[];
   /** The server world this game is in, or null when playing alone. */
   online(): Online | null;
+  trackFriend(id: number): void;
+  visitFriend(id: number): boolean;
   /** The address used last time, to fill in the join screen. */
   lastServer(): string;
   joinServer(address: string): void;
@@ -87,7 +96,7 @@ const CONTROLS = [
   ['空格', '跳 · 二段跳 · 有纸飞机后在空中按住滑翔'],
   ['Shift', '陆地冲刺，深水加快划水'],
   ['X / Z', '平坦草地上坐下 / 躺下，按移动键起身'],
-  ['E / F', '交互 / 第二个动作（画室升级笔刷、在已恢复的城或标记之间传送）'],
+  ['E / F', '交互 / 第二个动作（画室升级笔刷、祭坛长按 E、墨迹标记长按 F 传送）'],
   ['1 / 2 / 3', '笔刷 / 武器 / 墨迹标记'],
   ['左键', '还色、攻击、放标记'],
   ['右键', '切换修复/涂鸦、装弹、狙击瞄准、收回标记'],
@@ -95,8 +104,10 @@ const CONTROLS = [
   ['G', '武器技能'],
   ['Tab', '角色：分配属性点'],
   ['J', '再看一眼当前目标'],
-  ['Esc', '暂停'],
-  ['F2 / F3', '自由飞行 / 帧率（再按：详细信息、关闭）'],
+  ['U', '释放鼠标，点击画面恢复操作'],
+  ['Esc / P', '打开暂停菜单和设置'],
+  ['F2', '展开 / 收起纸飞机；WASD 飞行，空格上升，Ctrl 下降，Shift 加速'],
+  ['F3', '帧率（再按：详细信息、关闭）'],
 ];
 
 export class Menu {
@@ -108,6 +119,8 @@ export class Menu {
   private accentPicked = false;
   /** Choosing the first character, on the way into the game. */
   private firstRun = false;
+  private stopFriends: (() => void) | null = null;
+  private villagerPreview: VillagerModel | null = null;
 
   constructor(
     private readonly root: HTMLElement,
@@ -116,6 +129,8 @@ export class Menu {
   ) {}
 
   show(screen: Screen): void {
+    this.stopFriends?.();
+    this.stopFriends = null;
     if (screen === 'main' || screen === 'pause') this.back = screen;
     this.screen = screen;
     this.root.hidden = false;
@@ -125,6 +140,8 @@ export class Menu {
   }
 
   hide(): void {
+    this.stopFriends?.();
+    this.stopFriends = null;
     this.root.hidden = true;
     this.root.classList.remove('side');
     this.actions.preview(null);
@@ -132,6 +149,7 @@ export class Menu {
 
   /** Open the character screen on the current character (or a default one). */
   private editCharacter(): void {
+    this.villagerPreview = null;
     const p = this.actions.profile();
     this.draft = p
       ? { name: p.name, look: { ...p.look } }
@@ -145,6 +163,8 @@ export class Menu {
   }
 
   private async render(): Promise<void> {
+    const characterScroll = this.root.querySelector('.chars')?.scrollTop ?? 0;
+    const toolsScroll = this.root.querySelector('.picker-tools')?.scrollTop ?? 0;
     const w = this.world;
     const restored = [...w.cities.values()].filter((c) => c.completed).length;
     const summary = `${w.name} · Lv ${levelOf(w.growth.xp)} · 已恢复 ${restored} 座城`;
@@ -174,6 +194,7 @@ export class Menu {
           ${net}
           ${online ? '<button data-a="leave">离开联机</button>' : '<button data-a="join">联机</button>'}
           ${arenaButton}
+          ${online ? '<button data-a="friends">在线伙伴 · 定位 / 传送</button>' : ''}
           <button data-a="new">新世界</button>
           <button data-a="worlds">世界列表</button>
           <button data-a="settings">设置</button>
@@ -182,8 +203,10 @@ export class Menu {
       case 'pause':
         body = `<h2>暂停</h2><p>${esc(summary)}</p>${net}
           <button class="primary" data-a="play">继续游戏</button>
+          ${arena?.inside ? '<button data-a="arena-leave">退出竞技场</button>' : ''}
           <button data-a="character">${who || '选择角色'}</button>
           ${arenaButton}
+          ${online ? '<button data-a="friends">在线伙伴 · 定位 / 传送</button>' : ''}
           ${online ? '<button data-a="leave">离开联机</button>' : ''}
           <button data-a="settings">设置</button>
           <button data-a="controls">操作说明</button>
@@ -197,6 +220,9 @@ export class Menu {
           <button class="primary" data-a="join-go">加入</button>
           <p class="hint">联机时用的是服务器上的世界，你在单人世界里的进度不受影响。</p>
           <button data-a="back">返回</button>`;
+        break;
+      case 'friends':
+        body = `<h2>在线伙伴</h2><p class="hint">定位后，画面会持续显示方向和距离。传送会在伙伴附近寻找安全地面，竞技场内不可用。</p><div data-friends></div><button data-a="play">回到游戏</button><button data-a="back">返回</button>`;
         break;
       case 'arena': {
         if (!arena) {
@@ -217,7 +243,7 @@ export class Menu {
             arena.inside
               ? `<p class="hint">下一局打什么：按投票多的来</p><div class="votes">${vote('ffa')}${vote('teams')}</div>
                  <button class="primary" data-a="play">回到场上</button>
-                 <button data-a="arena-leave">离开竞技场</button>`
+                 <button data-a="arena-leave">退出竞技场</button>`
               : '<button class="primary" data-a="arena-join">进入竞技场</button>'
           }
           <button data-a="back">返回</button>`;
@@ -254,25 +280,49 @@ export class Menu {
         break;
       }
       case 'character': {
+        const villager = this.villagerPreview;
+        const names: Record<VillagerModel, string> = {
+          rogue: '轻装村民',
+          'rogue-hooded': '兜帽村民',
+          knight: '守卫',
+          barbarian: '伐木工',
+          mage: '法师',
+        };
         const d = this.draft;
         const accents = this.actions.accents().includes(d.look.accent)
           ? this.actions.accents()
           : [...this.actions.accents(), d.look.accent];
-        const chars = CHARACTERS.map(
-          (c) =>
-            `<button class="char${c.key === d.look.character ? ' on' : ''}" data-char="${c.key}"><b>${c.name}</b><small>${c.blurb}</small></button>`,
-        ).join('');
+        const choices = villager ? VILLAGER_MODELS.map((key) => ({ key, name: names[key] })) : CHARACTERS;
+        const chars = choices
+          .map(({ key, name }) => {
+            const selected = key === (villager ?? d.look.character);
+            return `<button class="char${selected ? ' on' : ''}" aria-pressed="${selected}" data-${villager ? 'villager' : 'char'}="${key}"><b>${name}</b></button>`;
+          })
+          .join('');
+        const current = characterDef(d.look.character);
         const row = (label: string, swatches: string): string =>
           `<div class="swatches"><span>${label}</span>${swatches}</div>`;
-        body = `<h2>选择角色</h2>
-          <div class="chars">${chars}</div>
+        const colors = `<section class="picker-colors"><h3>外观配色</h3>
           ${row('肤色', SKIN_TONES.map((k, i) => swatch('skin', i, color(k), SKIN_NAMES[i]!, d.look.skin === i)).join(''))}
           ${row('发色', HAIR_COLORS.map((k, i) => swatch('hair', i, color(k), HAIR_NAMES[i]!, d.look.hair === i)).join(''))}
           ${row('强调色', accents.map((c) => swatch('accent', c, c, PALETTE[c]!.name, d.look.accent === c)).join(''))}
-          <p class="hint">强调色可以选这个世界里找到的蜡笔颜色，以后占遗迹也用它。外观不影响命中。</p>
-          <label>名字 <input type="text" data-name maxlength="${NAME_MAX}" value="${esc(d.name)}"></label>
-          <button class="primary" data-a="char-ok">${this.firstRun ? '确定，开始游戏' : '确定'}</button>
-          ${this.firstRun ? '' : '<button data-a="back">返回</button>'}`;
+          </section>`;
+        body = `<section class="picker" role="dialog" aria-labelledby="picker-title">
+          <header><h2 id="picker-title">${villager ? '村民预览' : '选择角色'}</h2>
+          ${villager ? '' : `<label>玩家昵称<input type="text" data-name maxlength="${NAME_MAX}" value="${esc(d.name)}"></label>`}</header>
+          <div class="picker-main">
+            <aside class="picker-list"><h3>${villager ? '村民列表' : '角色列表'}</h3>
+            <div class="chars">${chars}</div>
+            ${villager ? '' : '<button class="picker-switch" data-a="villager-preview">查看村民动作 ›</button>'}</aside>
+            <figure><div class="picker-stage"></div><figcaption><b>${villager ? names[villager] : current.name}</b>
+              <span>${villager ? (VILLAGER_ROLES[villager].profession ? '携带职业装备' : '普通村民 · 无武器') : esc(current.blurb)}</span></figcaption></figure>
+            <aside class="picker-tools"><div data-motion-host></div>${villager ? '' : colors}</aside>
+          </div><footer>${
+            villager
+              ? '<button data-a="player-preview">返回角色选择</button>'
+              : `<button data-a="back">返回</button><button class="primary" data-a="char-ok">${this.firstRun ? '确认并开始' : '确认选择'}</button>`
+          }
+          </footer></section>`;
         break;
       }
       case 'controls':
@@ -281,7 +331,27 @@ export class Menu {
         break;
     }
     this.root.querySelector('.menu-body')!.innerHTML = body;
+    if (this.screen === 'character') {
+      this.actions.mountPreview?.(
+        this.root.querySelector('.picker-stage')!,
+        this.root.querySelector('[data-motion-host]')!,
+      );
+      this.root.querySelector('.picker-tools')!.scrollTop = toolsScroll;
+    }
+    const characterList = this.root.querySelector('.chars');
+    if (characterList) characterList.scrollTop = characterScroll;
     this.bind();
+    if (this.screen === 'friends') {
+      this.stopFriends?.();
+      this.stopFriends = mountFriends(
+        this.root.querySelector('[data-friends]')!,
+        () => this.actions.online()?.friends ?? [],
+        (id) => this.actions.trackFriend(id),
+        (id) => {
+          if (this.actions.visitFriend(id)) this.actions.play();
+        },
+      );
+    }
   }
 
   private bind(): void {
@@ -291,6 +361,13 @@ export class Menu {
     });
     body.querySelectorAll<HTMLButtonElement>('button[data-world]').forEach((b) => {
       b.onclick = () => this.actions.openWorld(b.dataset.world!);
+    });
+    body.querySelectorAll<HTMLButtonElement>('[data-villager]').forEach((button) => {
+      button.onclick = () => {
+        this.villagerPreview = button.dataset.villager as VillagerModel;
+        this.actions.previewVillager?.(this.villagerPreview);
+        void this.render();
+      };
     });
     const edit = (look: Partial<Look>): void => {
       this.draft.look = { ...this.draft.look, ...look };
@@ -336,6 +413,16 @@ export class Menu {
 
   private act(a: string): void {
     switch (a) {
+      case 'villager-preview':
+        this.villagerPreview = 'rogue';
+        this.actions.previewVillager?.(this.villagerPreview);
+        void this.render();
+        break;
+      case 'player-preview':
+        this.villagerPreview = null;
+        this.actions.preview(this.draft.look);
+        void this.render();
+        break;
       case 'play':
         // the first game starts by choosing a character
         if (!this.actions.profile()) {
@@ -362,6 +449,7 @@ export class Menu {
       case 'controls':
       case 'join':
       case 'arena':
+      case 'friends':
         this.show(a);
         break;
       case 'arena-join':
@@ -390,6 +478,7 @@ export class Menu {
         this.show('main');
         break;
       case 'back':
+        this.firstRun = false;
         this.show(this.back);
         break;
       case 'reset':
@@ -408,7 +497,7 @@ const pct = (v: number): string => `${Math.round(v * 100)}%`;
 /** A round colour button; `value` is what it sets, `paint` the palette colour it shows. */
 function swatch(kind: string, value: number, paint: number, title: string, on: boolean): string {
   const rgb = PALETTE[paint]!.rgb.map((v) => Math.round(v * 255)).join(',');
-  return `<button class="swatch${on ? ' on' : ''}" data-${kind}="${value}" title="${esc(title)}" style="background:rgb(${rgb})"></button>`;
+  return `<button class="swatch${on ? ' on' : ''}" aria-label="${esc(title)}" aria-pressed="${on}" data-${kind}="${value}" title="${esc(title)}" style="background:rgb(${rgb})"></button>`;
 }
 
 function esc(s: string): string {

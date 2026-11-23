@@ -7,6 +7,7 @@ import { color } from '@/content/palette';
 import { TUNING } from '@/content/tuning';
 import { type Body, makeBody } from '@/engine/physics/world';
 import type { GameContext, PlayerApi, System } from '@/game/types';
+import type { RestMotion } from '@/world/net/protocol';
 
 import { WATER_LEVEL } from '@/world/wilderness/generator';
 import { pathsOf } from '@/world/wilderness/paths';
@@ -14,6 +15,7 @@ import { spawnStoneDistance } from '@/world/wilderness/spawn-circle';
 import { villageLawnKind } from '@/world/city/lawn';
 import { JumpWindow } from './jump-window';
 import { RestBody } from './rest-body';
+import { FlightBody } from './flight-body';
 import { SwimArms } from './swim-arms';
 import { WalkArms } from './walk-arms';
 import type { InHand } from '@/systems/tools/tool';
@@ -28,7 +30,7 @@ const STEP_RETURN = 18;
 const LAND_RECOVERY = 0.28;
 const GRASS = color('grass');
 const REST_VIEW = {
-  sitting: { height: 1.04, ahead: 0.25, pitch: -0.32, minPitch: -1.15, maxPitch: 0.62, yawLimit: 1.05 },
+  sitting: { height: 0.8, ahead: -0.35, pitch: -0.24, minPitch: -1.15, maxPitch: 0.62, yawLimit: 1.05 },
   lying: { height: 0.5, ahead: -0.72, pitch: 0.42, minPitch: -0.42, maxPitch: 1.48, yawLimit: 0.58 },
 } as const;
 const REST_SECONDS = { sitting: 0.8, lying: 1.05, standing: 0.52 } as const;
@@ -51,12 +53,14 @@ export class PlayerSystem implements System, PlayerApi {
   private readonly restPose = { sitting: 0, lying: 0, groundPitch: 0, groundRoll: 0 };
   private readonly restFrame = new THREE.Euler(0, 0, 0, 'YXZ');
   private readonly restEyeOffset = new THREE.Vector3();
+  private readonly flightEyeOffset = new THREE.Vector3();
   private restYaw = 0;
   private restTilt = 0;
   private restRoll = 0;
   private restTransition = { time: 1, sitting: 0, lying: 0, tilt: 0, roll: 0, phase: 0 };
   private beforeRestPitch = 0;
   private restBody: RestBody | null = null;
+  private flightBody: FlightBody | null = null;
   private look = defaultLook('courier');
   private swimBlend = 0;
   private readonly arms: SwimArms;
@@ -94,6 +98,7 @@ export class PlayerSystem implements System, PlayerApi {
   }
 
   set flying(value: boolean) {
+    if (value && this.ctx.arena?.inside) return;
     if (this.inFlight === value) return;
     this.inFlight = value;
     this.flightDrop = !value;
@@ -122,6 +127,18 @@ export class PlayerSystem implements System, PlayerApi {
 
   get gettingUp(): boolean {
     return !this.resting && this.restTransition.time < 1;
+  }
+
+  get restMotion(): RestMotion | undefined {
+    if (
+      !this.ctx.combat.alive ||
+      this.flying ||
+      this.gliding ||
+      this.waterMode === 'swimming' ||
+      this.restPose.sitting + this.restPose.lying <= 0.0001
+    )
+      return undefined;
+    return { ...this.restPose, yaw: this.restYaw };
   }
 
   get speed(): number {
@@ -296,7 +313,11 @@ export class PlayerSystem implements System, PlayerApi {
       this.pitch = THREE.MathUtils.clamp(this.pitch + look.pitch, view.minPitch, view.maxPitch);
     } else this.pitch = THREE.MathUtils.clamp(this.pitch + look.pitch, -1.5, 1.5);
     if (!this.ctx.combat.alive) this.flying = false;
-    else if (input.pressed('debugFly')) this.flying = !this.flying;
+    else if (input.pressed('debugFly')) {
+      if (this.ctx.arena?.inside)
+        this.ctx.events.emit('toast', { text: '竞技场内不能使用飞行器', seconds: 2 });
+      else this.flying = !this.flying;
+    }
     if (!input.held('jump')) this.waitForGliderRelease = false;
     this.landRecovery = Math.max(0, this.landRecovery - dt);
     this.knockT -= dt;
@@ -358,6 +379,10 @@ export class PlayerSystem implements System, PlayerApi {
     }
     this.stepFeel(dt);
     const kicked = this.arms.update(dt, this.swimBlend, this.body.vel, this.yaw, this.pitch);
+    if (this.flying && !this.flightBody && this.ctx.renderer.scene) {
+      this.flightBody = new FlightBody(this.ctx.renderer.scene);
+    }
+    this.flightBody?.draw(dt, this.look, this.position, this.yaw, this.flying, this.ctx.combat.alive);
     this.syncCamera();
     this.drawRestBody(dt);
     if (kicked && this.waterMode === 'swimming') {
@@ -423,6 +448,7 @@ export class PlayerSystem implements System, PlayerApi {
     b.vel.y = Math.max(-P.terminalFallSpeed, b.vel.y - P.gravity * dt);
     // paper plane: hold jump while falling to glide forward
     this.gliding =
+      !this.ctx.arena?.inside &&
       !wade &&
       !b.onGround &&
       b.vel.y < 0 &&
@@ -543,6 +569,10 @@ export class PlayerSystem implements System, PlayerApi {
         this.dip,
       this.eye.z + this.body.vel.z * surge - Math.sin(this.yaw) * sway,
     );
+    if (this.flightBody) {
+      this.flightBody.cameraOffset(this.flightEyeOffset, this.yaw, this.pitch);
+      cam.position.add(this.flightEyeOffset);
+    }
     // a little shake decays quickly; it never touches the aim the player sees in yaw/pitch
     this.shakeAmt = Math.max(0, this.shakeAmt - 1 / 30);
     const s = this.shakeAmt * this.shakeAmt * 0.04;
@@ -587,6 +617,7 @@ export class PlayerSystem implements System, PlayerApi {
 
   dispose(): void {
     this.restBody?.dispose();
+    this.flightBody?.dispose();
     this.arms.dispose();
     this.walkArms.dispose();
   }

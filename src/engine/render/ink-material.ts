@@ -127,6 +127,11 @@ varying vec3 vTreeView;
 varying vec3 vCloth;
 varying float vClothDepth;
 #endif
+#ifdef CHARACTER_PAINT
+attribute float aCharacterMaterial;
+varying float vCharacterMaterial;
+varying vec3 vPaintNormal;
+#endif
 #ifdef VIEW_MODEL
 uniform float uViewScale;
 #endif
@@ -146,6 +151,10 @@ varying vec2 vPlantMark;
 void main() {
   vec3 transformed = position;
   vec3 objectNormal = normal;
+  #ifdef CHARACTER_PAINT
+    vCharacterMaterial = aCharacterMaterial;
+    vPaintNormal = normal;
+  #endif
   // rigged models (imported characters) bend with their bones; three defines USE_SKINNING for
   // a SkinnedMesh and binds the bone texture itself
   #include <skinbase_vertex>
@@ -351,6 +360,21 @@ varying vec3 vTreeView;
 varying vec3 vCloth;
 varying float vClothDepth;
 #endif
+#ifdef CHARACTER_PAINT
+uniform sampler2D uCharacterPaint;
+uniform float uCharacterPaintReady;
+varying float vCharacterMaterial;
+varying vec3 vPaintNormal;
+float materialGrain(vec2 at, float slot) {
+  // Mirror within the tile, with an inset to prevent neighbouring atlas bleed.
+  vec2 repeatAt = 1.0 - abs(fract(at * 0.5) * 2.0 - 1.0);
+  vec2 tile = vec2(mod(slot, 2.0), slot < 1.5 ? 1.0 : 0.0);
+  vec2 uv = (tile + mix(vec2(0.015), vec2(0.985), repeatAt)) * 0.5;
+  vec3 pigment = texture2D(uCharacterPaint, uv).rgb;
+  float mean = slot < 0.5 ? 0.855 : slot < 1.5 ? 0.623 : slot < 2.5 ? 0.785 : 0.490;
+  return clamp(dot(pigment, vec3(0.3, 0.59, 0.11)) - mean, -0.2, 0.2);
+}
+#endif
 #ifdef PLANTS
 uniform sampler2D uPlants;
 varying float vPlantCell;
@@ -377,9 +401,9 @@ float sunlight() {
   #endif
   float turn = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453) * 6.2832;
   #ifdef CLOTH
-    // Close hands expose individual shadow taps. A fixed kernel keeps skin
-    // smooth instead of stippling it with the world's per-pixel brush grain.
-    if (vClothDepth < 0.85) turn = 0.35;
+    // Animated figures need stable cel shadows at both viewing distances.
+    // Random per-pixel taps make a hat shadow look like stubble on the face.
+    turn = 0.35;
   #endif
   float sum = step(p.z - 0.0008, shadowAt(p.xy));
   for (int i = 0; i < 8; i++) {
@@ -483,6 +507,19 @@ void main() {
     float code = floor(vCode);
     bool skin = code == ${color('skinLight')}.0 || code == ${color('skinWarm')}.0 || code == ${color('skinDeep')}.0;
     shade += (folds * 0.09 + dabs * 0.04) * (skin ? 0.3 : 1.0);
+    #ifdef CHARACTER_PAINT
+      float slot = floor(vCharacterMaterial + 0.5);
+      vec3 weights = pow(abs(normalize(vPaintNormal)), vec3(4.0));
+      weights /= max(0.001, weights.x + weights.y + weights.z);
+      // Rest-space triplanar coordinates deform with the skinned mesh, avoiding
+      // texture swimming and the stretched seams of generated box UVs.
+      vec3 at = vCloth * (slot < 0.5 ? 2.8 : slot < 1.5 ? 2.0 : 1.6);
+      float grain = slot > 3.5 ? 0.0 : materialGrain(at.zy, slot) * weights.x
+                  + materialGrain(at.xz, slot) * weights.y
+                  + materialGrain(at.xy, slot) * weights.z;
+      float strength = slot < 0.5 ? 0.28 : slot < 1.5 ? 0.20 : slot < 2.5 ? 0.07 : 0.24;
+      shade += grain * strength * uCharacterPaintReady;
+    #endif
   #endif
   // In the shadow of something: as dark as a face turned away from the sun. The paint pass
   // draws a firm edge where the shade crosses a narrow band just above one half (see its

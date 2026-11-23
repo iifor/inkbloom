@@ -333,7 +333,7 @@ function gardener(b: RigBuilder) {
   return { ...j, trails };
 }
 
-const BUILD: Record<CharacterKey, (b: RigBuilder) => Omit<Rig, 'parts' | 'hipsY' | 'props'>> = {
+const BUILD: Partial<Record<CharacterKey, (b: RigBuilder) => Omit<Rig, 'parts' | 'hipsY' | 'props'>>> = {
   courier,
   mason,
   apprentice,
@@ -345,6 +345,6 @@ const BUILD: Record<CharacterKey, (b: RigBuilder) => Omit<Rig, 'parts' | 'hipsY'
 /** A character's rig at rest. Exported for tests. */
 export function characterRig(key: CharacterKey): Rig {
   const b = new RigBuilder();
-  const j = BUILD[key](b);
+  const j = (BUILD[key] ?? courier)(b);
   return { ...j, hipsY: HIPS_Y, parts: b.parts, props: buildProps(j.torso) };
 }

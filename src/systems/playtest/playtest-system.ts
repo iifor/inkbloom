@@ -4,7 +4,6 @@
 // Markdown report from the pause menu.
 import type { GameContext, System } from '@/game/types';
 import { blockStates, type BlockState } from '@/world/city/blocks';
-import { openRequests } from '@/world/city/features';
 import {
   type CityLog,
   addEvent,
@@ -196,12 +195,7 @@ export class PlaytestSystem implements System {
     if (!layout || !saved) return;
     const city = this.city(cityId, this.ctx.scenes.active.name);
     const now = this.ctx.state.clock;
-    const states = blockStates(
-      saved.states,
-      layout.surfaces,
-      layout.chunks,
-      (c) => openRequests(layout, saved.requestsDone, c).length === 0,
-    );
+    const states = blockStates(saved.states, layout.surfaces, layout.chunks, saved.stockFrom);
     const prev = this.seen.get(cityId);
     states.forEach((s, i) => noteBlock(city, i, s, prev?.[i] ?? null, now));
     this.seen.set(cityId, states);

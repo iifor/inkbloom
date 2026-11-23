@@ -88,7 +88,7 @@ export function rigTop(root: THREE.Object3D, parts: readonly Part[]): number {
   return top;
 }
 
-function unitGeometry(shape: Shape): THREE.BufferGeometry {
+export function unitGeometry(shape: Shape): THREE.BufferGeometry {
   const g = new GeometryBuilder();
   const ink = color('ink');
   if (shape === 'blob')

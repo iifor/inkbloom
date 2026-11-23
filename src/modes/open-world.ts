@@ -12,6 +12,7 @@ import { CharacterPanel } from '@/shell/character-panel';
 import { AtmosphereSystem } from '@/systems/atmosphere/atmosphere';
 import { AudioSystem } from '@/systems/audio/audio-system';
 import { EffectsSystem } from '@/systems/effects/effects';
+import { loadCourier } from '@/systems/figures/quaternius-courier';
 import { CombatOverlay } from '@/shell/combat-overlay';
 import { PlaytestSystem } from '@/systems/playtest/playtest-system';
 import { CityRegistry } from '@/systems/city/city-registry';
@@ -65,7 +66,7 @@ export interface OpenWorld {
   dispose(): void;
 }
 
-export function startOpenWorld(opts: {
+export async function startOpenWorld(opts: {
   canvas: HTMLCanvasElement;
   hudRoot: HTMLElement;
   state: WorldState;
@@ -75,7 +76,8 @@ export function startOpenWorld(opts: {
   /** Joined to a world server (multiplayer); absent when playing alone. */
   net?: Connection;
   onError: (e: unknown) => void;
-}): OpenWorld {
+  loading: (progress: number, label: string) => void;
+}): Promise<OpenWorld> {
   const lifetime = new AbortController();
   const ctx = {} as Mutable<GameContext>;
   ctx.state = opts.state;
@@ -233,8 +235,33 @@ export function startOpenWorld(opts: {
     debug,
   ];
 
+  const nextFrame = (): Promise<void> => new Promise((resolve) => requestAnimationFrame(() => resolve()));
+  // Start the downloads together. Wait on them as a group before drawing the real opening frame.
+  let prepared = false;
+  let finished = 0;
+  const assets = Promise.all(
+    [
+      ctx.renderer.texturesReady,
+      loadCourier().catch((e) => console.warn('使用备用角色模型：', e)),
+      audio.preloadEffects().catch((e) => console.warn('使用备用音效：', e)),
+    ].map(async (asset) => {
+      await asset;
+      finished++;
+      if (prepared) opts.loading(2 + (2 * finished) / 3, '正在加载纹理、角色和音效…');
+    }),
+  );
+  opts.loading(1, '正在准备附近地形…');
+  await nextFrame();
   scenes.restore(opts.state.player);
-  // compile the shader variants a city or an effect will need now, not on first use
+  await wild.prepareStartup(nextFrame, (done) => {
+    opts.loading(1 + done / 10, done === 9 ? '正在绘制远景…' : '正在准备附近地形…');
+  });
+  prepared = true;
+  opts.loading(2 + (2 * finished) / 3, '正在加载纹理、角色和音效…');
+  await assets;
+  opts.loading(4, '正在绘制第一帧…');
+  await nextFrame();
+  // Compile the variants a city or effect will need before they are drawn.
   warmShaders(ctx.renderer);
 
   const resize = (): void => ctx.renderer.resize();
@@ -248,8 +275,6 @@ export function startOpenWorld(opts: {
     },
     opts.onError,
   );
-  loop.start();
-
   return {
     clock,
     ctx,

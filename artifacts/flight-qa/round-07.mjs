@@ -1,0 +1,24 @@
+const task = await taskSpace(6);
+const page = task.page('p1');
+const data = await page.evaluate(async () => {
+  const a=window.inkbloom;
+  const THREE=await import('/node_modules/.vite/deps/three.js');
+  const {PlayerFigures}=await import('/src/systems/figures/player-figure.ts');
+  const {makeInkMaterial}=await import('/src/engine/render/ink-material.ts');
+  const {defaultLook}=await import('/src/content/characters.ts');
+  const root=new THREE.Group();
+  a.ctx.renderer.scene.add(root);
+  const figures=new PlayerFigures(root,makeInkMaterial({cloth:true}));
+  const p=a.ctx.player.position;
+  window.flightQA={root,figures,pose:{x:p.x,y:p.y,z:p.z-12,yaw:-0.5,pitch:0,walk:0,stride:0,air:true,glide:false,hurt:0,dying:-1,t:5,flight:{blend:1,bank:0.12,pitch:0.03}},look:defaultLook('courier')};
+  figures.begin();figures.draw(window.flightQA.look,window.flightQA.pose);figures.end();
+  a.ctx.renderer.scene.getObjectByName('paper-plane-pilot').visible=false;
+  const cam=a.ctx.renderer.camera;
+  cam.position.set(p.x+5,p.y+3.2,p.z-5);
+  cam.lookAt(p.x,p.y+0.8,p.z-12);
+  a.ctx.renderer.render();
+  return document.querySelector('#view').toDataURL('image/png');
+});
+const fs=await import('node:fs/promises');
+await fs.writeFile('C:/Users/Administrator/Desktop/inkbloom/artifacts/flight-qa/observer-01.png',Buffer.from(data.split(',')[1],'base64'));
+console.log('Saved observer-01.png');

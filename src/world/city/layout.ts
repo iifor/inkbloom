@@ -232,7 +232,6 @@ export function placeCity(c: CityLayout, at: Point): CityLayout {
     stains: c.stains.map(move),
     studios: c.studios.map((s) => ({ ...s, door: move(s.door) })),
     monsters: c.monsters.map(move),
-    requests: c.requests.map((r) => ({ ...r, door: move(r.door) })),
     spawn: move(c.spawn),
   };
 }

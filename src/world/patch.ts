@@ -4,9 +4,8 @@
 import { PALETTE } from '@/content/palette';
 import { TUNING } from '@/content/tuning';
 import { BRUSH_TIERS } from '@/content/brush-tiers';
-import { type CitySkeleton, openRequests, recolorDone, standingMonsters, studioOpen } from './city/features';
-import { REQUEST_RULES } from '@/content/requests';
-import { blockStates } from './city/blocks';
+import { type CitySkeleton, standingMonsters, studioOpen } from './city/features';
+import { blockStates, studioStockSince } from './city/blocks';
 import { DRAINED, ORIGINAL, coloredRatio, graffiti, surfaceCost, type SurfaceInfo } from './paint/surfaces';
 import { releaseAround } from './paint/release';
 import { type SceneRef, type WorldState, cityStates, sourceReady, wildMonsterBack } from './state';
@@ -49,7 +48,6 @@ export type Patch =
   /** Reach a ruin: unlock its crayon (or take pigment if already known). */
   | { readonly kind: 'discover'; readonly ruin: string }
   /** Hand a resident their wish (a recolored house, or the pigment they asked for). */
-  | { readonly kind: 'request'; readonly city: string; readonly request: number }
   /** Take the generic pigment a thriving block's studio has made. */
   | { readonly kind: 'collectStock'; readonly city: string; readonly studio: number }
   /** Plant an ink mark in the wilderness to travel back to. */
@@ -93,19 +91,17 @@ export interface PatchContext {
 const fail = (reason: string): PatchResult => ({ ok: false, reason });
 const OK: PatchResult = { ok: true };
 
-/** A block that is 有色 with every request done becomes 繁荣: its studio starts making pigment. */
+/** Start the studio clock when the last drained surface regains colour. */
 function markThriving(
   state: WorldState,
   city: string,
   skel: CitySkeleton,
   states: Uint8Array,
-  done: Uint8Array,
   chunk: number,
 ): void {
   const saved = state.cities.get(city)!;
   if ((saved.stockFrom[chunk] ?? -1) >= 0) return;
-  if (coloredRatio(states, skel.surfaces, chunk) < TUNING.blocks.coloredAt) return;
-  if (openRequests(skel, done, chunk).length) return;
+  if (coloredRatio(states, skel.surfaces, chunk) < TUNING.blocks.thrivingAt) return;
   saved.stockFrom[chunk] = state.clock;
 }
 
@@ -130,7 +126,7 @@ function blockMilestones(
     milestone(g, `city:${city}:blocks:${count}`, MILESTONES.cityBlocksPoint);
 }
 
-/** Free colour around a spot (a fallen monster's post, a granted wish's door): the nearest
+/** Free colour around a fallen monster's post: the nearest
  * drained surfaces go back to their original colour, with the same experience and block
  * rewards as restoring them by brush. */
 function release(
@@ -139,7 +135,6 @@ function release(
   skel: CitySkeleton,
   states: Uint8Array,
   coloredOnce: Uint8Array,
-  requestsDone: Uint8Array,
   x: number,
   z: number,
   rule: { readonly radius: number; readonly max: number },
@@ -153,7 +148,7 @@ function release(
   }
   for (const c of chunks) {
     blockMilestones(state, city, skel.surfaces, states, coloredOnce, c);
-    markThriving(state, city, skel, states, requestsDone, c);
+    markThriving(state, city, skel, states, c);
   }
 }
 
@@ -301,7 +296,7 @@ function applyRules(state: WorldState, patch: Patch, ctx: PatchContext): PatchRe
 
   const skel = ctx.cityOf(patch.city);
   if (!skel) return fail('城市不存在');
-  const { states, stains, defeated, coloredOnce, requestsDone } = cityStates(state, patch.city, skel);
+  const { states, stains, defeated, coloredOnce } = cityStates(state, patch.city, skel);
   if (
     state.cities.get(patch.city)!.peaceful &&
     (patch.kind === 'complete' || patch.kind === 'drain' || patch.kind === 'tideHeld')
@@ -339,43 +334,14 @@ function applyRules(state: WorldState, patch: Patch, ctx: PatchContext): PatchRe
       defeated[patch.monster] = 1;
       inv.ink += ENEMIES[m.type]?.ink ?? 0;
       state.growth.xp += XP.monster;
-      release(state, patch.city, skel, states, coloredOnce, requestsDone, m.x, m.z, TUNING.release.monster);
-      return OK;
-    }
-    case 'request': {
-      const r = skel.requests[patch.request];
-      if (!r) return fail('没有这个心愿');
-      if (requestsDone[patch.request]) return fail('已经完成了');
-      if (r.kind === 'recolor') {
-        if (!recolorDone(r, states)) return fail('四面墙还没都涂成想要的颜色');
-      } else {
-        if (!state.unlocked.includes(r.color)) return fail(`还没有${PALETTE[r.color]!.name}的蜡笔`);
-        if (inv.generic < r.count) return fail(`颜料不够（要 ${r.count}）`);
-        inv.generic -= r.count;
-      }
-      requestsDone[patch.request] = 1;
-      inv.generic += REQUEST_RULES.reward.generic;
-      inv.ink += REQUEST_RULES.reward.ink;
-      state.growth.xp += XP.request;
-      release(
-        state,
-        patch.city,
-        skel,
-        states,
-        coloredOnce,
-        requestsDone,
-        r.door.x,
-        r.door.z,
-        TUNING.release.request,
-      );
-      markThriving(state, patch.city, skel, states, requestsDone, r.chunk);
+      release(state, patch.city, skel, states, coloredOnce, m.x, m.z, TUNING.release.monster);
       return OK;
     }
     case 'collectStock': {
       const s = skel.studios[patch.studio];
       if (!s) return fail('画室不存在');
       const saved = state.cities.get(patch.city)!;
-      const from = saved.stockFrom[s.chunk] ?? -1;
+      const from = studioStockSince(coloredRatio(states, skel.surfaces, s.chunk), saved.stockFrom[s.chunk]);
       if (from < 0) return fail('这个街区还没有繁荣');
       const period = TUNING.economy.studioStockSeconds;
       const made = Math.min(TUNING.economy.studioStockCap, Math.floor((state.clock - from) / period));
@@ -421,7 +387,7 @@ function applyRules(state: WorldState, patch: Patch, ctx: PatchContext): PatchRe
       states[patch.surface] = ORIGINAL;
       if (current === DRAINED) state.growth.xp += XP.surface;
       blockMilestones(state, patch.city, skel.surfaces, states, coloredOnce, info.chunk);
-      markThriving(state, patch.city, skel, states, requestsDone, info.chunk);
+      if (current === DRAINED) markThriving(state, patch.city, skel, states, info.chunk);
       return OK;
     }
     case 'paint': {
@@ -435,7 +401,7 @@ function applyRules(state: WorldState, patch: Patch, ctx: PatchContext): PatchRe
       states[patch.surface] = graffiti(patch.color);
       if (current === DRAINED) state.growth.xp += XP.surface;
       blockMilestones(state, patch.city, skel.surfaces, states, coloredOnce, info.chunk);
-      markThriving(state, patch.city, skel, states, requestsDone, info.chunk);
+      if (current === DRAINED) markThriving(state, patch.city, skel, states, info.chunk);
       return OK;
     }
   }

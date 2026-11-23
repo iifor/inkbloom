@@ -13,8 +13,6 @@ function save(n = 4): CitySave {
     monsterFingerprint: null,
     defeated: new Uint8Array(n),
     coloredOnce: new Uint8Array(n),
-    requestFingerprint: null,
-    requestsDone: new Uint8Array(n),
     stockFrom: Array.from({ length: n }, () => -1),
     tide: { nextIn: 60, wave: null },
   };

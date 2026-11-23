@@ -106,6 +106,7 @@ export function headless(opts: { cities?: Record<string, CitySkeleton> } = {}): 
     enterWild: () => {},
     enterCity: () => {},
     travelTo: () => {},
+    travelNear: () => false,
     travelAction: () => ({ label: () => null, activate: () => {} }),
     respawnPoint: () => ({ pos: new THREE.Vector3(), yaw: 0 }),
   };

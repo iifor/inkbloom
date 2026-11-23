@@ -22,6 +22,8 @@ import { CityMonsters } from './city-monsters';
 import { Residents } from './residents';
 import { Studios } from './studios';
 import { buildWaterwheel } from './waterwheel';
+import { TravelAltar } from './travel-altar';
+import { travelAltar } from '@/world/city/travel-altar';
 
 /** Metres from a district's middle beyond which its houses are drawn as shells. A district is
  * 128 m across, so its nearest houses are then some 70 m off, where a window frame is about a
@@ -52,9 +54,10 @@ export class CityScene implements GameScene {
   stains!: InkStains;
   tide!: InkTide;
   private studios!: Studios;
+  private altar: TravelAltar | null = null;
   private erosion!: Erosion;
   monsters!: CityMonsters;
-  residents!: Residents;
+  private residents!: Residents;
   /** The rest of putting the town together, a step at a time; null once it stands. */
   private building: Generator<void, void, void> | null;
 
@@ -68,7 +71,7 @@ export class CityScene implements GameScene {
     this.ref = { kind: 'city', id: layout.id };
     this.name = layout.name;
     this.root.name = `city:${layout.id}`;
-    const { states, stains, defeated, requestsDone, tide, reset } = cityStates(ctx.state, layout.id, layout);
+    const { states, stains, defeated, tide, reset } = cityStates(ctx.state, layout.id, layout);
     this.states = states;
     this.wasReset = reset;
     if (reset) ctx.events.emit('toast', { text: `${layout.name}的布局已更新，颜色进度已重置`, seconds: 6 });
@@ -93,7 +96,7 @@ export class CityScene implements GameScene {
     this.material.polygonOffset = true;
     this.material.polygonOffsetFactor = towards;
     this.material.polygonOffsetUnits = 2 * towards;
-    this.building = this.steps(stains, defeated, requestsDone, tide);
+    this.building = this.steps(stains, defeated, tide);
   }
 
   /** Whether the town is all there: enterable, its systems running. */
@@ -118,7 +121,6 @@ export class CityScene implements GameScene {
   private *steps(
     stains: Uint8Array,
     defeated: Uint8Array,
-    requestsDone: Uint8Array,
     tide: TideSave,
   ): Generator<void, void, void> {
     const { ctx, layout, states } = this;
@@ -175,7 +177,7 @@ export class CityScene implements GameScene {
     yield;
     this.monsters = new CityMonsters(ctx, layout, defeated, this.physics, this.root, this.material);
     yield;
-    this.residents = new Residents(ctx, layout, states, requestsDone, this.material, this.root);
+    this.residents = new Residents(ctx, layout, this.root);
     yield;
     this.tide = new InkTide(ctx, layout, states, this, tide, this.root);
 
@@ -185,27 +187,14 @@ export class CityScene implements GameScene {
         let gained = false;
         if (patch.kind === 'restore' || patch.kind === 'paint' || patch.kind === 'drain')
           gained = this.sync(patch.surface, false);
-        else if (patch.kind === 'defeat' || patch.kind === 'request')
-          // a fallen monster or a granted wish frees the colour around it; bloom each surface
+        else if (patch.kind === 'defeat')
+          // a fallen monster frees the colour around it; bloom each surface
           for (let i = 0; i < this.states.length; i++) gained = this.sync(i, true) || gained;
         else return;
         if (gained) this.checkComplete();
       }),
     );
-    // a restored town's gates are stops on the travel ring
-    for (const gate of layout.gates) {
-      const pos = new THREE.Vector3(
-        layout.ox + (gate.ix + 0.5) * layout.cell,
-        groundAt(
-          layout,
-          layout.ox + (gate.ix + 0.5) * layout.cell,
-          layout.oz + (gate.iz + 0.5) * layout.cell,
-        ),
-        layout.oz + (gate.iz + 0.5) * layout.cell,
-      );
-      const travel = ctx.scenes.travelAction(layout.id, 'E');
-      this.release.push(ctx.interactions.add({ scene: `city:${layout.id}`, pos, radius: 8, ...travel }));
-    }
+    if (travelAltar(layout)) this.altar = new TravelAltar(ctx, layout, this.physics, this.root);
   }
 
   spawn(): { pos: THREE.Vector3; yaw: number } {
@@ -280,7 +269,8 @@ export class CityScene implements GameScene {
 
   /** Every block's state, read from its share of colour. */
   blocks(): BlockState[] {
-    return this.totals.map((_, c) => blockState(this.progress(c), this.residents.open(c) === 0));
+    const stockFrom = this.ctx.state.cities.get(this.layout.id)!.stockFrom;
+    return this.totals.map((_, c) => blockState(this.progress(c), stockFrom[c]));
   }
 
   /** Which city chunk (0..chunks²-1) a position is in. */
@@ -307,7 +297,9 @@ export class CityScene implements GameScene {
    * tide (everyone else sees their drains arrive as patches), so more players inside do not
    * drain it faster. */
   update(dt: number): void {
+    this.residents.update(dt);
     this.stains.update();
+    this.altar?.update(dt);
     const keeper = !this.ctx.net || this.ctx.net.keeps(this.layout.id);
     if (keeper && !this.peaceful) this.erosion.update(dt);
     this.monsters.update(dt);
@@ -319,6 +311,7 @@ export class CityScene implements GameScene {
    * tide's timers, erosion) waits for them to come in. */
   updateOutside(dt: number): void {
     if (this.ready) {
+      this.residents.update(dt);
       this.monsters.update(dt);
       this.studios.update(dt);
     }
@@ -329,6 +322,7 @@ export class CityScene implements GameScene {
     this.finish();
     this.stains.dispose();
     this.studios.dispose();
+    this.altar?.dispose();
     this.tide.dispose();
     this.monsters.dispose();
     this.residents.dispose();

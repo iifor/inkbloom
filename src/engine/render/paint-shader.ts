@@ -274,7 +274,7 @@ void main() {
     if (figure) {
       s.b -= 4.0;
       // people are cels laid over the painting: flat colour that the brush pass leaves alone
-      paintAlpha = 0.92;
+      paintAlpha = 1.0;
     }
     bool fish = s.b < -1.5;
     vec3 fishPaint = vec3(-2.0 - s.b, s.g, s.a);
@@ -302,6 +302,16 @@ void main() {
     float seasonKind = seasonKindOf(s.g);
     vec3 base = seasonal(paletteColor(s.g), seasonKind, wpos.xz);
     int pigment = indexOf(s.g);
+    bool skinPigment = pigment == ${color('skinLight')} || pigment == ${color('skinWarm')} || pigment == ${color('skinDeep')};
+    if (figure && skinPigment) tex = 0.0;
+    if (figure && !skinPigment) {
+      // Clothes use sun-faded pigments and warm paper whites. Palette/save data
+      // remains unchanged; the environment keeps its existing painted colours.
+      float luminance = dot(base, vec3(0.3, 0.59, 0.11));
+      base = mix(base, vec3(luminance) * vec3(1.04, 1.01, 0.94), 0.16);
+      base = mix(base, vec3(0.90, 0.83, 0.69), 0.055);
+      tex *= 0.55;
+    }
     // At first-person distance the skin needs a broad warm shading ramp; the
     // world's cel-shadow threshold otherwise turns small joints into purple blocks.
     bool nearSkin = figure && d < 0.85 && (pigment == ${color('skinLight')} || pigment == ${color('skinWarm')} || pigment == ${color('skinDeep')});
@@ -573,7 +583,8 @@ void main() {
     float lit = (grassBlade || ground) ? smoothstep(-0.12, 0.38, turned) : smoothstep(0.0, 0.15, turned);
     // (a person's shade keeps a slightly softer edge: the shadow of an arm across a chest is
     // only a few of the shadow map's steps wide, and a hard edge would show them)
-    if (figure) lit = smoothstep(-0.04, 0.24, turned);
+    if (figure) lit = smoothstep(-0.12, 0.36, turned);
+    if (figure && skinPigment) lit = smoothstep(-0.3, 0.5, turned);
     if (nearSkin) {
       // Broad fill preserves the palm and knuckle volume when the world shadow
       // map covers the whole hand with the same value.
@@ -596,8 +607,10 @@ void main() {
     bool timber = built && (pigment == ${color('bark')} || pigment == ${color('brown')}) && !crown;
     if (timber) shadowTint = shadowTint * 1.3 + vec3(0.09, 0.06, 0.03) * byDay;
     if (nearSkin) shadowTint = mix(shadowTint, uSunColor * vec3(0.65, 0.46, 0.34), 0.72 * (1.0 - uNight));
+    else if (figure) shadowTint = mix(shadowTint, uShade * vec3(1.12, 1.04, 0.96), 0.22);
     vec3 light = mix(shadowTint, uSunColor * (0.96 + 0.08 * full), lit);
     if (nearSkin) light *= 0.82;
+    else if (figure && skinPigment) light *= 0.88;
     // on a broken-cloud day the clouds' shadows sail across the land with the wind
     if (uCloudShade > 0.0) {
       float cs = fbm2((wpos.xz - uDrift) * 0.006 + 11.0);
@@ -676,7 +689,7 @@ void main() {
     col = mix(drainedAt(painted), painted, sat);
     if (puddle > 0.0) col = mix(col, skyPaint(reflect(rd, vec3(0.0, 1.0, 0.0))) * 0.85, puddle * 0.6);
     // the ink: no paint, a wet sheen where the light catches it
-    float solid = solidOf(s.g) * sat;
+    float solid = figure ? 0.0 : solidOf(s.g) * sat;
     vec3 wet = mix(paletteColor(s.g), vec3(0.36, 0.37, 0.44), pow(clamp(ndl, 0.0, 1.0), 6.0) * 0.55);
     // (and along its edges, seen against the light: the line that draws an ink monster's shape,
     // which a dark outline could not)
@@ -697,7 +710,7 @@ void main() {
         if (beside.b < 3.0 || beside.b > 7.0 || besideDepth - d > 0.05 + 0.02 * d) line = 1.0;
         else line = max(line, smoothstep(0.95, 1.35, distance(vec2(beside.b - 4.0, beside.a), s.ba)));
       }
-      col = mix(col, vec3(0.3, 0.19, 0.14) * mix(light, vec3(1.0), 0.3), line * (nearSkin ? 0.5 : 0.85) * min(wide, 1.0));
+      col = mix(col, vec3(0.34, 0.23, 0.17) * mix(light, vec3(1.0), 0.3), line * (nearSkin ? 0.45 : 0.72) * min(wide, 1.0));
     }
     // at night, lamps are lit behind some windows of the streets that have their colour back
     // (each window is lit or dark as a whole, and shows its own room: by day only a hint of

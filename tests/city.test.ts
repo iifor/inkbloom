@@ -349,7 +349,7 @@ describe('a town standing in the world', () => {
     expect(placed.spawn.x - local.spawn.x).toBeCloseTo(at.x);
     expect(placed.surfaces[7]!.z - local.surfaces[7]!.z).toBeCloseTo(at.z);
     expect(placed.stains[0]!.x - local.stains[0]!.x).toBeCloseTo(at.x);
-    expect(placed.requests[0]!.door.z - local.requests[0]!.door.z).toBeCloseTo(at.z);
+    expect(placed.residents).toEqual(local.residents);
     expect(placed.streets[1]!.points[2]!.x - local.streets[1]!.points[2]!.x).toBeCloseTo(at.x);
     for (const b of placed.buildings) {
       expect(b.x - local.buildings[b.id]!.x).toBeCloseTo(at.x);

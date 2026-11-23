@@ -158,6 +158,12 @@ export class DistantTerrain {
     private readonly root: THREE.Group,
   ) {}
 
+  /** The nearest visual tiles cover the edge of the first detailed chunks. */
+  get startupReady(): boolean {
+    const near = (2 * TUNING.world.loadRadius + 1) ** 2;
+    return this.wanted.length > 0 && this.wanted.slice(0, near).every(({ key }) => this.built.has(key));
+  }
+
   update(p: THREE.Vector3Like, detailed: ReadonlyMap<string, unknown>): void {
     const size = TUNING.world.chunkSize;
     const cell = `${Math.floor(p.x / size)},${Math.floor(p.z / size)}`;

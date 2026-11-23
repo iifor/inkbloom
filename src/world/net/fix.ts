@@ -15,7 +15,6 @@ export interface CityFix {
   readonly stains?: Pairs;
   readonly defeated?: Pairs;
   readonly coloredOnce?: Pairs;
-  readonly requestsDone?: Pairs;
   readonly stockFrom?: Pairs;
   readonly completed?: boolean;
   readonly peaceful?: boolean;
@@ -32,7 +31,7 @@ export interface Fix {
   readonly cleansed?: [string, number | null][];
 }
 
-const ARRAYS = ['states', 'stains', 'defeated', 'coloredOnce', 'requestsDone'] as const;
+const ARRAYS = ['states', 'stains', 'defeated', 'coloredOnce'] as const;
 
 function diff(before: ArrayLike<number> | undefined, after: ArrayLike<number>): Pairs | undefined {
   const out: Pairs = [];
@@ -101,7 +100,6 @@ export function applyFix(state: WorldState, fix: Fix | null | undefined): Change
       c.defeated?.filter(([, v]) => v !== 1),
     );
     set(saved.coloredOnce, c.coloredOnce);
-    set(saved.requestsDone, c.requestsDone);
     set(saved.stockFrom, c.stockFrom);
     if (typeof c.completed === 'boolean') saved.completed = c.completed;
     if (typeof c.peaceful === 'boolean') saved.peaceful = c.peaceful;

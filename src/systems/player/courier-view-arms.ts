@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { Look } from '@/content/characters';
+import { defaultLook, type Look } from '@/content/characters';
 import { CourierActor } from '@/systems/figures/quaternius-courier';
 import { reach } from '@/systems/figures/arm-ik';
 import { modelBrush } from '@/systems/tools/viewmodels';
@@ -35,6 +35,7 @@ export class CourierViewArms {
   readonly root = new THREE.Group();
   readonly actor: CourierActor;
   private readonly brush: THREE.Mesh;
+  private brushAccent = defaultLook('courier').accent;
   private readonly target = new THREE.Vector3();
   private readonly contact = new THREE.Vector3();
   private readonly foreQ = new THREE.Quaternion();
@@ -46,21 +47,23 @@ export class CourierViewArms {
   private readonly twist = new THREE.Quaternion();
   private readonly pole = new THREE.Vector3();
   private grip = 0;
+  private readonly compact: boolean;
 
   constructor(source: THREE.Object3D, material: THREE.ShaderMaterial) {
     this.actor = new CourierActor(source, material);
+    this.compact = !!source.getObjectByName('KayKitPlayerRig');
     const { model, rig } = this.actor;
     // Retain the skeleton and the author's topology. Only the triangle index is cropped;
     // shared source geometry and the full third-person character remain untouched.
     this.actor.retainTriangles(
-      /^(upperarm|lowerarm|hand|index_\d+|middle_\d+|ring_\d+|pinky_\d+|thumb_\d+)_[lr]$/,
+      /^(upperarm|lowerarm|hand|palm|grip|index_\d+|middle_\d+|ring_\d+|pinky_\d+|thumb_\d+)_[lr]$/,
       (weight) => weight > 0.65,
     );
     rig.hips.position.set(0, 0, 0);
     rig.torso.position.set(0, 0, 0);
     rig.armL.position.set(-0.34, -0.36, 0);
     rig.armR.position.set(0.34, -0.36, 0);
-    this.brush = new THREE.Mesh(modelBrush(), material);
+    this.brush = new THREE.Mesh(modelBrush(this.brushAccent), material);
     this.brush.scale.setScalar(0.68);
     this.brush.frustumCulled = false;
     rig.props.brush.node.add(this.brush);
@@ -101,10 +104,11 @@ export class CourierViewArms {
     this.brush.visible = false;
     const r = this.actor.rig;
     const grips = WEAPON_GRIPS[key];
+    weapon.scale.setScalar(this.compact ? 0.68 : 1);
     // Match the character's one-handed sword/staff stance. Long firearms use a support hand.
     const count = key === 'rifle' || key === 'sniper' || key === 'launcher' ? 2 : 1;
-    r.armL.position.set(-0.26, -0.36, -0.04);
-    r.armR.position.set(0.26, -0.36, -0.04);
+    r.armL.position.set(this.compact ? -0.2 : -0.26, -0.36, -0.04);
+    r.armR.position.set(this.compact ? 0.2 : 0.26, -0.36, -0.04);
     for (let i = 0; i < count; i++) {
       const sign = i === 0 ? 1 : -1;
       const grip = grips[i]!;
@@ -207,6 +211,11 @@ export class CourierViewArms {
       }
     }
     this.brush.visible = brush && !open;
+    if (this.brush.visible && this.brushAccent !== look.accent) {
+      this.brush.geometry.dispose();
+      this.brushAccent = look.accent;
+      this.brush.geometry = modelBrush(this.brushAccent);
+    }
     this.actor.applyRig(look, open ? 0.04 : THREE.MathUtils.lerp(0.2, 1, this.grip), open ? 0.04 : 0.2);
   }
 

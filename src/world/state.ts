@@ -8,11 +8,11 @@ import { WEAPONS } from '@/content/weapons';
 import { ORIGINAL, surfaceFingerprint } from './paint/surfaces';
 import { startsPeaceful } from './city/origin';
 import { type Growth, createGrowth, validGrowth } from './progression';
-import { type CitySkeleton, monsterFingerprint, requestFingerprint, stainFingerprint } from './city/features';
+import { type CitySkeleton, monsterFingerprint, stainFingerprint } from './city/features';
 
 import { TERRAIN_VERSION, type TerrainVersion } from './wilderness/terrain-version';
 
-export const SAVE_VERSION = 6;
+export const SAVE_VERSION = 7;
 
 export type SceneRef = { readonly kind: 'wild' } | { readonly kind: 'city'; readonly id: string };
 
@@ -98,10 +98,6 @@ export interface CitySave {
   defeated: Uint8Array;
   /** 1 per block that has ever been coloured (pays its experience and milestones once). */
   coloredOnce: Uint8Array;
-  /** requestFingerprint of the request list `requestsDone` belongs to. */
-  requestFingerprint: number | null;
-  /** 1 per resident request done. */
-  requestsDone: Uint8Array;
   /** Per block: clock time its studio stock counts from once 繁荣, or -1. */
   stockFrom: number[];
   /** The city's ink tide timers. Written in place by the tide every frame it runs. */
@@ -210,14 +206,12 @@ export function cityStates(
   stains: Uint8Array;
   defeated: Uint8Array;
   coloredOnce: Uint8Array;
-  requestsDone: Uint8Array;
   tide: TideSave;
   reset: boolean;
 } {
   const fingerprint = surfaceFingerprint(skel.surfaces);
   const stainFp = stainFingerprint(skel.stains, skel.ox, skel.oz);
   const monsterFp = monsterFingerprint(skel.monsters, skel.ox, skel.oz);
-  const requestFp = requestFingerprint(skel.requests);
   let saved = state.cities.get(cityId);
   let reset = false;
   if (saved) {
@@ -246,8 +240,6 @@ export function cityStates(
       monsterFingerprint: monsterFp,
       defeated: new Uint8Array(skel.monsters.length).fill(peaceful ? 1 : 0),
       coloredOnce: new Uint8Array(skel.chunks * skel.chunks).fill(peaceful ? 1 : 0),
-      requestFingerprint: requestFp,
-      requestsDone: new Uint8Array(skel.requests.length),
       stockFrom: new Array<number>(skel.chunks * skel.chunks).fill(-1),
       tide: newTide(),
     };
@@ -261,10 +253,6 @@ export function cityStates(
     saved.monsterFingerprint = monsterFp;
     saved.defeated = new Uint8Array(skel.monsters.length).fill(saved.peaceful ? 1 : 0);
   }
-  if (saved.requestFingerprint !== requestFp) {
-    saved.requestFingerprint = requestFp;
-    saved.requestsDone = new Uint8Array(skel.requests.length);
-  }
   if (saved.stockFrom.length !== skel.chunks * skel.chunks)
     saved.stockFrom = new Array<number>(skel.chunks * skel.chunks).fill(-1);
   if (saved.coloredOnce.length !== skel.chunks * skel.chunks)
@@ -277,7 +265,6 @@ export function cityStates(
     stains: saved.stains,
     defeated: saved.defeated,
     coloredOnce: saved.coloredOnce,
-    requestsDone: saved.requestsDone,
     tide: saved.tide,
     reset,
   };
@@ -335,8 +322,6 @@ interface WorldJson {
         mf?: number;
         d?: string;
         co?: string;
-        rf?: number;
-        rd?: string;
         sk?: number[];
         /** Tide: n = nextIn, w = [chunk, from, startsIn, endsIn, front]. */
         td?: { n: number; w?: number[] };
@@ -393,9 +378,6 @@ export function serializeWorld(state: WorldState): string {
                   ? {}
                   : { mf: v.monsterFingerprint, d: toBase64(v.defeated) }),
                 co: toBase64(v.coloredOnce),
-                ...(v.requestFingerprint === null
-                  ? {}
-                  : { rf: v.requestFingerprint, rd: toBase64(v.requestsDone) }),
                 sk: v.stockFrom,
                 td: {
                   n: Math.round(v.tide.nextIn * 10) / 10,
@@ -447,6 +429,7 @@ export function deserializeWorld(text: string): WorldState {
     json.version !== 3 &&
     json.version !== 4 &&
     json.version !== 5 &&
+    json.version !== 6 &&
     json.version !== SAVE_VERSION
   )
     throw new SaveError(`不支持的存档版本 ${json.version}`);
@@ -492,8 +475,6 @@ export function deserializeWorld(text: string): WorldState {
                 monsterFingerprint: null,
                 defeated: new Uint8Array(),
                 coloredOnce: new Uint8Array(),
-                requestFingerprint: null,
-                requestsDone: new Uint8Array(),
                 stockFrom: [],
                 tide: newTide(),
               },
@@ -510,8 +491,6 @@ export function deserializeWorld(text: string): WorldState {
                 monsterFingerprint: Number.isInteger(v.mf) ? v.mf! : null,
                 defeated: v.d ? fromBase64(v.d) : new Uint8Array(),
                 coloredOnce: v.co ? fromBase64(v.co) : new Uint8Array(),
-                requestFingerprint: Number.isInteger(v.rf) ? v.rf! : null,
-                requestsDone: v.rd ? fromBase64(v.rd) : new Uint8Array(),
                 stockFrom: Array.isArray(v.sk) ? v.sk.map((t) => (Number.isFinite(t) ? t : -1)) : [],
                 tide: validTide(v.td),
               },

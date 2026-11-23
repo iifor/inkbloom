@@ -17,7 +17,8 @@ import { HandGait } from '@/systems/player/hand-gait';
 import { type Hands, handsOf, viewModel } from './viewmodels';
 import type { InHand, Tool, ToolHud } from './tool';
 import { CourierViewArms } from '@/systems/player/courier-view-arms';
-import { loadCourier } from '@/systems/figures/quaternius-courier';
+import { characterModel } from '@/content/characters';
+import { CharacterModelSelection } from '@/systems/figures/character-model-selection';
 
 /** How fast the viewmodel settles after a shot (per second, exponential). */
 const RECOIL_RETURN = 16;
@@ -108,6 +109,7 @@ export class WeaponSlot implements Tool {
   private hands: Hands = handsOf(defaultLook('courier'));
   private look = defaultLook('courier');
   private modelHands: CourierViewArms | null = null;
+  private readonly selection = new CharacterModelSelection();
   private disposed = false;
   /** Held weapons are painted like the people: brush strokes on every part. */
   private readonly viewMaterial = makeInkMaterial({ cloth: true });
@@ -138,16 +140,7 @@ export class WeaponSlot implements Tool {
     this.slashMesh.visible = false;
     this.slashMesh.frustumCulled = false;
     ctx.renderer.camera.add(this.slashMesh);
-    if (typeof window !== 'undefined')
-      void loadCourier()
-        .then((source) => {
-          if (this.disposed) return;
-          this.modelHands = new CourierViewArms(source, this.viewMaterial);
-          this.modelHands.root.visible = false;
-          ctx.renderer.camera.add(this.modelHands.root);
-          this.setLook(this.look);
-        })
-        .catch((error) => console.warn('持械角色手臂加载失败，暂用原有手部。', error));
+    this.setLook(this.look);
   }
 
   get name(): string {
@@ -181,7 +174,20 @@ export class WeaponSlot implements Tool {
   /** The player's character changed: their own hands and sleeves on every weapon. */
   setLook(look: Look): void {
     this.look = { ...look };
+    this.selection.select(look.character, (source) => {
+      this.modelHands?.dispose();
+      this.modelHands = source ? new CourierViewArms(source, this.viewMaterial) : null;
+      if (this.modelHands) {
+        this.modelHands.root.visible = false;
+        this.ctx.renderer.camera.add(this.modelHands.root);
+      }
+      this.rebuildHands();
+    });
     this.hands = handsOf(look);
+    this.rebuildHands();
+  }
+
+  private rebuildHands(): void {
     for (const h of this.held.values()) {
       h.view.geometry.dispose();
       h.view.geometry = viewModel(h.def, this.useModelHands ? null : this.hands);
@@ -190,7 +196,7 @@ export class WeaponSlot implements Tool {
   }
 
   private get useModelHands(): boolean {
-    return this.look.character === 'courier' && this.modelHands !== null;
+    return !!characterModel(this.look.character) && this.modelHands !== null;
   }
 
   onEquip(): void {
@@ -651,6 +657,7 @@ export class WeaponSlot implements Tool {
   }
 
   dispose(): void {
+    this.selection.dispose();
     this.disposed = true;
     this.modelHands?.dispose();
     for (const h of this.held.values()) {

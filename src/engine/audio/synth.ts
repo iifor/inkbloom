@@ -238,9 +238,9 @@ export class Synth {
   }
 
   /** Fetch and decode the takes of a recorded sound. Takes that fail are skipped quietly: the
-   * caller's synthesised fallback plays instead. Needs `init()` first. */
-  async load(name: string, urls: readonly string[]): Promise<void> {
-    const ctx = this.ctx;
+   * caller's synthesised fallback plays instead. An offline decoder can prepare sounds
+   * before the player unlocks live audio. */
+  async load(name: string, urls: readonly string[], ctx: BaseAudioContext | null = this.ctx): Promise<void> {
     if (!ctx) return;
     const takes = await Promise.all(
       urls.map(async (url) => {

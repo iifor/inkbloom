@@ -82,8 +82,9 @@ export class InkRenderer {
   private readonly shadows = new SunShadows();
   private readonly canopyBrush = makeCanopyBrush();
   private readonly noise = makeNoise();
-  /** Hand-painted surface tiles and clouds for the paint pass; they load in the background. */
+  /** Hand-painted surface tiles and clouds for the paint pass. */
   private readonly painted: PaintedTextures;
+  readonly texturesReady: Promise<void>;
   /** Surface velocities around the player for the water shader. */
   private readonly rivers = new RiverTable();
   /** The player's field of view; tools zoom relative to it and return to it. */
@@ -209,7 +210,7 @@ export class InkRenderer {
       this.canopyBrush,
     );
     shared.uPlants.value = this.painted.plants;
-    void this.painted.load();
+    this.texturesReady = this.painted.load();
     this.paintRt = new THREE.WebGLRenderTarget(2, 2, {
       minFilter: THREE.LinearFilter,
       magFilter: THREE.LinearFilter,

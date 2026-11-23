@@ -5,11 +5,15 @@
 // player is never moved.
 import * as THREE from 'three';
 import type { PhysicsWorld } from '@/engine/physics/world';
-import type { GameContext, GameScene, SceneApi, System } from '@/game/types';
+import type { GameContext, GameScene, InteractionAction, SceneApi, System } from '@/game/types';
 import type { PlayerSave } from '@/world/state';
 import { type Entrance, townDistance } from '@/world/wilderness/generator';
 import { type CityLayout, groundAt } from '@/world/city/layout';
 import { nextDestination } from '@/world/travel';
+import { travelAltar } from '@/world/city/travel-altar';
+import { TravelVeil } from './travel-veil';
+import { friendLanding } from '@/world/friend-landing';
+import { TUNING } from '@/content/tuning';
 import type { CityScene } from '../city/city-scene';
 import type { WildScene } from '../wilderness/wild-scene';
 
@@ -44,6 +48,14 @@ export class SceneManager implements SceneApi, System {
   private readonly towns = new Map<string, CityScene>();
   /** The town the player is in. */
   private city: CityScene | null = null;
+  private readonly veil = new TravelVeil();
+  private transfer: {
+    id: string;
+    near?: () => { pos: THREE.Vector3; name: string } | null;
+    time: number;
+    placed: boolean;
+  } | null = null;
+  private readonly stopTravel: () => void;
 
   constructor(
     private readonly ctx: GameContext,
@@ -51,6 +63,10 @@ export class SceneManager implements SceneApi, System {
     private readonly makeCity: CityFactory,
   ) {
     this.active = wild;
+    this.stopTravel = ctx.events.on('player:hurt', () => {
+      if (!this.transfer?.placed) this.transfer = null;
+      this.veil.show(0);
+    });
     ctx.renderer.scene.add(wild.root);
   }
 
@@ -169,7 +185,7 @@ export class SceneManager implements SceneApi, System {
     };
   }
 
-  /** Where a travel id (restored town or ink mark) puts the player, and what it is called. */
+  /** Arrival at an unlocked altar or an ink mark, and its name. */
   private destination(id: string): { pos: THREE.Vector3; yaw: number; name: string } | null {
     const mark = this.ctx.state.marks.find((m) => m.id === id);
     if (mark)
@@ -178,37 +194,141 @@ export class SceneManager implements SceneApi, System {
         yaw: this.ctx.player.yaw,
         name: `墨迹标记 ${id.slice(1)}`,
       };
-    const target = this.mainStreet(id);
+    const state = this.ctx.state.cities.get(id);
+    if (!state || (!state.completed && !state.peaceful)) return null;
     const e = this.ctx.cities.entranceOf(id);
-    return e && target ? { ...target, name: this.ctx.cities.layout(e).name } : null;
+    if (!e) return null;
+    const layout = this.ctx.cities.layout(e);
+    const altar = travelAltar(layout);
+    return altar
+      ? { pos: new THREE.Vector3(altar.x, altar.y + 0.26, altar.z), yaw: altar.yaw, name: layout.name }
+      : null;
   }
 
-  /** Restored or peaceful towns and ink marks, the stops on the travel ring. */
+  /** Discovered, usable altars and ink marks, the stops on the travel ring. */
   private ring(): string[] {
-    const cities = [...this.ctx.state.cities].filter(([, c]) => c.completed || c.peaceful).map(([id]) => id);
+    const cities = [...this.ctx.state.cities]
+      .filter(([, c]) => c.completed || c.peaceful)
+      .map(([id]) => id)
+      .filter((id) => this.destination(id) !== null);
     return [...cities, ...this.ctx.state.marks.map((m) => m.id)];
   }
 
   travelTo(id: string): void {
-    const target = this.destination(id);
-    if (!target) return;
-    this.place(target);
-    this.ctx.events.emit('title', { text: target.name });
+    if (this.transfer || !this.ctx.combat.alive || this.ctx.arena?.inside || !this.destination(id)) return;
+    this.transfer = { id, time: 0, placed: false };
   }
 
-  travelAction(fromCity: string, key: 'E' | 'F' = 'F'): { label(): string | null; activate(): void } {
-    const dest = (): string | null => nextDestination(this.ring(), fromCity);
+  travelNear(target: () => { pos: THREE.Vector3; name: string } | null): boolean {
+    if (this.transfer || !this.ctx.combat.alive || this.ctx.arena?.inside || !target()) return false;
+    this.transfer = { id: '', near: target, time: 0, placed: false };
+    return true;
+  }
+
+  private friendDestination(resolve: () => { pos: THREE.Vector3; name: string } | null) {
+    const target = this.ctx.arena?.inside ? null : resolve();
+    if (!target) return null;
+    const prepared = new Set<string>();
+    const prepare = (x: number, z: number): void => {
+      const size = TUNING.world.chunkSize;
+      const key = `${Math.floor(x / size)},${Math.floor(z / size)}`;
+      if (prepared.has(key)) return;
+      prepared.add(key);
+      this.wild.ensureAt(x, z);
+      const town = this.ctx.wilderness.townAt(x, z, SHOW_NOW);
+      if (town) this.show(town).finish();
+    };
+    const pos = friendLanding(
+      target.pos,
+      this.wild.physics,
+      (x, z) => this.ctx.wilderness.heightAt(x, z),
+      prepare,
+    );
+    return pos ? { pos, yaw: this.ctx.player.yaw, name: `${target.name}身边` } : null;
+  }
+
+  travelAction(fromCity: string, key: 'E' | 'F' = 'F'): InteractionAction {
+    let progress = 0;
+    let locked: string | null = null;
+    let signature = '',
+      chosen: string | null = null;
+    const dest = (): string | null => {
+      const next =
+        [...this.ctx.state.cities].map(([id, c]) => `${id}:${Number(c.completed || c.peaceful)}`).join('|') +
+        '/' +
+        this.ctx.state.marks.map((m) => m.id).join('|');
+      if (signature !== next) {
+        signature = next;
+        chosen = nextDestination(this.ring(), fromCity);
+      }
+      return locked ?? chosen;
+    };
     return {
+      holdSeconds: 2,
+      canHold: () => {
+        const p = this.ctx.player;
+        return (
+          !this.transfer &&
+          this.ctx.combat.alive &&
+          !p.flying &&
+          !p.gliding &&
+          !p.resting &&
+          !p.gettingUp &&
+          p.grounded &&
+          p.waterMode !== 'swimming' &&
+          this.destination(fromCity) !== null &&
+          dest() !== null
+        );
+      },
       label: () => {
         const id = dest();
         const d = id ? this.destination(id) : null;
-        return d ? `${key} 传送到${d.name}` : null;
+        return d
+          ? `长按 ${key} 传送到${d.name}${progress > 0 ? ` · ${Math.floor(progress * 100)}%` : ''}`
+          : null;
+      },
+      onHold: (value) => {
+        if (value > 0 && !locked) locked = dest();
+        progress = value;
+        this.ctx.events.emit('travel:charge', { from: fromCity, progress });
+        if (!this.transfer) this.veil.show(value * value * 0.32);
+        if (value === 0) locked = null;
       },
       activate: () => {
         const id = dest();
         if (id) this.travelTo(id);
       },
     };
+  }
+
+  private updateTravel(dt: number): void {
+    const t = this.transfer;
+    if (!t) return;
+    if (!this.ctx.combat.alive || this.ctx.arena?.inside) {
+      this.transfer = null;
+      this.veil.show(0);
+      return;
+    }
+    t.time += Math.max(0, Math.min(dt, 0.1));
+    this.veil.show(t.placed ? 1 - (t.time - 0.5) / 0.65 : Math.min(1, t.time / 0.35));
+    if (!t.placed && t.time >= 0.5) {
+      const target = t.near ? this.friendDestination(t.near) : this.destination(t.id);
+      if (!target) {
+        this.transfer = null;
+        this.veil.show(0);
+        if (t.near) this.ctx.events.emit('toast', { text: '无法传送：伙伴状态已变化，或附近没有安全落脚点' });
+        return;
+      }
+      if (t.near) this.ctx.player.flying = false;
+      this.place(target);
+      t.placed = true;
+      t.time = 0.5;
+      this.ctx.events.emit('title', { text: target.name });
+    }
+    if (t.time >= 1.15) {
+      this.transfer = null;
+      this.veil.show(0);
+    }
   }
 
   /** Put the player back where a save says they were. */
@@ -254,6 +374,7 @@ export class SceneManager implements SceneApi, System {
   }
 
   update(dt: number): void {
+    this.updateTravel(dt);
     this.wild.update(dt);
     this.stream();
     this.follow();
@@ -271,6 +392,9 @@ export class SceneManager implements SceneApi, System {
   }
 
   dispose(): void {
+    this.stopTravel();
+    this.veil.dispose();
+    this.transfer = null;
     this.city = null;
     for (const town of [...this.towns.values()]) this.hide(town);
     this.wild.dispose();

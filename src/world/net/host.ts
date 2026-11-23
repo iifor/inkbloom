@@ -10,6 +10,7 @@
 // validate.ts first): it may only act near where it stands, only a town's keeper may drain it or
 // claim its tide, and a patch that fails leaves nothing behind.
 import type { Look } from '@/content/characters';
+import { ARENA } from '@/content/arena';
 import { TUNING } from '@/content/tuning';
 import { applyPatch, type Patch, type PatchResult } from '../patch';
 import { DRAINED } from '../paint/surfaces';
@@ -25,7 +26,18 @@ import {
 import { createWilderness, type Wilderness } from '../wilderness/generator';
 import { ArenaHost, type Outgoing } from './arena-host';
 import { entranceById, layoutCache, worldPatchContext } from './patch-context';
-import { DEFAULT_MAX_PLAYERS, type Motion, type PlayerInfo, SHARED_KINDS, VIEW_RANGE } from './protocol';
+import {
+  DEFAULT_MAX_PLAYERS,
+  DOWNED,
+  FLYING,
+  GLIDING,
+  type FriendLocation,
+  type ServerMessage,
+  type Motion,
+  type PlayerInfo,
+  SHARED_KINDS,
+  VIEW_RANGE,
+} from './protocol';
 import { type PlayerSlice, deserializeSlice, newSlice, serializeSlice, withSlice } from './slices';
 import { type Fix, cityFix } from './fix';
 import { placeOf } from './validate';
@@ -55,6 +67,8 @@ interface Member {
   look: Look;
   readonly slice: PlayerSlice;
   motion: Motion | null;
+  motionAt: number;
+  visitAt: number;
   town: string | null;
   /** When they came into `town` (host clock), for picking keepers. */
   townSince: number;
@@ -166,6 +180,8 @@ export class WorldHost {
       look,
       slice: saved.slice,
       motion: null,
+      motionAt: -Infinity,
+      visitAt: -Infinity,
       town: null,
       townSince: 0,
       drains: DRAIN_BURST,
@@ -203,15 +219,31 @@ export class WorldHost {
   move(id: number, motion: Motion, scene: SceneRef, town: string | null): void {
     const m = this.members.get(id);
     if (!m) return;
+    const inArena = this.arena.has(id);
+    if (inArena) {
+      const { x, z, radius } = this.arena.site;
+      const [px, py, pz] = motion.p;
+      if (
+        scene.kind !== 'wild' ||
+        (motion.f & (FLYING | GLIDING)) !== 0 ||
+        Math.hypot(px - x, pz - z) > radius ||
+        py > this.wilderness.heightAt(px, pz) + ARENA.wall.height + 5
+      )
+        return;
+    }
     m.motion = motion;
+    m.motionAt = this.uptime;
     // a town a player claims to be in has to be where they stand (it makes them its keeper)
-    const inTown = town !== null && this.near(motion, { kind: 'complete', city: town }) ? town : null;
+    const inTown = !inArena && town !== null && this.near(motion, { kind: 'complete', city: town }) ? town : null;
     if (inTown !== m.town) {
       m.town = inTown;
       m.townSince = this.uptime;
     }
+    if (inArena) {
+      this.arena.track(id, motion.p);
+      return;
+    }
     m.slice.player = { scene, x: motion.p[0], y: motion.p[1], z: motion.p[2], yaw: motion.yaw };
-    this.arena.track(id, motion.p);
     // where everyone stands is worth keeping too (saves still come at most every few seconds)
     this.dirty = true;
   }
@@ -375,6 +407,45 @@ export class WorldHost {
   }
 
   /** The other players near this one, with their latest motion. */
+  locations(id: number): FriendLocation[] {
+    const arena = this.arena.members();
+    const hidden = arena.includes(id);
+    return [...this.members.values()]
+      .filter((m) => m.id !== id)
+      .map((m) => {
+        const playing = arena.includes(m.id);
+        const fresh = m.motion && this.uptime - m.motionAt <= 5;
+        return {
+          id: m.id,
+          arena: playing,
+          alive: !!fresh && !(m.motion!.f & DOWNED),
+          p: fresh && !hidden && !playing ? m.motion!.p : null,
+          scene: fresh && !hidden && !playing ? (m.slice.player?.scene ?? null) : null,
+        };
+      });
+  }
+
+  visit(id: number, target: number, request: number): Extract<ServerMessage, { t: 'visit' }> {
+    const fail = (reason: string): Extract<ServerMessage, { t: 'visit' }> => ({
+      t: 'visit',
+      request,
+      target: null,
+      reason,
+    });
+    const me = this.members.get(id);
+    if (!me || id === target) return fail('请选择另一位伙伴');
+    if (this.arena.members().includes(id)) return fail('竞技场内不能传送');
+    const friend = this.locations(id).find((p) => p.id === target);
+    if (!friend) return fail('伙伴已离线');
+    if (friend.arena) return fail('伙伴正在竞技场中');
+    if (!me.motion || this.uptime - me.motionAt > 5 || !friend.p) return fail('等待玩家位置更新');
+    if (me.motion.f & DOWNED || !friend.alive) return fail('倒下时不能传送，请等待恢复');
+    const remaining = 8 - (this.uptime - me.visitAt);
+    if (remaining > 0) return fail(`请等 ${Math.ceil(remaining)} 秒再传送`);
+    me.visitAt = this.uptime;
+    return { t: 'visit', request, target: friend, reason: '' };
+  }
+
   nearby(id: number): (Motion & { id: number })[] {
     const me = this.members.get(id)?.motion;
     if (!me) return [];

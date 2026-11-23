@@ -1,0 +1,79 @@
+[
+  {
+    "character": "Adventurer",
+    "file": "modular-adventurer.glb",
+    "sourceUrl": "https://raw.githubusercontent.com/trebeljahr/quaternius-showcase/main/public/glb/modular_men/Adventurer.glb",
+    "sourceSha256": "2cb27a7729954cd463b9e9dd8b3b7e64919f3a41f0613a2075ad910bb14ce324",
+    "outputSha256": "9abb8bc740454953922839aa97f74df09dde86ee5addecea25632f791273bee0"
+  },
+  {
+    "character": "Beach",
+    "file": "modular-beach.glb",
+    "sourceUrl": "https://raw.githubusercontent.com/trebeljahr/quaternius-showcase/main/public/glb/modular_men/Beach.glb",
+    "sourceSha256": "3a5c04f6f504aa0f31428ad971e77fe282e9ecb98aee22d5f1afa92a0bb99632",
+    "outputSha256": "b74c07734215122fd15e4415245ce0f184aa99b8e1032e3311fbea47f250e39f"
+  },
+  {
+    "character": "Casual",
+    "file": "modular-casual.glb",
+    "sourceUrl": "https://raw.githubusercontent.com/trebeljahr/quaternius-showcase/main/public/glb/modular_men/Casual.glb",
+    "sourceSha256": "dc2d86e50075e372df870bb60cee46c56033cc2ecb28722523caab93ab1d0111",
+    "outputSha256": "957be4fdf24d4d9a503c637c1a8d11a8b2d8145d96901b0f4f8bc461fe0881f6"
+  },
+  {
+    "character": "Casual2",
+    "file": "modular-casual2.glb",
+    "sourceUrl": "https://raw.githubusercontent.com/trebeljahr/quaternius-showcase/main/public/glb/modular_men/Casual2.glb",
+    "sourceSha256": "19c23a1878366238926ddb81de036a7a628c7f6840a3082f4ba5b6488d5586d4",
+    "outputSha256": "fe81b9b234b69707143fe49efb11f48255e466b72cafac730679bd97357f43e9"
+  },
+  {
+    "character": "Farmer",
+    "file": "modular-farmer.glb",
+    "sourceUrl": "https://raw.githubusercontent.com/trebeljahr/quaternius-showcase/main/public/glb/modular_men/Farmer.glb",
+    "sourceSha256": "4c7606e3372eb974525ae237f2038376ae72abb9a59e24a5623ba675c6855f18",
+    "outputSha256": "893afec7205814ad1c4a9aed775b394608013479fc8c7ac20737fcdd808f8c59"
+  },
+  {
+    "character": "King",
+    "file": "modular-king.glb",
+    "sourceUrl": "https://raw.githubusercontent.com/trebeljahr/quaternius-showcase/main/public/glb/modular_men/King.glb",
+    "sourceSha256": "2514ebd1927e536a28d2800ef087e12a1e39edde8195c7873cebfd399477c724",
+    "outputSha256": "f72531415c448c9acd6a54cc8ba431f47b80efbd22f5a16bb9a91abec78632ab"
+  },
+  {
+    "character": "Punk",
+    "file": "modular-punk.glb",
+    "sourceUrl": "https://raw.githubusercontent.com/trebeljahr/quaternius-showcase/main/public/glb/modular_men/Punk.glb",
+    "sourceSha256": "cb517f839278c2f2fcaf94eed45bf6e2dce69c7433091527ab6efc834ebe6a5a",
+    "outputSha256": "c080b0b39da402db804d08b2549befa24dab043f45be33c6e12f3466e3f25b02"
+  },
+  {
+    "character": "Spacesuit",
+    "file": "modular-spacesuit.glb",
+    "sourceUrl": "https://raw.githubusercontent.com/trebeljahr/quaternius-showcase/main/public/glb/modular_men/Spacesuit.glb",
+    "sourceSha256": "19ac9624528d40fd9efdd74fb235bd12d6cecf65bb6d8233ff60fe060a86add9",
+    "outputSha256": "b79611a56adf9ee2cf9a5079879f5d6b55c23731288cab12a62d28fb7ef779b7"
+  },
+  {
+    "character": "Suit",
+    "file": "modular-suit.glb",
+    "sourceUrl": "https://raw.githubusercontent.com/trebeljahr/quaternius-showcase/main/public/glb/modular_men/Suit.glb",
+    "sourceSha256": "a9896c1468fadbd24a89a2f86eecd8d47ae5ec6b3ef267b2194dc3b8bb9fb3d0",
+    "outputSha256": "be310fc250837da15890f9bfac35bf17a5123587d760f513f2660572b247baa6"
+  },
+  {
+    "character": "Swat",
+    "file": "modular-swat.glb",
+    "sourceUrl": "https://raw.githubusercontent.com/trebeljahr/quaternius-showcase/main/public/glb/modular_men/Swat.glb",
+    "sourceSha256": "1bfe621cb75ab23d9ef6b2bc363479cc4e907aa035cfc4f3034e6137482b32b2",
+    "outputSha256": "90753f43905f13fb579e738e8b011aae2a29ee09352ab80f0f5ebcac1063c30b"
+  },
+  {
+    "character": "Worker",
+    "file": "modular-worker.glb",
+    "sourceUrl": "https://raw.githubusercontent.com/trebeljahr/quaternius-showcase/main/public/glb/modular_men/Worker.glb",
+    "sourceSha256": "1c07d49d6ef060fb3d69897d91334093d389f0e729a874d7647fdb6b59f92127",
+    "outputSha256": "a99b95939f326db6d0e6f834ad30e1f3e8e3f94fd2b63631c1a376b779af542f"
+  }
+]

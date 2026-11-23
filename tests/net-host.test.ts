@@ -1,10 +1,10 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { defaultLook } from '@/content/characters';
 import { MAX_SAVED_PLAYERS, NEAR, TIDE_GAP, WorldHost } from '@/world/net/host';
 import { AIMING, GROUNDED, PAINTING, PROTOCOL, parseClientMessage, type Motion } from '@/world/net/protocol';
 import { deserializeSlice } from '@/world/net/slices';
 import { validPatch } from '@/world/net/validate';
-import type { Patch } from '@/world/patch';
+import * as release from '@/world/paint/release';
 import { cityStates, createWorldState, savedProgress } from '@/world/state';
 import { chunkSaturation } from '@/world/wilderness/wild-monsters';
 import { startsPeaceful } from '@/world/city/origin';
@@ -165,11 +165,18 @@ describe('world host: patches', () => {
     const h = host();
     const a = keeper(h, 1, town);
     const before = h.sliceOf(a);
-    // an Array method's name where an index belongs: applyPatch was not written for this;
-    // the network never lets it through (validPatch), but the host must survive it anyway
-    const r = h.patch(a, { kind: 'request', city: town.cityId, request: 'push' } as unknown as Patch);
-    expect(r.ok).toBe(false);
-    expect(h.sliceOf(a)).toBe(before);
+    const bloom = vi.spyOn(release, 'releaseAround').mockImplementationOnce(() => {
+      throw new Error('failed after updating defeat flags and XP');
+    });
+    try {
+      const result = h.patch(a, { kind: 'defeat', city: town.cityId, monster: 0 });
+      expect(bloom).toHaveBeenCalledOnce();
+      expect(result.ok).toBe(false);
+      expect(h.sliceOf(a)).toBe(before);
+      expect(h.state.cities.has(town.cityId)).toBe(false);
+    } finally {
+      bloom.mockRestore();
+    }
   });
 
   it('answers with the values it ended on: what changed when accepted, all of it when not', () => {
@@ -405,7 +412,7 @@ describe('protocol', () => {
     // indices must be whole numbers in range
     expect(validPatch({ kind: 'restore', city: 'c1_2', surface: 'push' })).toBeNull();
     expect(validPatch({ kind: 'restore', city: 'c1_2', surface: 1.5 })).toBeNull();
-    expect(validPatch({ kind: 'request', city: 'c1_2', request: 'concat' })).toBeNull();
+    expect(validPatch({ kind: 'request', city: 'c1_2', request: 0 })).toBeNull();
     // ids must look like ids
     expect(validPatch({ kind: 'drain', city: 'x'.repeat(5000), surface: 0 })).toBeNull();
     expect(validPatch({ kind: 'harvest', source: { a: 1 } })).toBeNull();

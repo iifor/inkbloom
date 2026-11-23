@@ -4,24 +4,45 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>重彩 Inkbloom</title>
+    <link rel="stylesheet" href="./src/shell/style.css" />
     <!-- brush calligraphy for titles, a handwritten serif for labels; system fonts if offline -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
       rel="stylesheet"
       href="https://fonts.googleapis.com/css2?family=Ma+Shan+Zheng&family=ZCOOL+XiaoWei&display=swap"
+      media="print"
+      onload="this.media = 'all'"
     />
-    <link rel="stylesheet" href="./src/shell/style.css" />
   </head>
   <body>
     <div id="app">
-      <canvas id="view" tabindex="0"></canvas>
+      <canvas id="view" tabindex="0" inert></canvas>
       <div id="hud"></div>
-      <div id="overlay">
+      <div id="overlay" hidden>
         <div class="menu-body"></div>
         <p id="overlay-error"></p>
       </div>
+      <section id="startup" aria-labelledby="startup-title">
+        <div class="startup-paint" aria-hidden="true"></div>
+        <h1 id="startup-title">重彩</h1>
+        <div class="startup-meter">
+          <progress id="startup-progress" aria-label="加载进度" max="100" value="0"></progress>
+          <span id="startup-percent" aria-hidden="true">0%</span>
+        </div>
+        <p id="startup-status" role="status">正在启动…</p>
+        <button id="startup-reload" type="button" hidden>重新加载</button>
+      </section>
     </div>
-    <script type="module" src="./src/main.ts"></script>
+    <script type="module">
+      import('./src/main.ts').catch((error) => {
+        console.error(error);
+        document.querySelector('.startup-meter').hidden = true;
+        document.querySelector('#startup-status').textContent = '游戏启动失败';
+        const retry = document.querySelector('#startup-reload');
+        retry.hidden = false;
+        retry.onclick = () => location.reload();
+      });
+    </script>
   </body>
 </html>

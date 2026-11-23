@@ -214,9 +214,6 @@ export class AudioSystem implements System {
             s.noise({ dur: 1.2, gain: 0.16, type: 'bandpass', freq: 500, freqEnd: 2600 });
             this.arpeggio([0, 4, 7, 9, 12], 72, 0.14, 0.12);
             break;
-          case 'request':
-            this.arpeggio([2, 4, 7], 72, 0.12, 0.14);
-            break;
           case 'upgrade':
           case 'assign':
             this.arpeggio([0, 4], 79, 0.1);
@@ -276,7 +273,28 @@ export class AudioSystem implements System {
     });
   }
 
-  /** Start audio from a user gesture (browser rule), and load the recordings. */
+  /** Decode the short effects without starting live audio. Music and ambience stream later. */
+  async preloadEffects(): Promise<void> {
+    const Decoder = window.OfflineAudioContext;
+    if (!Decoder) return;
+    await this.loadEffects(new Decoder(1, 1, 44100));
+  }
+
+  private effectsLoading: Promise<void> | null = null;
+
+  private loadEffects(decoder: BaseAudioContext): Promise<void> {
+    return (this.effectsLoading ??= Promise.all(
+      Object.entries(SOUNDS).map(([key, urls]) =>
+        this.synth.load(
+          key,
+          urls.map((url) => import.meta.env.BASE_URL + url),
+          decoder,
+        ),
+      ),
+    ).then(() => undefined));
+  }
+
+  /** Start audio from a user gesture (browser rule). */
   start(): void {
     const first = !this.synth.ctx;
     this.synth.init();
@@ -288,12 +306,7 @@ export class AudioSystem implements System {
         gain: 0.6,
         bus: 'ambience',
       });
-    if (first)
-      for (const [key, urls] of Object.entries(SOUNDS))
-        void this.synth.load(
-          key,
-          urls.map((u) => import.meta.env.BASE_URL + u),
-        );
+    if (first && this.synth.ctx) void this.loadEffects(this.synth.ctx);
   }
 
   /** A recording if it is loaded, else its synthesised stand-in. */

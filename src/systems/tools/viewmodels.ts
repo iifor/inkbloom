@@ -9,6 +9,7 @@ import { characterDef, type Look, SKIN_TONES } from '@/content/characters';
 import { color } from '@/content/palette';
 import type { WeaponDef } from '@/content/weapons';
 import { ALWAYS_COLOR, GeometryBuilder } from '@/engine/render/geometry-builder';
+import { appendBrush } from '@/systems/figures/brush-model';
 
 /** The colours of the hands holding it: skin and the character's coat. */
 export interface Hands {
@@ -218,24 +219,18 @@ const RIGHT_ELBOW: V = [0.12, -0.46, 0.42];
 const LEFT_ELBOW: V = [-0.42, -0.44, 0.12];
 
 /** A relaxed walking hand and sleeve, merged once; the brush shares the right-hand mesh. */
-export function walkingHand(h: Hands, side: 1 | -1, brush = false): THREE.BufferGeometry {
+export function walkingHand(h: Hands, side: 1 | -1, brushAccent?: number): THREE.BufferGeometry {
   const p = new Parts();
-  if (brush && side === 1) heldBrush(p, h);
+  if (brushAccent !== undefined && side === 1) heldBrush(p, h, brushAccent);
   else relaxedHand(p, h, side);
   return p.g.build();
 }
 
 /** A separate brush for the rigged first-person hand; the grip is at the origin. */
-export function modelBrush(): THREE.BufferGeometry {
-  const p = new Parts();
-  p.rod([0, 0, 0.17], [0, 0, -0.3], 0.017, color('brown'), 0.014);
-  p.box([0, 0, -0.3], [0.045, 0.025, 0.055], color('stone'), 0.004);
-  p.box([0, 0, -0.366], [0.048, 0.026, 0.085], color('cream'), 0.006);
-  for (let i = 0; i < 5; i++) {
-    const x = -0.018 + i * 0.009;
-    p.rod([x, 0.014, -0.335], [x, 0.014, -0.407], 0.001, color('sand'), 0.0005);
-  }
-  return p.g.build();
+export function modelBrush(accent: number): THREE.BufferGeometry {
+  const geometry = new GeometryBuilder();
+  appendBrush(geometry, accent, new THREE.Matrix4());
+  return geometry.build();
 }
 
 /** Fingers spread as the player reaches out to balance or catch a fall. */
@@ -353,17 +348,17 @@ function relaxedHand(p: Parts, h: Hands, side: 1 | -1): void {
 }
 
 /** Four fingers curl around the shaft; the thumb closes diagonally from the palm. */
-function heldBrush(p: Parts, h: Hands): void {
+function heldBrush(p: Parts, h: Hands, accent: number): void {
   walkingForearm(p, h, 1, true);
-  p.curve(
-    [
-      [0.006, -0.11, 0.006],
-      [-0.007, -0.05, -0.002],
-      [-0.025, 0.04, -0.016],
-      [-0.047, 0.15, -0.031],
-    ],
-    [0.0085, 0.009, 0.008, 0.0065],
-    color('brown'),
+  const direction = new THREE.Vector3(-0.2, 1, -0.15).normalize();
+  appendBrush(
+    p.g,
+    accent,
+    new THREE.Matrix4().compose(
+      new THREE.Vector3(-0.017, 0, -0.01),
+      new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, -1), direction),
+      new THREE.Vector3(0.55, 0.55, 0.43),
+    ),
   );
   for (let i = 0; i < 4; i++) {
     const y = 0.026 - i * 0.021;
@@ -390,13 +385,6 @@ function heldBrush(p: Parts, h: Hands): void {
   const thumbRadii = [0.016, 0.014, 0.012, 0.01, 0.0085];
   p.curve(thumb, thumbRadii, h.skin);
   p.nail(thumb, thumbRadii, h.skin);
-  const tilt: V = [-0.18, 0, 0.2];
-  p.box([-0.047, 0.148, -0.031], [0.027, 0.028, 0.016], color('stone'), 0.004, tilt);
-  p.box([-0.054, 0.179, -0.037], [0.031, 0.038, 0.013], color('cream'), 0.006, tilt);
-  for (let i = 0; i < 5; i++) {
-    const x = -0.066 + i * 0.006;
-    p.rod([x, 0.166, -0.028], [x - 0.006, 0.196 + (i % 2) * 0.002, -0.034], 0.001, color('sand'), 0.0005);
-  }
 }
 
 /** Points on each weapon, in weapon space: where the main hand grips it, where the other hand

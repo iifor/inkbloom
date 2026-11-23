@@ -5,6 +5,7 @@ import { WEAPONS, type WeaponKey } from '@/content/weapons';
 import { heldModel } from '@/systems/tools/viewmodels';
 import type { HeldItem } from '@/world/net/protocol';
 import { type Part, RigBuilder } from './figure';
+import { buildBrush } from './brush-model';
 
 /** Something held: a few soft parts on a joint whose origin is where the main hand grips it.
  * It points along -z (barrel, blade, bristles, the staff's orb). */
@@ -54,21 +55,6 @@ function weapon(torso: THREE.Object3D, key: WeaponKey): Prop {
   return { node, parts: [], off: m.off?.clone() ?? null, tip: m.tip.clone() };
 }
 
-/** A limb lying along -z from z (at height y): a barrel, a blade, a shaft. */
-function bar(
-  b: RigBuilder,
-  parent: THREE.Object3D,
-  z: number,
-  y: number,
-  len: number,
-  r: number,
-  paint: string,
-  ry = r,
-): void {
-  const l = b.limb(parent, 0, y, z, len, r, paint, ry);
-  l.joint.rotation.x = Math.PI / 2;
-}
-
 /** The things a player can hold, each on its own joint on the torso. Paint slots: `main` and
  * `trim` are the weapon's own colours (content/weapons.ts `look`), `bristle` the player's
  * accent; `wood` and `metal` are fixed. */
@@ -90,11 +76,7 @@ export function buildProps(torso: THREE.Object3D): Record<HeldItem, Prop> {
   };
   return {
     // a painter's brush, bigger than life so it reads from across a street
-    brush: prop(null, [0, 0, -0.5], (b, n) => {
-      bar(b, n, 0.1, 0, 0.42, 0.016, 'wood');
-      b.blob(n, 0, 0, -0.33, 0.024, 0.024, 0.03, 'metal');
-      b.blob(n, 0, 0, -0.42, 0.036, 0.034, 0.085, 'bristle');
-    }),
+    brush: prop(null, [0, 0, -0.5], buildBrush),
     // the weapons are the first-person models themselves (systems/tools/viewmodels.ts, without
     // the hands), drawn by player-figure.ts at the prop's joint; here only where the hands go
     rifle: weapon(torso, 'rifle'),

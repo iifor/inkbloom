@@ -6,7 +6,8 @@ import { makeInkMaterial } from '@/engine/render/ink-material';
 import { disposeTree } from '@/engine/resources';
 import { type Hands, handsOf } from '@/systems/tools/viewmodels';
 import { CourierViewArms } from './courier-view-arms';
-import { loadCourier } from '@/systems/figures/quaternius-courier';
+import { characterModel } from '@/content/characters';
+import { CharacterModelSelection } from '@/systems/figures/character-model-selection';
 
 const v = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
 const upperLength = 0.305,
@@ -240,27 +241,28 @@ export class SwimArms {
   private look = defaultLook('courier');
   private model: CourierViewArms | null = null;
   private disposed = false;
+  private readonly selection = new CharacterModelSelection();
 
   constructor(camera: THREE.Camera) {
     this.limbs = this.build({ skin: color('skinLight'), sleeve: color('cream') });
     this.root.visible = false;
     this.root.name = 'swimming-hands';
     camera.add(this.root);
-    if (typeof window !== 'undefined')
-      void loadCourier()
-        .then((source) => {
-          if (this.disposed) return;
-          this.model = new CourierViewArms(source, this.material);
-          this.model.root.visible = false;
-          this.root.add(this.model.root);
-        })
-        .catch((error) => console.warn('游泳角色手臂加载失败，暂用原有手部。', error));
+    this.setLook(this.look);
   }
 
   /** The player's own colours: their skin, and their coat on the upper arms (the sleeves are
    * rolled to the elbow to swim), as on the hands that hold the weapons. */
   setLook(look: Look): void {
     this.look = { ...look };
+    this.selection.select(look.character, (source) => {
+      this.model?.dispose();
+      this.model = source ? new CourierViewArms(source, this.material) : null;
+      if (this.model) {
+        this.model.root.visible = false;
+        this.root.add(this.model.root);
+      }
+    });
     for (const child of [...this.root.children]) {
       if (child === this.model?.root) continue;
       child.removeFromParent();
@@ -396,7 +398,7 @@ export class SwimArms {
       part.grip.lerp(this.grip, follow);
       this.shapeFingers(part.fingers, part.thumb, part.grip);
     }
-    const useModel = this.look.character === 'courier' && this.model !== null;
+    const useModel = !!characterModel(this.look.character) && this.model !== null;
     for (const part of this.limbs) part.arm.visible = part.forearm.visible = part.hand.visible = !useModel;
     if (this.model) {
       this.model.root.visible = useModel;
@@ -428,6 +430,7 @@ export class SwimArms {
   }
 
   dispose(): void {
+    this.selection.dispose();
     this.disposed = true;
     this.model?.dispose();
     disposeTree(this.root);

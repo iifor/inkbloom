@@ -26,8 +26,6 @@ const city = {
   guards: 0,
   nearestGuard: null,
   holdsWeapon: false,
-  wishes: 0,
-  nearestWish: null,
 };
 
 describe('objectives', () => {
@@ -69,28 +67,12 @@ describe('objectives', () => {
   });
 });
 
-describe('wish objectives', () => {
-  it('offers wishes and exploration in a peaceful village, never a restoration task', () => {
+describe('peaceful village objectives', () => {
+  it('points back to exploration even when the player has no pigment', () => {
     const safe = { ...city, peaceful: true, coloredBlocks: 4, stain: null };
     const quiet = objective({ ...base, scene: 'city', city: safe, generic: 0 });
     expect(quiet.text).toContain('安然无恙');
     expect(quiet.target).toEqual(safe.gate);
-    const wishes = objective({
-      ...base,
-      scene: 'city',
-      city: { ...safe, wishes: 1, nearestWish: { x: 3, z: 4 } },
-    });
-    expect(wishes.text).toContain('居民有心愿');
-    expect(wishes.target).toEqual({ x: 3, z: 4 });
-  });
-  it('points at an open wish once the block has colour and nothing more urgent waits', () => {
-    const o = objective({
-      ...base,
-      scene: 'city',
-      city: { ...city, wishes: 2, nearestWish: { x: 3, z: 4 } },
-    });
-    expect(o.text).toContain('2 位居民');
-    expect(o.target).toEqual({ x: 3, z: 4 });
   });
 });
 

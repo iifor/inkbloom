@@ -53,12 +53,22 @@ it('rests on a town lawn, stands up when moving, and rejects paving and obstruct
   place(x, z);
   act('sit');
   expect(p.resting).toBe('sitting');
+  for (let i = 0; i < 50; i++) step();
+  expect(p.restMotion).toMatchObject({ sitting: 1, lying: 0 });
+  const anchoredYaw = p.restMotion!.yaw;
+  p.yaw += 0.4;
+  expect(p.restMotion!.yaw).toBe(anchoredYaw);
   act('lieDown');
   expect(p.resting).toBe('lying');
+  for (let i = 0; i < 65; i++) step();
+  expect(p.restMotion).toMatchObject({ sitting: 0, lying: 1 });
   h.held.add('forward');
   step();
   expect(p.resting).toBeNull();
+  expect(p.restMotion!.lying).toBeGreaterThan(0.9);
   h.held.clear();
+  for (let i = 0; i < 40; i++) step();
+  expect(p.restMotion).toBeUndefined();
 
   place(layout.square.x, layout.square.z);
   act('sit');

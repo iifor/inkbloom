@@ -26,11 +26,23 @@ const canvas = document.querySelector<HTMLCanvasElement>('#view')!;
 const hudRoot = document.querySelector<HTMLElement>('#hud')!;
 const overlay = document.querySelector<HTMLElement>('#overlay')!;
 const errorText = document.querySelector<HTMLElement>('#overlay-error')!;
+const startup = document.querySelector<HTMLElement>('#startup')!;
+const startupProgress = document.querySelector<HTMLProgressElement>('#startup-progress')!;
+const startupPercent = document.querySelector<HTMLElement>('#startup-percent')!;
+const startupStatus = document.querySelector<HTMLElement>('#startup-status')!;
+
+function loading(progress: number, label: string): void {
+  const percent = Math.round((progress / 5) * 100);
+  startupProgress.value = percent;
+  startupPercent.textContent = `${percent}%`;
+  if (startupStatus.textContent !== label) startupStatus.textContent = label;
+}
 
 /** Once the game has failed, the only way forward is a fresh page. */
 function showFatal(e: unknown): void {
   console.error(e);
   if (document.pointerLockElement) document.exitPointerLock();
+  startup.hidden = true;
   overlay.hidden = false;
   overlay.querySelector('.menu-body')!.innerHTML = '<h2>出错了</h2><button id="reload">重新加载</button>';
   overlay.querySelector<HTMLButtonElement>('#reload')!.onclick = () => location.reload();
@@ -59,6 +71,7 @@ const passwordKey = (url: string): string => `inkbloom:pw:${url}`;
 /** Could not join: say why, offer to try again (with a password, if it wants one) or play alone. */
 function showJoinFailed(kv: KeyValue, url: string, e: unknown): void {
   const wantsPassword = e instanceof JoinRefused && e.password;
+  startup.hidden = true;
   overlay.hidden = false;
   overlay.querySelector('.menu-body')!.innerHTML = `<h2>没能加入联机</h2><p></p>
     ${wantsPassword ? '<label>密码 <input type="password" id="pw" autocomplete="off"></label>' : ''}
@@ -75,6 +88,7 @@ function showJoinFailed(kv: KeyValue, url: string, e: unknown): void {
 
 /** A link to a server this browser has not joined from its own menu: ask before connecting. */
 function confirmJoin(url: string): Promise<boolean> {
+  startup.hidden = true;
   overlay.hidden = false;
   overlay.querySelector('.menu-body')!.innerHTML = `<h2>加入联机世界？</h2><p></p>
     <p class="hint">只加入你认识的人开的服务器。</p>
@@ -87,6 +101,7 @@ function confirmJoin(url: string): Promise<boolean> {
 }
 
 async function boot(): Promise<void> {
+  loading(0, '正在读取世界…');
   const params = new URLSearchParams(location.search);
   const { kv, persistent } = browserKeyValue();
   const local = new KeyValueStore(kv);
@@ -107,6 +122,9 @@ async function boot(): Promise<void> {
       openServer(null);
       return;
     }
+    overlay.hidden = true;
+    startup.hidden = false;
+    loading(0, '正在连接世界…');
     // asked once is enough: a retry (a password, a hiccup) goes straight in
     kv.setItem('inkbloom:server', address);
     const p = loadProfile(kv) ?? { name: DEFAULT_NAME, look: defaultLook('courier') };
@@ -149,7 +167,16 @@ async function boot(): Promise<void> {
     }
   }
 
-  const game: OpenWorld = startOpenWorld({ canvas, hudRoot, state, store, kv, net, onError: showFatal });
+  const game: OpenWorld = await startOpenWorld({
+    canvas,
+    hudRoot,
+    state,
+    store,
+    kv,
+    net,
+    onError: showFatal,
+    loading,
+  });
   installDevTools(game);
   for (const text of notices) game.ctx.events.emit('toast', { text, seconds: 8 });
 
@@ -172,6 +199,10 @@ async function boot(): Promise<void> {
     game.player.setLook(look);
   };
   if (profile) dress(profile.look);
+  game.loop.step(0);
+  loading(5, '加载完成');
+  // Leave one paint for the completed indicator before revealing the menu.
+  await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
   const preview = new CharacterPreview(game.ctx);
   const world = state;
   const input = game.ctx.input;
@@ -215,12 +246,22 @@ async function boot(): Promise<void> {
       if (profile) dress(profile.look);
     },
     preview: (look) => preview.show(look),
+    previewVillager: (key) => preview.showVillager(key),
+    mountPreview: (stage, controls) => preview.mount(stage, controls),
     accents: () => world.unlocked.filter((c) => PALETTE[c]?.paintable),
     online() {
       const n = game.net;
       if (!n) return null;
-      return { address: address ?? '', max: n.max, others: n.players.map((p) => p.name), down: n.down };
+      return {
+        address: address ?? '',
+        max: n.max,
+        others: n.players.map((p) => p.name),
+        down: n.down,
+        friends: n.friends,
+      };
     },
+    trackFriend: (id) => game.net?.trackFriend(id),
+    visitFriend: (id) => game.net?.visitFriend(id) ?? false,
     lastServer: () => kv.getItem('inkbloom:server') ?? `${location.hostname || '127.0.0.1'}`,
     joinServer(addr) {
       // chosen in this game's own menu: no need to ask again
@@ -255,12 +296,19 @@ async function boot(): Promise<void> {
   });
   menu.show(params.get('preview') === 'courier' ? 'character' : 'main');
   input.onLockChange = (locked) => {
-    if (!locked) {
-      menu.show('pause');
-      void game.save.flush();
-    }
+    if (!locked) void game.save.flush();
+  };
+  input.onPause = () => {
+    if (!overlay.hidden) return;
+    input.clear();
+    input.exitLock();
+    menu.show('pause');
+    void game.save.flush();
   };
   window.addEventListener('pagehide', () => void game.save.flush());
+  canvas.inert = false;
+  startup.hidden = true;
+  game.loop.start();
 }
 
 boot().catch(showFatal);

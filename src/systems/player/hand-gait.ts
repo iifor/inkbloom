@@ -2,13 +2,15 @@ import { MathUtils } from 'three';
 import { TUNING } from '@/content/tuning';
 import type { PlayerApi } from '@/game/types';
 
+export type GaitPlayer = Pick<PlayerApi, 'grounded' | 'flying' | 'gliding' | 'dashing' | 'waterMode' | 'speed'>;
+
 /** Presentation only: actual ground speed drives the stride, never a held movement key. */
 export class HandGait {
   phase = 0;
   amount = 0;
   run = 0;
 
-  update(dt: number, player: PlayerApi, steady = false): void {
+  update(dt: number, player: GaitPlayer, steady = false): void {
     const ground =
       player.grounded &&
       !player.flying &&

@@ -3,13 +3,18 @@
 // player's own patches go out from ctx.apply as they happen (modes/open-world.ts). What is in
 // hand rides along with the motion; attacks and skills go out as gestures for others to see.
 import * as THREE from 'three';
-import type { GameContext, NetApi, System } from '@/game/types';
+import type { GameContext, NetApi, System, FriendStatus } from '@/game/types';
+import { bearing } from '@/world/objectives';
 import type { Fix } from '@/world/net/fix';
 import type { Patch } from '@/world/patch';
 import {
   AIMING,
   type ClientMessage,
   DASHING,
+  DOWNED,
+  type FriendLocation,
+  validFriendLocation,
+  FLYING,
   GLIDING,
   GROUNDED,
   type Gesture,
@@ -38,6 +43,12 @@ export class NetSystem implements System, NetApi {
   private readonly last = new THREE.Vector3();
   private readonly vel = new THREE.Vector3();
   private told = false;
+  private directory = new Map<number, FriendLocation>();
+  private directoryAt = -Infinity;
+  private tracked: number | null = null;
+  private visitSeq = 0;
+  private visitPending: { id: number; request: number; at: number } | null = null;
+  private visitUntil = 0;
 
   constructor(
     private readonly ctx: GameContext,
@@ -89,6 +100,97 @@ export class NetSystem implements System, NetApi {
     return this.conn.closed;
   }
 
+  private friendReason(id: number): string {
+    const p = this.directory.get(id);
+    if (this.down) return '连接已断开';
+    if (this.ctx.arena?.inside || p?.arena) return '竞技场内不可定位或传送';
+    if (!this.players.some((p) => p.id === id)) return '伙伴已离线';
+    if (!p?.p || performance.now() - this.directoryAt > 5000) return '等待位置更新';
+    if (!p.alive) return '伙伴正在恢复';
+    return '';
+  }
+
+  private friendDetail(p: FriendLocation): string {
+    if (!p.p) return '';
+    const { player } = this.ctx;
+    const dir = bearing(player.position, player.yaw, { x: p.p[0], z: p.p[2] });
+    const distance = dir.metres >= 1000 ? `${(dir.metres / 1000).toFixed(1)} 公里` : `${dir.metres} 米`;
+    const place = p.scene?.kind === 'city' ? (this.ctx.cities.byId(p.scene.id)?.name ?? '村庄') : '野外';
+    const height = p.p[1] - player.position.y;
+    return `${dir.arrow} ${distance} · ${place}${Math.abs(height) > 8 ? (height > 0 ? ' · 高处' : ' · 低处') : ''}`;
+  }
+
+  get friends(): readonly FriendStatus[] {
+    return this.players.map((p) => {
+      const blocked = this.friendReason(p.id);
+      const cooldown = Math.ceil((this.visitUntil - performance.now()) / 1000);
+      const reason =
+        blocked ||
+        (!this.ctx.combat.alive
+          ? '恢复后可传送'
+          : this.visitPending
+            ? '正在请求传送'
+            : cooldown > 0
+              ? `${cooldown} 秒后可传送`
+              : '');
+      return {
+        id: p.id,
+        name: p.name,
+        detail: blocked || this.friendDetail(this.directory.get(p.id)!),
+        tracking: this.tracked === p.id,
+        canTrack: !blocked,
+        canVisit: !reason,
+        reason,
+      };
+    });
+  }
+
+  get friendGuide(): string {
+    if (this.tracked === null || this.ctx.arena?.inside || this.down) return '';
+    const friend = this.players.find((p) => p.id === this.tracked);
+    if (!friend) return '';
+    const blocked = this.friendReason(friend.id);
+    return `${friend.name} · ${blocked || this.friendDetail(this.directory.get(friend.id)!)} · P 伙伴`;
+  }
+
+  trackFriend(id: number): void {
+    if (this.tracked === id) this.tracked = null;
+    else if (!this.friendReason(id)) this.tracked = id;
+  }
+
+  visitFriend(id: number): boolean {
+    const status = this.friends.find((p) => p.id === id);
+    if (!status?.canVisit) {
+      this.ctx.events.emit('toast', { text: status?.reason || '伙伴已离线' });
+      return false;
+    }
+    const request = ++this.visitSeq;
+    this.visitPending = { id, request, at: performance.now() };
+    this.conn.send({ t: 'visit', target: id, request });
+    return true;
+  }
+
+  private arrive(m: Extract<ServerMessage, { t: 'visit' }>): void {
+    const pending = this.visitPending;
+    if (!pending || pending.request !== m.request) return;
+    this.visitPending = null;
+    if (!m.target) {
+      this.ctx.events.emit('toast', { text: String(m.reason).slice(0, 100) });
+      return;
+    }
+    if (!validFriendLocation(m.target) || m.target.id !== pending.id || !m.target.p) return;
+    this.directory.set(m.target.id, m.target);
+    this.directoryAt = performance.now();
+    this.visitUntil = performance.now() + 8000;
+    const accepted = this.ctx.scenes.travelNear(() => {
+      if (this.friendReason(pending.id) || !this.ctx.combat.alive) return null;
+      const friend = this.players.find((p) => p.id === pending.id);
+      const pos = this.directory.get(pending.id)?.p;
+      return friend && pos ? { pos: new THREE.Vector3(...pos), name: friend.name } : null;
+    });
+    if (!accepted) this.ctx.events.emit('toast', { text: '当前无法传送，请稍后再试' });
+  }
+
   keeps(town: string): boolean {
     return this.keeping.has(town);
   }
@@ -103,6 +205,10 @@ export class NetSystem implements System, NetApi {
   }
 
   update(dt: number): void {
+    if (this.visitPending && (this.down || performance.now() - this.visitPending.at > 5000)) {
+      this.visitPending = null;
+      this.ctx.events.emit('toast', { text: '传送请求未完成，请检查连接后重试' });
+    }
     for (const m of this.conn.take()) {
       try {
         this.handle(m);
@@ -117,6 +223,19 @@ export class NetSystem implements System, NetApi {
 
   private handle(m: ServerMessage): void {
     switch (m.t) {
+      case 'friends':
+        if (
+          Array.isArray(m.players) &&
+          m.players.length <= this.max &&
+          m.players.every(validFriendLocation)
+        ) {
+          this.directory = new Map(m.players.map((p) => [p.id, p]));
+          this.directoryAt = performance.now();
+        }
+        break;
+      case 'visit':
+        this.arrive(m);
+        break;
       case 'snap': {
         const off = m.clock - this.ctx.state.clock;
         this.ctx.state.clock += Math.abs(off) > CLOCK_SNAP ? off : off * 0.1;
@@ -137,6 +256,8 @@ export class NetSystem implements System, NetApi {
       case 'left': {
         const who = this.remote.list().find((p) => p.id === m.id)?.name;
         this.remote.remove(m.id);
+        this.directory.delete(m.id);
+        if (this.tracked === m.id) this.tracked = null;
         if (who) this.ctx.events.emit('toast', { text: `${who} 离开了` });
         break;
       }
@@ -188,6 +309,7 @@ export class NetSystem implements System, NetApi {
     const p = player.position;
     if (dt > 0) this.vel.subVectors(p, this.last).divideScalar(dt);
     this.last.copy(p);
+    if (this.ctx.arena?.leaving) return;
     this.sendT -= dt;
     if (this.sendT > 0) return;
     this.sendT = 1 / SEND_HZ;
@@ -195,13 +317,17 @@ export class NetSystem implements System, NetApi {
     const f =
       (player.grounded ? GROUNDED : 0) |
       (player.gliding ? GLIDING : 0) |
+      (player.flying ? FLYING : 0) |
+      (!this.ctx.combat.alive ? DOWNED : 0) |
       (player.waterMode === 'swimming' ? SWIMMING : 0) |
       (player.dashing ? DASHING : 0) |
       (hands.painting ? PAINTING : 0) |
       (hands.aiming ? AIMING : 0);
     const ref = scenes.active.ref;
+    const rest = player.restMotion;
     this.conn.send({
       t: 'move',
+      ...(rest ? { rest } : {}),
       ...(hands.item ? { h: hands.item } : {}),
       p: [p.x, p.y, p.z],
       v: [this.vel.x, this.vel.y, this.vel.z],

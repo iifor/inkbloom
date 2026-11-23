@@ -1,11 +1,10 @@
 import * as THREE from 'three';
-import { defaultLook, type Look } from '@/content/characters';
+import { characterModel, defaultLook, type Look } from '@/content/characters';
 import { makeInkMaterial } from '@/engine/render/ink-material';
-import type { PlayerApi } from '@/game/types';
 import type { InHand } from '@/systems/tools/tool';
 import { bracingHand, handsOf, walkingHand } from '@/systems/tools/viewmodels';
-import { HandGait } from './hand-gait';
-import { loadCourier } from '@/systems/figures/quaternius-courier';
+import { HandGait, type GaitPlayer } from './hand-gait';
+import { CharacterModelSelection } from '@/systems/figures/character-model-selection';
 import { CourierViewArms } from './courier-view-arms';
 
 /** Two merged meshes, posed without rebuilding geometry or allocating per frame. */
@@ -25,6 +24,7 @@ export class WalkArms {
   private look = defaultLook('courier');
   private model: CourierViewArms | null = null;
   private disposed = false;
+  private readonly selection = new CharacterModelSelection();
 
   constructor(private readonly camera: THREE.Camera) {
     this.root.name = 'walking-hands';
@@ -33,19 +33,18 @@ export class WalkArms {
     this.root.add(this.left, this.right);
     camera.add(this.root);
     this.setLook(defaultLook('courier'));
-    if (typeof window !== 'undefined')
-      void loadCourier()
-        .then((source) => {
-          if (this.disposed) return;
-          this.model = new CourierViewArms(source, this.material);
-          this.model.root.visible = false;
-          this.root.add(this.model.root);
-        })
-        .catch((error) => console.warn('第一人称角色手臂加载失败，暂用原有手部。', error));
   }
 
   setLook(look: Look): void {
     this.look = { ...look };
+    this.selection.select(look.character, (source) => {
+      this.model?.dispose();
+      this.model = source ? new CourierViewArms(source, this.material) : null;
+      if (this.model) {
+        this.model.root.visible = false;
+        this.root.add(this.model.root);
+      }
+    });
     if (this.relaxed) this.disposeHands();
     else {
       this.left.geometry.dispose();
@@ -54,7 +53,7 @@ export class WalkArms {
     const hands = handsOf(look);
     this.relaxed = [walkingHand(hands, -1), walkingHand(hands, 1)];
     this.braced = [bracingHand(hands, -1), bracingHand(hands, 1)];
-    this.brush = walkingHand(hands, 1, true);
+    this.brush = walkingHand(hands, 1, look.accent);
     [this.left.geometry, this.right.geometry] = this.relaxed;
   }
 
@@ -64,7 +63,7 @@ export class WalkArms {
     this.root.visible = false;
   }
 
-  update(dt: number, player: PlayerApi, held: InHand, alive: boolean, brace = 0): void {
+  update(dt: number, player: GaitPlayer, held: InHand, alive: boolean, brace = 0): void {
     this.gait.update(dt, player, held.painting);
     this.painting = THREE.MathUtils.damp(this.painting, held.painting ? 1 : 0, 12, dt);
     this.paintTime += dt * (held.painting ? 8 : 0);
@@ -116,7 +115,7 @@ export class WalkArms {
     this.right.position.y += this.painting * (0.07 + Math.sin(this.paintTime) * 0.018);
     this.right.position.z -= this.painting * 0.06;
     this.right.rotation.z += this.painting * Math.sin(this.paintTime) * 0.12;
-    const useModel = this.look.character === 'courier' && this.model !== null;
+    const useModel = !!characterModel(this.look.character) && this.model !== null;
     this.left.visible = this.right.visible = !useModel;
     if (this.model) {
       this.model.root.visible = useModel;
@@ -125,6 +124,7 @@ export class WalkArms {
   }
 
   dispose(): void {
+    this.selection.dispose();
     this.disposed = true;
     this.model?.dispose();
     this.root.removeFromParent();

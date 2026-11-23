@@ -9,7 +9,7 @@ import { TUNING } from '@/content/tuning';
 import type { Patch } from '../patch';
 import type { SceneRef } from '../state';
 
-/** Largest index into any per-town list (surfaces, stains, monsters, requests, studios). */
+/** Largest index into any per-town list (surfaces, stains, monsters, studios). */
 const MAX_INDEX = 100_000;
 /** Largest amount a `spend` may name. */
 const MAX_AMOUNT = 100_000;
@@ -98,10 +98,6 @@ export function validPatch(raw: unknown): Patch | null {
     case 'defeat':
       return validCity(p.city) && isIndex(p.monster)
         ? { kind: 'defeat', city: p.city, monster: p.monster }
-        : null;
-    case 'request':
-      return validCity(p.city) && isIndex(p.request)
-        ? { kind: 'request', city: p.city, request: p.request }
         : null;
     case 'complete':
     case 'tideHeld':

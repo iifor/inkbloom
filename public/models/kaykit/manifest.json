@@ -1,0 +1,94 @@
+[
+  {
+    "character": "Barbarian",
+    "file": "barbarian.glb",
+    "equipment": [
+      "1H_Axe"
+    ],
+    "sourceSha256": "cefc311a0e10c7858b6141f5ada7e33268727564fb8ac1347aab97d000669cc6",
+    "outputSha256": "c6312f14ff500fb4552151b4c102d5e8a43aecd966018d91e51703634f981c74",
+    "animations": [
+      "1H_Melee_Attack_Chop",
+      "1H_Ranged_Shoot",
+      "Cheer",
+      "Idle",
+      "Interact",
+      "Jump_Full_Short",
+      "Running_A",
+      "Walking_A"
+    ]
+  },
+  {
+    "character": "Knight",
+    "file": "knight.glb",
+    "equipment": [
+      "1H_Sword",
+      "Badge_Shield"
+    ],
+    "sourceSha256": "60428e3abc09ba83e595d256e3af8c5c976b46cdae599f0802fc82b4a3445168",
+    "outputSha256": "c2463ea553888b332fe82d635498e3359dd9224bb850e58262c94a11dbec3313",
+    "animations": [
+      "1H_Melee_Attack_Chop",
+      "1H_Ranged_Shoot",
+      "Cheer",
+      "Idle",
+      "Interact",
+      "Jump_Full_Short",
+      "Running_A",
+      "Walking_A"
+    ]
+  },
+  {
+    "character": "Mage",
+    "file": "mage.glb",
+    "equipment": [
+      "2H_Staff"
+    ],
+    "sourceSha256": "cf898585da33fab50c724d31605fb931eb2912e6d2280092141e98ca81ad507d",
+    "outputSha256": "0a5c0bfd4d8dddb2a3117be36a1f24c33a2fdc3b44cbea0592af9941a58d4355",
+    "animations": [
+      "1H_Melee_Attack_Chop",
+      "1H_Ranged_Shoot",
+      "Cheer",
+      "Idle",
+      "Interact",
+      "Jump_Full_Short",
+      "Running_A",
+      "Walking_A"
+    ]
+  },
+  {
+    "character": "Rogue",
+    "file": "rogue.glb",
+    "equipment": [],
+    "sourceSha256": "e825437cd4d2ee9c1960b517a74a69101e33eb409ae7fa8cedc7134a998fbb7d",
+    "outputSha256": "fa216cd86b1abf6635778dfafa19e717a1bf892c6adce078daf304f0e34d113c",
+    "animations": [
+      "1H_Melee_Attack_Chop",
+      "1H_Ranged_Shoot",
+      "Cheer",
+      "Idle",
+      "Interact",
+      "Jump_Full_Short",
+      "Running_A",
+      "Walking_A"
+    ]
+  },
+  {
+    "character": "Rogue_Hooded",
+    "file": "rogue-hooded.glb",
+    "equipment": [],
+    "sourceSha256": "93e6e25213009952276d9cf34f5d96a243767334c66f280db0433ddfabb91545",
+    "outputSha256": "4a54d518c68376d7ceff40fca0971a94968a698d477d8a2527af118dfc355dba",
+    "animations": [
+      "1H_Melee_Attack_Chop",
+      "1H_Ranged_Shoot",
+      "Cheer",
+      "Idle",
+      "Interact",
+      "Jump_Full_Short",
+      "Running_A",
+      "Walking_A"
+    ]
+  }
+]

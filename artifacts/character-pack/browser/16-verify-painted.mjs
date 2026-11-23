@@ -1,0 +1,22 @@
+const task=await taskSpace(14),page=task.page('p1'),fs=await import('node:fs/promises');
+await page.waitForFunction(()=>!!window.inkbloom&&!!document.querySelector('[data-char="courier"]'),undefined,{timeout:60000});
+async function capture(name){const data=await page.evaluate(async()=>{await new Promise(requestAnimationFrame);await new Promise(requestAnimationFrame);const r=window.inkbloom.ctx.renderer;r.atmosphere.hour=10;r.render();return r.renderer.domElement.toDataURL('image/png');});await fs.writeFile(`C:/Users/Administrator/Desktop/inkbloom/artifacts/character-pack/${name}.png`,Buffer.from(data.split(',')[1],'base64'));}
+await page.click('[data-char="mason"]');
+await page.waitForFunction(()=>document.querySelector('[data-status]')?.textContent==='动作预览');
+console.log(await page.evaluate(async()=>{const m=await import('/src/engine/render/character-paint.ts');return {textureReady:m.characterPaintUniforms.uCharacterPaintReady.value,width:m.characterPaintUniforms.uCharacterPaint.value.image?.width};}));
+await capture('final-mason');
+await page.click('[data-char="apprentice"]');
+await page.waitForFunction(()=>document.querySelector('[data-status]')?.textContent==='动作预览');
+await capture('final-apprentice');
+await page.click('[data-perspective="first"]');
+await page.click('[data-motion="shoot"]');
+await capture('final-kaykit-rifle');
+await page.click('[data-a="villager-preview"]');
+await page.click('[data-villager="knight"]');
+await page.waitForFunction(()=>document.querySelector('[data-status]')?.textContent==='村民原版动作');
+await page.click('[data-perspective="third"]');
+await capture('final-knight-third');
+await page.click('[data-perspective="first"]');
+await page.click('[data-motion="slash"]');
+await capture('final-knight-first');
+console.log(await page.snapshot());

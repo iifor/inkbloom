@@ -1,0 +1,21 @@
+const task=await taskSpace(14),page=task.page('p1'),fs=await import('node:fs/promises');
+async function capture(name){const data=await page.evaluate(()=>{const r=window.inkbloom.ctx.renderer;r.atmosphere.hour=10;r.render();return r.renderer.domElement.toDataURL('image/png');});await fs.writeFile(`C:/Users/Administrator/Desktop/inkbloom/artifacts/character-pack/${name}.png`,Buffer.from(data.split(',')[1],'base64'));}
+await page.click('[data-char="apprentice"]');
+await page.waitForFunction(()=>document.querySelector('[data-status]')?.textContent==='动作预览');
+await page.waitForFunction(()=>{const g=window.inkbloom.ctx.renderer.scene.getObjectByName('third-person-motion-preview');return g?.children.some(c=>c.visible&&!!c.getObjectByName('KayKitMage'));});
+await capture('apprentice-painted');
+await page.click('[data-perspective="first"]');
+await page.click('[data-motion="shoot"]');
+await page.waitForFunction(()=>{const p=window.inkbloom.ctx.renderer.scene.getObjectByName('first-person-motion-preview');return p?.children.some(c=>c.visible&&c.name==='courier-model-arms');});
+await capture('kaykit-rifle-painted');
+await page.click('[data-motion="swim"]');
+await capture('kaykit-swim-painted');
+await page.click('[data-a="villager-preview"]');
+await page.click('[data-villager="knight"]');
+await page.waitForFunction(()=>document.querySelector('[data-status]')?.textContent==='村民原版动作');
+await page.click('[data-perspective="third"]');
+await capture('knight-painted');
+await page.click('[data-perspective="first"]');
+await page.click('[data-motion="slash"]');
+await capture('knight-first-painted');
+console.log(await page.snapshot());

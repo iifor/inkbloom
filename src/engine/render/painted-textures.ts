@@ -1,7 +1,6 @@
 // The hand-painted textures the paint pass reads (paint-shader.ts, sky-paint.ts). They are
 // baked from the source art in art/textures/ by tools/bake_textures.py into public/textures/
-// and load after the game has started: until one arrives its place is held by a flat mid-grey
-// (which changes nothing) or an empty sky, so nothing waits on them.
+// and load during startup. A missing image leaves a neutral placeholder.
 import * as THREE from 'three';
 import { repaintCanopy } from './canopy-brush';
 

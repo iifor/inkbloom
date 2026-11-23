@@ -220,6 +220,7 @@ export const TUNING = {
     /** Share of coloured surfaces at which a block counts as cleared, coloured, thriving. */
     clearedAt: 0.15,
     coloredAt: 0.7,
+    thrivingAt: 1,
     /** Cleared blocks next to a drained one lose this share of their surfaces per minute.
      * design: 10% per 10 minutes */
     erosionPerMinute: 0.01,
@@ -272,11 +273,10 @@ export const TUNING = {
     regrowSeconds: 600,
   },
   /** Colour set free without pigment: a defeated stronghold monster gives back what it stole
-   * around its post, a granted wish brightens the resident's street. Nearest drained surfaces
+   * around its post. Nearest drained surfaces
    * within `radius` metres, at most `max` of them. */
   release: {
     monster: { radius: 14, max: 10 },
-    request: { radius: 18, max: 24 },
   },
   /** The day cycle (presentation only: light, sky, lit windows). The hour follows the world
    * clock, so it is saved with the world. */

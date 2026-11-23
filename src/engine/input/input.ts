@@ -13,9 +13,12 @@ export class Input {
   private lookY = 0;
   private wheelSteps = 0;
   private dragging = false;
+  private awaitingCanvas = false;
+  private releasingLock = false;
   pointerLocked = false;
   sensitivity = 0.0022;
   onLockChange: ((locked: boolean) => void) | null = null;
+  onPause: (() => void) | null = null;
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
@@ -32,8 +35,18 @@ export class Input {
 
     on(window, 'keydown', (e) => {
       if (isControl(e.target)) return;
+      if (e.code === 'KeyU' && this.pointerLocked) {
+        e.preventDefault();
+        this.exitLock();
+        return;
+      }
       const a = KEYS[e.code];
       if (!a) return;
+      if (a === 'pause') {
+        if (!e.repeat) this.onPause?.();
+        return;
+      }
+      if (this.awaitingCanvas) return;
       if (!e.repeat) this.press(a);
       if (e.code === 'Space' || e.code === 'Tab' || e.code.startsWith('Arrow') || e.code.startsWith('F'))
         e.preventDefault();
@@ -42,8 +55,19 @@ export class Input {
       const a = KEYS[e.code];
       if (a) this.down.delete(a);
     });
-    on(window, 'blur', () => this.clear());
+    on(window, 'blur', () => {
+      this.clear();
+      this.exitLock();
+    });
     on(canvas, 'mousedown', (e) => {
+      if (this.awaitingCanvas) {
+        if (e.button === 0) {
+          this.awaitingCanvas = false;
+          this.canvas.focus();
+          void this.requestLock();
+        }
+        return;
+      }
       const a = MOUSE[e.button];
       if (a) this.press(a);
       if (!this.pointerLocked) this.dragging = true;
@@ -63,6 +87,7 @@ export class Input {
       canvas,
       'wheel',
       (e) => {
+        if (this.awaitingCanvas) return;
         this.wheelSteps += Math.sign(e.deltaY);
         e.preventDefault();
       },
@@ -71,8 +96,22 @@ export class Input {
     document.addEventListener(
       'pointerlockchange',
       () => {
+        const wasLocked = this.pointerLocked;
         this.pointerLocked = document.pointerLockElement === canvas;
-        if (!this.pointerLocked) this.clear();
+        if (this.pointerLocked) this.awaitingCanvas = false;
+        else if (wasLocked) {
+          const released = this.releasingLock;
+          this.releasingLock = false;
+          this.awaitingCanvas = true;
+          this.clear();
+          // A browser can handle Escape itself and send only pointerlockchange.
+          // Check focus after the event so switching windows does not open the menu.
+          if (!released)
+            setTimeout(() => {
+              if (!signal.aborted && this.awaitingCanvas && document.hasFocus() && !document.hidden)
+                this.onPause?.();
+            }, 0);
+        }
         this.onLockChange?.(this.pointerLocked);
       },
       { signal },
@@ -138,6 +177,7 @@ export class Input {
   }
 
   async requestLock(): Promise<boolean> {
+    this.awaitingCanvas = false;
     try {
       await this.canvas.requestPointerLock();
       return true;
@@ -147,12 +187,17 @@ export class Input {
   }
 
   exitLock(): void {
-    if (document.pointerLockElement) document.exitPointerLock();
+    if (document.pointerLockElement !== this.canvas) return;
+    this.releasingLock = true;
+    document.exitPointerLock();
   }
 
   clear(): void {
     this.down.clear();
+    this.cur.clear();
+    this.fresh.clear();
     this.queued.clear();
     this.dragging = false;
+    this.lookX = this.lookY = this.wheelSteps = 0;
   }
 }

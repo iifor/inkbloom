@@ -69,6 +69,86 @@ async function start(max = 10): Promise<number> {
 }
 
 describe('world server over WebSockets', () => {
+  it('relays sitting, lying and getting up, then removes the pose on standing', async () => {
+    const port = await start();
+    const a = await client(port, '坐下的人', 'rest-aaaaaaaa');
+    const b = await client(port, '观察的人', 'rest-bbbbbbbb');
+    clients.push(a, b);
+    const welcome = await a.waitFor('welcome');
+    await b.waitFor('welcome');
+    if (welcome.t !== 'welcome') throw new Error('welcome missing');
+    const movement = {
+      t: 'move',
+      p: [0, 2, 0],
+      v: [0, 0, 0],
+      yaw: 0.5,
+      pitch: 0,
+      f: GROUNDED,
+      scene: { kind: 'wild' },
+      town: null,
+    };
+    b.send(movement);
+    for (const [sitting, lying] of [
+      [1, 0],
+      [0, 1],
+      [0, 0.4],
+      [0, 0],
+    ]) {
+      const rest = { sitting, lying, groundPitch: 0.1, groundRoll: 0, yaw: 0 };
+      a.send({ ...movement, ...(sitting || lying ? { rest } : {}) });
+      const snap = await b.waitFor(
+        'snap',
+        (m) =>
+          m.t === 'snap' &&
+          m.players.some(
+            (p) =>
+              p.id === welcome.id &&
+              (sitting || lying ? p.rest?.sitting === sitting && p.rest?.lying === lying : !p.rest),
+          ),
+      );
+      expect(snap.t === 'snap' && snap.players.find((p) => p.id === welcome.id)?.rest).toEqual(
+        sitting || lying ? rest : undefined,
+      );
+    }
+  });
+  it('finds and visits a friend outside the motion streaming radius', async () => {
+    const port = await start();
+    const a = await client(port, '甲', 'friend-aaaa');
+    const b = await client(port, '乙', 'friend-bbbb');
+    clients.push(a, b);
+    const aw = await a.waitFor('welcome');
+    const bw = await b.waitFor('welcome');
+    if (aw.t !== 'welcome' || bw.t !== 'welcome') throw new Error('welcome missing');
+    for (const [c, x] of [
+      [a, 0],
+      [b, 2000],
+    ] as const)
+      c.send({
+        t: 'move',
+        p: [x, 2, 0],
+        v: [0, 0, 0],
+        yaw: 0,
+        pitch: 0,
+        f: GROUNDED,
+        scene: { kind: 'wild' },
+        town: null,
+      });
+    const directory = await a.waitFor(
+      'friends',
+      (m) => m.t === 'friends' && m.players.some((p) => p.p?.[0] === 2000),
+    );
+    expect(directory.t === 'friends' && directory.players[0]?.id).toBe(bw.id);
+    const snap = await a.waitFor('snap');
+    expect(snap.t === 'snap' && snap.players).toEqual([]);
+    a.send({ t: 'visit', target: bw.id, request: 10 });
+    const answer = await a.waitFor('visit');
+    expect(answer).toMatchObject({ request: 10, target: { id: bw.id, p: [2000, 2, 0] } });
+    b.ws.close();
+    await a.waitFor('left');
+    a.send({ t: 'visit', target: bw.id, request: 11 });
+    const gone = await a.waitFor('visit', (m) => m.t === 'visit' && m.request === 11);
+    expect(gone).toMatchObject({ target: null, reason: '伙伴已离线' });
+  });
   it('two players see each other and share a harvest', async () => {
     const port = await start();
     const a = await client(port, '甲', 'token-aaaaaaaa');

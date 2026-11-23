@@ -8,7 +8,6 @@ export const XP = {
   tideHeld: 40,
   cityRestored: 150,
   ruinFound: 25,
-  request: 40,
   monster: 4,
   wellCleansed: 35,
 } as const;

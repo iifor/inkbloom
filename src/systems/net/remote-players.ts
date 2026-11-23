@@ -12,8 +12,11 @@ import { makeInkMaterial } from '@/engine/render/ink-material';
 import type { GameContext, System } from '@/game/types';
 import { NameTags } from '@/shell/name-tags';
 import { ACTION_SECONDS, PlayerFigures } from '@/systems/figures/player-figure';
+import { FlightMotion } from '@/systems/figures/flight-motion';
 import {
   AIMING,
+  DOWNED,
+  FLYING,
   GLIDING,
   GROUNDED,
   type Gesture,
@@ -22,6 +25,7 @@ import {
   PAINTING,
   type PlayerInfo,
   SWIMMING,
+  validRest,
 } from '@/world/net/protocol';
 
 /** How far in the past others are drawn, seconds. */
@@ -44,6 +48,7 @@ interface Remote {
   info: PlayerInfo;
   readonly samples: Sample[];
   walk: number;
+  readonly flight: FlightMotion;
   /** 1 just hit, easing to 0. */
   hurt: number;
   /** -1 standing; 0..1 going down in ink. */
@@ -78,7 +83,20 @@ export function interpolate(samples: readonly Sample[], t: number): Motion | nul
   const k = (t - a.t) / Math.max(1e-6, b.t - a.t);
   const lerp = (x: number, y: number): number => x + (y - x) * k;
   const angle = (x: number, y: number): number => x + Math.atan2(Math.sin(y - x), Math.cos(y - x)) * k;
+  const ar = a.m.rest,
+    br = b.m.rest;
+  const rest =
+    ar || br
+      ? {
+          sitting: lerp(ar?.sitting ?? 0, br?.sitting ?? 0),
+          lying: lerp(ar?.lying ?? 0, br?.lying ?? 0),
+          groundPitch: lerp(ar?.groundPitch ?? br!.groundPitch, br?.groundPitch ?? ar!.groundPitch),
+          groundRoll: lerp(ar?.groundRoll ?? br!.groundRoll, br?.groundRoll ?? ar!.groundRoll),
+          yaw: angle(ar?.yaw ?? a.m.yaw, br?.yaw ?? b.m.yaw),
+        }
+      : undefined;
   return {
+    ...(rest ? { rest } : {}),
     p: [lerp(a.m.p[0], b.m.p[0]), lerp(a.m.p[1], b.m.p[1]), lerp(a.m.p[2], b.m.p[2])],
     v: [lerp(a.m.v[0], b.m.v[0]), lerp(a.m.v[1], b.m.v[1]), lerp(a.m.v[2], b.m.v[2])],
     yaw: angle(a.m.yaw, b.m.yaw),
@@ -118,6 +136,7 @@ export class RemotePlayers implements System {
         info,
         samples: [],
         walk: Math.random() * 6,
+        flight: new FlightMotion(),
         hurt: 0,
         dying: -1,
         action: null,
@@ -169,9 +188,9 @@ export class RemotePlayers implements System {
     r.dying = -1;
     r.hurt = 0;
     r.action = null;
-    const last = r.samples[r.samples.length - 1]?.m;
+    r.flight.reset();
     r.samples.length = 0;
-    r.samples.push({ t: this.t - 1, m: { p, v: [0, 0, 0], yaw, pitch: 0, f: last?.f ?? 1 } });
+    r.samples.push({ t: this.t - 1, m: { p, v: [0, 0, 0], yaw, pitch: 0, f: GROUNDED } });
   }
 
   setAccent(id: number, accent: number | null): void {
@@ -202,6 +221,7 @@ export class RemotePlayers implements System {
       const m = newest && this.t - newest.t < STALE ? interpolate(r.samples, this.t - DELAY) : null;
       r.drawn = m !== null;
       if (!m) {
+        r.flight.reset();
         this.tags.remove(id);
         continue;
       }
@@ -212,10 +232,13 @@ export class RemotePlayers implements System {
       r.at.z = m.p[2];
       r.at.yaw = m.yaw;
       const speed = Math.hypot(m.v[0], m.v[2]);
+      r.flight.update(dt, (m.f & FLYING) !== 0 && r.dying < 0, m.yaw, speed, m.v[1]);
       const stride = Math.min(1.7, speed / TUNING.player.walkSpeed);
       r.walk += dt * 6 * Math.min(1.5, stride);
       const look: Look = r.accent === null ? r.info.look : { ...r.info.look, accent: r.accent };
       const swim = (m.f & SWIMMING) !== 0;
+      const rest = r.dying < 0 && !(m.f & (FLYING | GLIDING | SWIMMING | DOWNED)) ? validRest(m.rest) : null;
+      const resting = rest ? rest.sitting + rest.lying : 0;
       // what they act with: the weapon an arena attack named, while it plays out
       let held: HeldItem | null = m.h ?? null;
       let action: { kind: Gesture; t: number } | null = null;
@@ -234,33 +257,34 @@ export class RemotePlayers implements System {
       const ease = 1 - Math.exp(-EASE * dt);
       r.aim += ((sighted ? 1 : 0) - r.aim) * ease;
       r.paint += (((m.f & PAINTING) !== 0 ? 1 : 0) - r.paint) * ease;
-      this.figures.draw(look, {
-        x: m.p[0],
-        y: m.p[1],
-        z: m.p[2],
-        yaw: m.yaw,
-        pitch: m.pitch,
-        walk: r.walk,
-        stride: swim ? 0 : stride,
-        air: !swim && (m.f & GROUNDED) === 0,
-        glide: (m.f & GLIDING) !== 0,
-        swim,
-        hurt: r.hurt,
-        dying: r.dying,
-        t: this.t,
-        held,
-        action,
-        aim: r.aim,
-        paint: r.paint,
-      });
+      this.figures.draw(
+        look,
+        {
+          x: m.p[0],
+          y: m.p[1],
+          z: m.p[2],
+          yaw: rest?.yaw ?? m.yaw,
+          pitch: m.pitch * (1 - resting),
+          walk: r.walk,
+          stride: swim || resting > 0.0001 ? 0 : stride,
+          air: !swim && resting <= 0.0001 && (m.f & GROUNDED) === 0,
+          glide: (m.f & GLIDING) !== 0,
+          swim,
+          flight: r.flight,
+          ...(rest ? { rest } : {}),
+          hurt: r.hurt,
+          dying: r.dying,
+          t: this.t,
+          held,
+          action,
+          aim: r.aim,
+          paint: r.paint,
+        },
+        this.head,
+      );
+      this.head.y += 0.4;
       if (r.dying >= 0) this.tags.remove(id);
-      else
-        this.tags.place(
-          id,
-          r.info.name,
-          this.head.set(m.p[0], m.p[1] + (swim ? 1.1 : 2.05), m.p[2]),
-          r.accent,
-        );
+      else this.tags.place(id, r.info.name, this.head, r.accent);
     }
     this.figures.end();
   }

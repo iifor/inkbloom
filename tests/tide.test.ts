@@ -10,7 +10,7 @@ import { headless, type Headless } from './support/headless';
 
 const T = TUNING.tide;
 
-/** A 2×2 city with block 0 drained and the rest restored, so a tide can only strike its neighbours. */
+/** A 2×2 city with block 0 drained and its neighbours coloured but still vulnerable, so a tide can only strike its neighbours. */
 function setup(): {
   h: Headless;
   layout: CityLayout;
@@ -25,6 +25,11 @@ function setup(): {
   const saved = cityStates(h.ctx.state, layout.id, layout);
   const states = saved.states;
   layout.surfaces.forEach((s, i) => (states[i] = s.chunk === 0 ? DRAINED : ORIGINAL));
+  // A fully coloured neighbour is thriving and cannot be targeted.
+  for (let chunk = 1; chunk < layout.chunks ** 2; chunk++) {
+    const surface = layout.surfaces.findIndex((s) => s.chunk === chunk);
+    states[surface] = DRAINED;
+  }
   const per = layout.size / layout.chunks;
   const spawned: number[] = [];
   const knock: (() => void)[] = [];
@@ -85,9 +90,11 @@ describe('ink tide', () => {
     expect(chunk).not.toBe(0);
     expect(h.count('tide:warning')).toBe(1);
 
+    const before = coloredRatio(states, layout.surfaces, chunk);
+    expect(before).toBeGreaterThanOrEqual(TUNING.blocks.coloredAt);
     h.run(T.warning - 1, (dt) => tide.update(dt));
     expect(spawned).toEqual([]);
-    expect(coloredRatio(states, layout.surfaces, chunk)).toBe(1);
+    expect(coloredRatio(states, layout.surfaces, chunk)).toBe(before);
 
     h.run(T.duration + 2, (dt) => tide.update(dt));
     expect(spawned).toEqual([chunk]);

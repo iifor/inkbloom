@@ -15,9 +15,15 @@
     14px/1.5 system-ui,
     sans-serif;
 }
-.character-motion-preview > span {
-  display: block;
+.character-motion-preview > .preview-heading {
+  align-items: center;
+  justify-content: space-between;
   margin-bottom: 8px;
+}
+.preview-heading > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 .character-motion-preview > div {
   display: flex;
@@ -43,6 +49,9 @@
   align-items: center;
   gap: 12px;
   margin-top: 10px;
+}
+.character-motion-preview label[hidden] {
+  display: none;
 }
 .character-motion-preview input {
   flex: 1;

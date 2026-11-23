@@ -27,8 +27,6 @@ export const TEAM_NAMES = ['红队', '蓝队'] as const;
 /** Lines kept in the kill feed, and how long each shows. */
 const FEED = 5;
 const FEED_SECONDS = 6;
-/** Out past the wall for this long (flying, say) and you have left. */
-const OUTSIDE_SECONDS = 2;
 
 const v3 = (v: Vec3): THREE.Vector3 => new THREE.Vector3(v[0], v[1], v[2]);
 
@@ -42,7 +40,8 @@ export class ArenaSystem implements System, ArenaApi {
   /** When the last state arrived (this system's clock), to count its seconds down. */
   private stateAt = 0;
   private wasInside = false;
-  private outside = 0;
+  leaving = false;
+  private safe: { pos: THREE.Vector3; yaw: number } | null = null;
   private t = 0;
   private stopTargets: (() => void) | null = null;
   private readonly root = new THREE.Group();
@@ -87,17 +86,19 @@ export class ArenaSystem implements System, ArenaApi {
   }
 
   join(): void {
-    if (this.inside) return;
+    if (this.inside || this.back || this.net.down) return;
     // to come back here afterwards
-    this.back = { pos: this.ctx.player.position.clone(), yaw: this.ctx.player.yaw };
-    this.ctx.player.flying = false;
+    const player = this.ctx.player;
+    this.back = player.flying || player.gliding
+      ? this.ctx.scenes.respawnPoint(player.position)
+      : { pos: player.position.clone(), yaw: player.yaw };
     this.net.send({ t: 'arena', a: 'join' });
   }
 
   leave(): void {
-    if (!this.inside) return;
+    if (!this.inside || this.leaving) return;
+    this.leaving = true;
     this.net.send({ t: 'arena', a: 'leave' });
-    this.left();
   }
 
   vote(mode: ArenaMode): void {
@@ -112,11 +113,20 @@ export class ArenaSystem implements System, ArenaApi {
     this.t += dt;
     while (this.feed.length && this.t - this.feed[0]!.t > FEED_SECONDS) this.feed.shift();
     if (!this.inside) return;
-    // A player who flies over the perimeter and stays outside has left the arena.
-    const p = this.ctx.player.position;
-    const far = Math.hypot(p.x - this.site.x, p.z - this.site.z) > this.site.radius + 6;
-    this.outside = far ? this.outside + dt : 0;
-    if (this.outside > OUTSIDE_SECONDS) this.leave();
+    if (this.leaving && this.net.down && this.state) {
+      this.state = { ...this.state, members: this.state.members.filter((m) => m.id !== this.me) };
+      this.left();
+      this.ctx.events.emit('arena:changed', {});
+      return;
+    }
+    const player = this.ctx.player;
+    const p = player.position;
+    const distance = Math.hypot(p.x - this.site.x, p.z - this.site.z);
+    if (this.safe && distance > this.site.radius) player.teleport(this.safe.pos, this.safe.yaw);
+    else if (this.safe && player.grounded && distance < this.site.radius - 1) {
+      this.safe.pos.copy(p);
+      this.safe.yaw = player.yaw;
+    }
   }
 
   private handle(m: ServerMessage): void {
@@ -192,6 +202,8 @@ export class ArenaSystem implements System, ArenaApi {
           break;
         }
         const pos = v3(m.p);
+        this.safe = { pos: pos.clone(), yaw: m.yaw };
+        this.ctx.player.flying = false;
         this.ctx.combat.serverHealth(true);
         this.ctx.scenes.enterWild({ pos, yaw: m.yaw });
         this.ctx.combat.rise(pos, m.yaw);
@@ -213,20 +225,22 @@ export class ArenaSystem implements System, ArenaApi {
 
   private entered(): void {
     this.wasInside = true;
-    this.outside = 0;
     this.stopTargets = this.ctx.combat.addTargets(this.targets());
-    this.ctx.events.emit('title', { text: '竞技场', sub: '5 把武器都能用 · 倒下不掉墨' });
+    this.ctx.events.emit('title', { text: '竞技场', sub: 'Esc / P 打开菜单 · 退出竞技场' });
   }
 
   private left(): void {
     if (!this.wasInside) return;
     this.wasInside = false;
+    this.leaving = false;
+    this.safe = null;
+    this.feed.length = 0;
     this.stopTargets?.();
     this.stopTargets = null;
     this.ctx.combat.serverHealth(false);
     this.paintTeams();
     // back where they came from
-    if (this.back) this.ctx.scenes.enterWild(this.back);
+    this.ctx.scenes.enterWild(this.back ?? undefined);
     this.back = null;
   }
 

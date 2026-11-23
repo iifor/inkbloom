@@ -1,5 +1,4 @@
-// Colour that comes back without the brush: when a stronghold monster falls or a resident's
-// wish is granted, the drained surfaces nearest that spot return to their original colour.
+// A fallen stronghold monster releases the colour of nearby drained surfaces.
 // Pure, so the patch rules and the scene that shows the bloom agree on which surfaces.
 import { DRAINED, type SurfaceInfo } from './surfaces';
 

@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { color } from '@/content/palette';
 import { ALWAYS_COLOR, GeometryBuilder } from '@/engine/render/geometry-builder';
 import { splatGeometry } from '@/engine/render/soft-shapes';
-import type { GameContext } from '@/game/types';
+import type { GameContext, InteractionAction } from '@/game/types';
 import { hashString } from '@/world/math/hash';
 
 export class WildMarks {
@@ -25,7 +25,8 @@ export class WildMarks {
 
   private rebuild(): void {
     this.clear();
-    const marks = this.ctx.state.marks;
+    const ctx = this.ctx;
+    const marks = ctx.state.marks;
     if (!marks.length) return;
     const g = new GeometryBuilder();
     const m = new THREE.Matrix4();
@@ -42,14 +43,19 @@ export class WildMarks {
         color('charcoal'),
         ALWAYS_COLOR,
       );
+      let travel: InteractionAction | undefined;
       this.release.push(
-        this.ctx.interactions.add({
+        ctx.interactions.add({
           scene: 'wild',
           pos: new THREE.Vector3(k.x, k.y, k.z),
           radius: 3,
           label: () => `墨迹标记 ${k.id.slice(1)}`,
           activate: () => {},
-          alt: this.ctx.scenes.travelAction(k.id),
+          // Saved marks are built before the scene manager is assigned. Resolve the
+          // action on first use and keep it for the whole hold-to-travel interaction.
+          get alt() {
+            return (travel ??= ctx.scenes.travelAction(k.id));
+          },
         }),
       );
     }

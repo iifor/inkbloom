@@ -9,6 +9,7 @@ import { BRUSH_TIERS } from '@/content/brush-tiers';
 import { ALWAYS_COLOR, GeometryBuilder } from '@/engine/render/geometry-builder';
 import type { GameContext } from '@/game/types';
 import { type CityLayout, groundAt } from '@/world/city/layout';
+import { studioStockSince } from '@/world/city/blocks';
 import { studioOpen } from '@/world/city/features';
 import { WindFlags } from '@/engine/render/wind-flags';
 
@@ -128,7 +129,10 @@ export class Studios {
   /** Generic pigment a thriving studio is holding (for its prompt). */
   private stock(i: number): number {
     const s = this.layout.studios[i]!;
-    const from = this.ctx.state.cities.get(this.layout.id)?.stockFrom[s.chunk] ?? -1;
+    const from = studioStockSince(
+      this.chunkProgress(s.chunk),
+      this.ctx.state.cities.get(this.layout.id)?.stockFrom[s.chunk],
+    );
     if (from < 0) return 0;
     const made = Math.floor((this.ctx.state.clock - from) / TUNING.economy.studioStockSeconds);
     return Math.min(TUNING.economy.studioStockCap, made);

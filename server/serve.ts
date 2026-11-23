@@ -184,6 +184,9 @@ export function serve(host: WorldHost, opts: ServeOptions): Promise<Served> {
         return;
       }
       switch (m.t) {
+        case 'visit':
+          send(ws, host.visit(id, m.target, m.request));
+          break;
         case 'move':
           host.move(id, m, m.scene, m.town);
           break;
@@ -252,6 +255,7 @@ export function serve(host: WorldHost, opts: ServeOptions): Promise<Served> {
   // the world runs on: the clock, everyone's view of everyone near them, and the saves
   let last = performance.now();
   let dirtyFor = 0;
+  let directoryIn = 0;
   const timer = setInterval(() => {
     const now = performance.now();
     const dt = Math.min(0.5, (now - last) / 1000);
@@ -259,6 +263,11 @@ export function serve(host: WorldHost, opts: ServeOptions): Promise<Served> {
     // the clock only runs while someone is playing, as it does in a single-player world
     if (sockets.size) deliver(host.tick(dt));
     const keepers = host.keepers();
+    directoryIn -= dt;
+    if (directoryIn <= 0) {
+      directoryIn = 1;
+      for (const [id, ws] of sockets) send(ws, { t: 'friends', players: host.locations(id) });
+    }
     for (const [id, ws] of sockets)
       send(ws, {
         t: 'snap',

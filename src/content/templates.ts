@@ -13,7 +13,7 @@ export interface BuildingTemplate {
   /** Historical storeys used to calculate paint cost and the saved surface fingerprint. */
   readonly paintFloors: Range;
   readonly eaves: number;
-  /** Also seed resident recolour requests. Keep the original choices and order. */
+  /** Wall colours in seed order. */
   readonly walls: readonly number[];
   readonly roofs: readonly number[];
   readonly doors: readonly number[];

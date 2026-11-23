@@ -10,7 +10,7 @@ import type { SceneRef } from '../state';
 import type { Fix } from './fix';
 import { validCity, validPatch, validScene } from './validate';
 
-export const PROTOCOL = 2;
+export const PROTOCOL = 6;
 export const DEFAULT_PORT = 5195;
 export const DEFAULT_MAX_PLAYERS = 10;
 /** Motion updates per second, each way. */
@@ -27,7 +27,19 @@ export const DASHING = 8;
 export const PAINTING = 16;
 /** Sighting down a gun: the sniper's scope, or a skill that steadies the aim. */
 export const AIMING = 32;
-const FLAGS = 63;
+/** Seated paper-plane flight (F2), distinct from jumping and the overhead glider. */
+export const FLYING = 64;
+export const DOWNED = 128;
+const FLAGS = 255;
+
+/** Low-frequency directory, independent of nearby figure streaming. */
+export interface FriendLocation {
+  readonly id: number;
+  readonly p: Vec3 | null;
+  readonly scene: SceneRef | null;
+  readonly arena: boolean;
+  readonly alive: boolean;
+}
 
 /** What a player can have in hand for others to see: the brush or one of the weapons. The ink
  * marker and empty hands send nothing. */
@@ -48,17 +60,49 @@ export interface PlayerInfo {
 }
 
 export interface Motion {
+  /** Rest blends and anchored body heading, including the get-up transition. */
+  readonly rest?: RestMotion;
   readonly p: Vec3;
   readonly v: Vec3;
   readonly yaw: number;
   readonly pitch: number;
-  /** GROUNDED | GLIDING | SWIMMING | DASHING | PAINTING | AIMING */
+  /** GROUNDED | GLIDING | SWIMMING | DASHING | PAINTING | AIMING | FLYING */
   readonly f: number;
   /** What is in hand; absent for nothing. */
   readonly h?: HeldItem;
 }
 
+export interface RestMotion {
+  readonly sitting: number;
+  readonly lying: number;
+  readonly groundPitch: number;
+  readonly groundRoll: number;
+  readonly yaw: number;
+}
+
+export function validRest(value: unknown): RestMotion | null {
+  if (!value || typeof value !== 'object') return null;
+  const r = value as RestMotion;
+  if (
+    ![r.sitting, r.lying, r.groundPitch, r.groundRoll, r.yaw].every(finite) ||
+    r.sitting < 0 ||
+    r.lying < 0 ||
+    r.sitting + r.lying > 1.000001 ||
+    Math.abs(r.groundPitch) > 0.6 ||
+    Math.abs(r.groundRoll) > 0.6
+  )
+    return null;
+  return {
+    sitting: r.sitting,
+    lying: r.lying,
+    groundPitch: r.groundPitch,
+    groundRoll: r.groundRoll,
+    yaw: r.yaw % (Math.PI * 2),
+  };
+}
+
 export type ClientMessage =
+  | { readonly t: 'visit'; readonly target: number; readonly request: number }
   | {
       readonly t: 'hello';
       readonly v: number;
@@ -100,6 +144,13 @@ export const WEAPON_ACTS: Readonly<Record<WeaponKey, readonly [attack: ActKind, 
 };
 
 export type ServerMessage =
+  | { readonly t: 'friends'; readonly players: readonly FriendLocation[] }
+  | {
+      readonly t: 'visit';
+      readonly request: number;
+      readonly target: FriendLocation | null;
+      readonly reason: string;
+    }
   | {
       readonly t: 'welcome';
       readonly v: number;
@@ -174,7 +225,6 @@ export const SHARED_KINDS: ReadonlySet<Patch['kind']> = new Set([
   'defeat',
   'hunt',
   'cleanse',
-  'request',
   'collectStock',
   'complete',
 ]);
@@ -201,6 +251,13 @@ export function parseClientMessage(text: string): ClientMessage | null {
   }
   if (!m || typeof m !== 'object') return null;
   switch (m.t) {
+    case 'visit':
+      return Number.isSafeInteger(m.target) &&
+        Number(m.target) > 0 &&
+        Number.isSafeInteger(m.request) &&
+        Number(m.request) > 0
+        ? { t: 'visit', target: Number(m.target), request: Number(m.request) }
+        : null;
     case 'hello': {
       const look = validLook(m.look);
       if (!finite(m.v) || typeof m.token !== 'string' || !/^[\w-]{8,64}$/.test(m.token) || !look) return null;
@@ -217,6 +274,8 @@ export function parseClientMessage(text: string): ClientMessage | null {
       if (h === undefined && m.h !== undefined && m.h !== null) return null;
       const town = validCity(m.town) ? m.town : null;
       const pitch = Math.max(-1.6, Math.min(1.6, m.pitch));
+      const rest = m.rest === undefined ? null : validRest(m.rest);
+      if (m.rest !== undefined && !rest) return null;
       const move = {
         t: 'move',
         p,
@@ -226,6 +285,7 @@ export function parseClientMessage(text: string): ClientMessage | null {
         f: m.f & FLAGS,
         scene: s,
         town,
+        ...(rest && !(m.f & (FLYING | GLIDING | SWIMMING | DOWNED)) ? { rest } : {}),
       } as const;
       return h ? { ...move, h } : move;
     }
@@ -264,4 +324,17 @@ export function parseServerMessage(text: string): ServerMessage | null {
   } catch {
     return null;
   }
+}
+
+export function validFriendLocation(value: unknown): value is FriendLocation {
+  if (!value || typeof value !== 'object') return false;
+  const m = value as FriendLocation;
+  return (
+    Number.isSafeInteger(m.id) &&
+    m.id > 0 &&
+    (m.p === null || vec3(m.p, MAX_COORD) !== null) &&
+    (m.scene === null || validScene(m.scene) !== null) &&
+    typeof m.arena === 'boolean' &&
+    typeof m.alive === 'boolean'
+  );
 }

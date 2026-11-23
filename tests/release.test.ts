@@ -20,8 +20,6 @@ function row(n: number, gap: number): SurfaceInfo[] {
   }));
 }
 
-const walls = { px: 0, nx: 1, pz: 2, nz: 3 };
-
 function skeleton(surfaces: SurfaceInfo[]): CitySkeleton {
   return {
     chunks: 1,
@@ -33,19 +31,7 @@ function skeleton(surfaces: SurfaceInfo[]): CitySkeleton {
       { type: 0, x: 0, z: 0, chunk: 0 },
       { type: 0, x: 500, z: 0, chunk: 0 },
     ],
-    requests: [
-      {
-        building: 9,
-        chunk: 0,
-        kind: 'fetch',
-        color: color('blue'),
-        count: 2,
-        resident: '阿梅',
-        line: '',
-        door: { x: 0, z: 0 },
-        walls,
-      },
-    ],
+    residents: [],
   };
 }
 
@@ -67,7 +53,7 @@ describe('releaseAround', () => {
   });
 });
 
-describe('colour freed by fighting and wishes', () => {
+describe('colour freed by fighting', () => {
   const rule = TUNING.release.monster;
 
   it('a defeated stronghold monster gives back the colour around its post', () => {
@@ -97,16 +83,5 @@ describe('colour freed by fighting and wishes', () => {
     applyPatch(s, { kind: 'defeat', city: 'c', monster: 0 }, ctx);
     expect(s.cities.get('c')!.states[0]).toBe(graffiti(color('blue')));
     expect(s.cities.get('c')!.states[1]).toBe(ORIGINAL);
-  });
-
-  it('a granted wish brightens the street around the resident’s door', () => {
-    const skel = skeleton(row(40, 1));
-    const ctx = ctxFor(skel);
-    const s = createWorldState('w', 1);
-    s.inventory.generic = 2;
-    expect(applyPatch(s, { kind: 'request', city: 'c', request: 0 }, ctx).ok).toBe(true);
-    const freed = [...s.cities.get('c')!.states].filter((v) => v === ORIGINAL).length;
-    const r = TUNING.release.request;
-    expect(freed).toBe(Math.min(r.max, Math.floor(r.radius) + 1));
   });
 });

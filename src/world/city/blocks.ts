@@ -1,5 +1,4 @@
-// Block (city chunk) rules as pure functions of the skeleton and the surface states. Nothing
-// here is saved: a block's state is read from how much of it has colour.
+// Street colour determines block state; existing studio production also counts towards prosperity.
 import { TUNING } from '@/content/tuning';
 import { coloredRatio, isColored, type SurfaceInfo } from '../paint/surfaces';
 
@@ -12,10 +11,17 @@ export const BLOCK_NAMES: Record<BlockState, string> = {
   thriving: '繁荣',
 };
 
-/** A block's state from its share of colour, and whether its residents' requests are done. */
-export function blockState(ratio: number, requestsDone = false): BlockState {
+/** Naturally full-colour blocks and older fully restored blocks have no recorded start.
+ * They use the world clock origin until their first collection. */
+export function studioStockSince(ratio: number, recorded = -1): number {
+  if (recorded >= 0) return recorded;
+  return ratio >= TUNING.blocks.thrivingAt ? 0 : -1;
+}
+
+/** A studio that already produces keeps its thriving status while the block has colour. */
+export function blockState(ratio: number, stockFrom = -1): BlockState {
   const b = TUNING.blocks;
-  if (ratio >= b.coloredAt) return requestsDone ? 'thriving' : 'colored';
+  if (ratio >= b.coloredAt) return studioStockSince(ratio, stockFrom) >= 0 ? 'thriving' : 'colored';
   if (ratio >= b.clearedAt) return 'cleared';
   return 'drained';
 }
@@ -51,10 +57,10 @@ export function blockStates(
   states: Uint8Array,
   surfaces: readonly SurfaceInfo[],
   side: number,
-  requestsDone: (chunk: number) => boolean = () => false,
+  stockFrom: readonly number[] = [],
 ): BlockState[] {
   return Array.from({ length: side * side }, (_, c) =>
-    blockState(coloredRatio(states, surfaces, c), requestsDone(c)),
+    blockState(coloredRatio(states, surfaces, c), stockFrom[c]),
   );
 }
 

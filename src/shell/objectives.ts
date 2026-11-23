@@ -53,15 +53,6 @@ export class ObjectiveSystem implements System {
     this.text = b.metres < 6 ? line : `${line}　${b.arrow} ${b.metres} 米`;
   }
 
-  /** Open wishes in the player's block, once the block itself is coloured. */
-  private wishes(scene: CityScene): { wishes: number; nearestWish: Point | null } {
-    const p = this.ctx.player.position;
-    const chunk = scene.chunkAt(p);
-    const state = scene.blocks()[chunk];
-    if (state !== 'colored') return { wishes: 0, nearestWish: null };
-    return { wishes: scene.residents.open(chunk), nearestWish: scene.residents.nearestOpen(chunk, p) };
-  }
-
   private situation(): Situation {
     const { state, player, wilderness, cities } = this.ctx;
     const p = player.position;
@@ -106,7 +97,6 @@ export class ObjectiveSystem implements System {
           guards: scene.monsters.standing(scene.chunkAt(p)),
           nearestGuard: near(scene.monsters.group.living('stronghold').map((v) => ({ x: v.x, z: v.z }))),
           holdsWeapon: this.belt.active?.id === 'weapons',
-          ...this.wishes(scene),
         },
       };
     }

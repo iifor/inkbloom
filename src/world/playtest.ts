@@ -178,7 +178,6 @@ const KIND_NAMES: Record<string, string> = {
   death: '倒下掉墨',
   recover: '捡回掉落',
   discover: '发现遗迹',
-  request: '完成心愿',
   mark: '放墨迹标记',
   unmark: '收回标记',
   tideHeld: '守住墨潮',

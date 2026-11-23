@@ -142,6 +142,34 @@ export class WildScene implements GameScene {
     this.load(Math.floor(x / W.chunkSize), Math.floor(z / W.chunkSize));
   }
 
+  /** Populate the detailed neighbourhood and the first visual terrain beyond it. */
+  async prepareStartup(nextFrame: () => Promise<void>, progress: (done: number) => void): Promise<void> {
+    const p = this.ctx.player.position;
+    const cx = Math.floor(p.x / W.chunkSize);
+    const cz = Math.floor(p.z / W.chunkSize);
+    let done = 0;
+    for (let dz = -1; dz <= 1; dz++)
+      for (let dx = -1; dx <= 1; dx++) {
+        const x = cx + dx,
+          z = cz + dz;
+        if (!this.loaded.has(chunkKey(x, z))) {
+          const steps = this.loadSteps(x, z);
+          let until = performance.now() + BUILD_MS;
+          while (!steps.next().done) {
+            if (performance.now() < until) continue;
+            this.landscape.update(p, this.loaded);
+            await nextFrame();
+            until = performance.now() + BUILD_MS;
+          }
+        }
+        progress(++done);
+      }
+    do {
+      this.landscape.update(p, this.loaded);
+      if (!this.landscape.startupReady) await nextFrame();
+    } while (!this.landscape.startupReady);
+  }
+
   update(dt: number): void {
     const p = this.ctx.player.position;
     const pcx = Math.floor(p.x / W.chunkSize);

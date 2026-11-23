@@ -5,6 +5,7 @@ import type { Gesture, HeldItem } from '@/world/net/protocol';
 import { heldIn, holdPose } from './player-hold';
 import type { Rig } from './player-rig';
 import { swimArms } from './player-swim';
+import { restHands } from './player-rest';
 
 /** What a player's figure is doing this frame. */
 export interface PlayerPose {
@@ -20,6 +21,8 @@ export interface PlayerPose {
   readonly stride: number;
   readonly air: boolean;
   readonly glide: boolean;
+  /** F2 flight: seated on a paper plane; angles tilt rider and vehicle together. */
+  readonly flight?: { readonly blend: number; readonly bank: number; readonly pitch: number };
   /** Swimming in deep water: lying along the surface, arms stroking, legs kicking. */
   readonly swim?: boolean;
   /** Blend from standing into the two resting poses. */
@@ -65,13 +68,25 @@ function poseRest(r: Rig, { sitting, lying }: NonNullable<PlayerPose['rest']>): 
   const standing = 1 - sitting - lying;
   const blend = (upright: number, seated: number, flat: number): number =>
     upright * standing + seated * sitting + flat * lying;
-  const seatHeight = 0.155;
-  const seatTilt = 0.2;
-  const seatElbow = r.armLengths ? 0.55 : 0.95;
+  const seatHeight = 0.12;
+  const seatTilt = 0.55;
+  // The imported outfits have different torso/arm ratios. Recline only as far as
+  // their shoulder height requires to plant the wrists without stretching bones.
+  const reachLength = r.armLengths ? r.armLengths[0] + r.armLengths[1] : 0.59;
+  const chestBase =
+    seatHeight + r.torso.position.y * Math.cos(seatTilt) - r.torso.position.z * Math.sin(seatTilt);
+  const shoulderRadius = Math.hypot(r.armR.position.y, r.armR.position.z);
+  const seatTorso = Math.max(
+    0.12,
+    Math.acos(Math.max(-1, Math.min(1, (reachLength - 0.025 - chestBase) / shoulderRadius))) -
+      Math.atan2(r.armR.position.z, r.armR.position.y) -
+      seatTilt,
+  );
   const backTilt = 1.5;
   r.hips.position.y = blend(r.hips.position.y, seatHeight, 0.22);
   r.hips.rotation.x = blend(r.hips.rotation.x, seatTilt, backTilt);
-  r.torso.rotation.x = blend(r.torso.rotation.x, -0.26, 0.015);
+  r.torso.rotation.x = blend(r.torso.rotation.x, seatTorso, 0.015);
+  r.head.rotation.x = blend(r.head.rotation.x, -(seatTilt + seatTorso) * 0.65, -0.04);
   for (const side of ['L', 'R'] as const) {
     const sign = side === 'L' ? -1 : 1;
     const leg = r[`leg${side}`];
@@ -105,9 +120,10 @@ function poseRest(r: Rig, { sitting, lying }: NonNullable<PlayerPose['rest']>): 
     foot.rotation.x = blend(0, 0.14 - shinPitch, 1.14 - flatShinPitch);
     arm.x = blend(arm.x, 0.34, -0.23);
     arm.z = blend(arm.z, sign * 0.2, sign * 0.34);
-    fore.x = blend(fore.x, seatElbow, 0.09);
+    fore.x = blend(fore.x, 0.15, 0.09);
     fore.z = blend(fore.z, -sign * 0.15, -sign * 0.06);
   }
+  restHands(r, sitting, lying);
 }
 
 /** Pose a rig for one frame (exported for tests). */
@@ -182,6 +198,25 @@ export function posePlayer(r: Rig, p: PlayerPose): void {
     lift = 0.6;
   }
   if (p.rest) poseRest(r, p.rest);
+  if (p.flight && p.flight.blend > 0 && p.dying < 0) {
+    const f = p.flight.blend;
+    const blend = (from: number, to: number): number => from + (to - from) * f;
+    r.hips.position.y = blend(r.hips.position.y, 1.02);
+    r.hips.rotation.x *= 1 - f;
+    r.torso.rotation.x = blend(r.torso.rotation.x, -0.12);
+    r.head.rotation.x = blend(r.head.rotation.x, p.pitch * 0.4);
+    for (const side of ['L', 'R'] as const) {
+      const sign = side === 'L' ? -1 : 1;
+      const leg = r[`leg${side}`].rotation;
+      leg.set(blend(leg.x, 1.42), blend(leg.y, -sign * 0.18), 0);
+      r[`shin${side}`].rotation.x = blend(r[`shin${side}`].rotation.x, -0.88);
+      r[`foot${side}`].rotation.x = -0.38 * f;
+      const arm = r[`arm${side}`].rotation;
+      arm.set(blend(arm.x, 0.4), 0, blend(arm.z, sign * 0.25));
+      r[`fore${side}`].rotation.x = blend(r[`fore${side}`].rotation.x, 0.65);
+    }
+    lift = f;
+  }
   const item = heldIn(p);
   if (item) holdPose(r, p, item);
   if (p.hurt > 0) {
@@ -201,9 +236,9 @@ export function posePlayer(r: Rig, p: PlayerPose): void {
   r.root.position.set(p.x, p.y, p.z);
   const onGround = p.rest ? p.rest.sitting + p.rest.lying : 0;
   r.root.rotation.set(
-    (p.rest?.groundPitch ?? 0) * onGround,
+    (p.rest?.groundPitch ?? 0) * onGround + (p.flight?.pitch ?? 0) * (p.flight?.blend ?? 0),
     p.yaw,
-    (p.rest?.groundRoll ?? 0) * onGround,
+    (p.rest?.groundRoll ?? 0) * onGround + (p.flight?.bank ?? 0) * (p.flight?.blend ?? 0),
     'YXZ',
   );
   if (p.dying > 0.6) {

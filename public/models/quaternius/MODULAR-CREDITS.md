@@ -1,8 +1,10 @@
-# Modular Adventurer
+# Ultimate Modular Men — all eleven outfits
 
 Author: **Quaternius**.
 
-Pack: **Ultimate Modular Men Pack** (February 2022), **Adventurer**.
+Pack: **Ultimate Modular Men Pack** (February 2022): Adventurer, Beach, Casual, Casual2, Farmer, King, Punk, Spacesuit, Suit, Swat, Worker.
+
+The remaining ten source files were retrieved from the same public mirror on 2026-11-23. `manifest.json` records every source URL and source/export SHA-256. Each outfit retains its original geometry, clothing and weights, with normalized rest bones and InkBloom palette slots. The generated material-detail atlas is shared with KayKit characters; see `public/textures/characters/README.md`.
 
 - Author's pack page: https://quaternius.com/packs/ultimatemodularcharacters.html
 - Author's original folder: https://drive.google.com/drive/folders/1USAAquX2JJWuA2m6zol0KUkFe3UkZ8zX

@@ -52,6 +52,7 @@ export class Hud implements System {
   readonly id = 'hud';
   private readonly el: Record<
     | 'place'
+    | 'friend'
     | 'progress'
     | 'res'
     | 'goal'
@@ -100,6 +101,7 @@ export class Hud implements System {
     root.innerHTML = `
       <div class="hud-place"><b data-k="place"></b><span data-k="progress"></span><div class="hud-res" data-k="res"></div><div class="hud-goal" data-k="goal"></div></div>
       <div class="hud-tide" data-k="tide"></div>
+      <div class="hud-friend" data-k="friend"></div>
       <div class="hud-lowhp" data-k="lowhp"></div>
       <div class="hud-hurt" data-k="hurt"></div>
       <div class="hud-cross"></div>
@@ -112,6 +114,7 @@ export class Hud implements System {
     const q = (k: string): HTMLElement => root.querySelector<HTMLElement>(`[data-k="${k}"]`)!;
     this.el = {
       place: q('place'),
+      friend: q('friend'),
       progress: q('progress'),
       res: q('res'),
       goal: q('goal'),
@@ -211,6 +214,9 @@ export class Hud implements System {
   }
 
   update(): void {
+    const friend = this.ctx.net?.friendGuide ?? '';
+    this.set('friend', this.el.friend, friend);
+    this.shown('friend', this.el.friend, !!friend);
     const t = now();
     const scene = this.scenes.active;
     const brush = this.belt.active?.id === 'brush';

@@ -1,112 +1,59 @@
-// Residents with a wish: a small sign in the wanted colour beside their door, and an E prompt
-// that shows the wish and hands it in (a `request` patch). A done wish's sign turns cream, so
-// a finished street still reads as lived in.
-import * as THREE from 'three';
-import { PALETTE, color } from '@/content/palette';
-import { ALWAYS_COLOR, GeometryBuilder } from '@/engine/render/geometry-builder';
+import type * as THREE from 'three';
 import type { GameContext } from '@/game/types';
-import { recolorWalls } from '@/world/city/features';
+import { doorFront } from '@/world/city/features';
 import { type CityLayout, groundAt } from '@/world/city/layout';
+import {
+  KayKitVillager,
+  loadVillager,
+  VILLAGER_MODELS,
+  VILLAGER_ROLES,
+} from '@/systems/figures/kaykit-villager';
 
 export class Residents {
-  private readonly signs: THREE.Mesh[] = [];
-  private readonly release: (() => void)[] = [];
+  private readonly villagers: KayKitVillager[] = [];
+  private disposed = false;
 
   constructor(
     private readonly ctx: GameContext,
-    private readonly layout: CityLayout,
-    private readonly states: Uint8Array,
-    private readonly done: Uint8Array,
-    private readonly material: THREE.Material,
-    private readonly root: THREE.Object3D,
+    layout: CityLayout,
+    root: THREE.Object3D,
   ) {
-    layout.requests.forEach((r, i) => {
-      const mesh = new THREE.Mesh(this.signGeometry(r.door, done[i] ? color('cream') : r.color), material);
-      root.add(mesh);
-      this.signs.push(mesh);
-      this.release.push(
-        ctx.interactions.add({
-          scene: `city:${layout.id}`,
-          pos: new THREE.Vector3(r.door.x, groundAt(layout, r.door.x, r.door.z), r.door.z),
-          radius: 3,
-          label: () => this.label(i),
-          activate: () => this.handIn(i),
-        }),
-      );
+    if (typeof window === 'undefined') return;
+    layout.residents.forEach((resident, i) => {
+      const building = layout.buildings[resident.building];
+      if (!building) return;
+      const variant = VILLAGER_MODELS[(i + (layout.seed >>> 0)) % VILLAGER_MODELS.length]!;
+      void loadVillager(variant)
+        .then((source) => {
+          if (this.disposed) return;
+          const at = doorFront(building, 1.9);
+          // Stand beside the door, leaving the doorway open.
+          at.x += Math.cos(building.angle) * 0.95;
+          at.z -= Math.sin(building.angle) * 0.95;
+          const actor = new KayKitVillager(source, i * 0.37);
+          actor.root.position.set(at.x, groundAt(layout, at.x, at.z), at.z);
+          actor.root.rotation.y = building.angle;
+          actor.root.userData.resident = resident.name;
+          actor.root.userData.variant = variant;
+          actor.root.userData.profession = VILLAGER_ROLES[variant].profession;
+          root.add(actor.root);
+          this.villagers.push(actor);
+        })
+        .catch((error) => console.warn('村民模型加载失败', error));
     });
   }
 
-  private signGeometry(at: { x: number; z: number }, c: number): THREE.BufferGeometry {
-    const g = new GeometryBuilder();
-    const a = ALWAYS_COLOR;
-    const pole = color('brown');
-    const f = (v: number) => ({ px: v, nx: v, pz: v, nz: v, py: v, ny: v });
-    g.box(
-      { x: at.x - 0.05, y: 0, z: at.z - 0.05 },
-      { x: at.x + 0.05, y: 1.6, z: at.z + 0.05 },
-      f(pole),
-      f(a),
-    );
-    g.box({ x: at.x - 0.4, y: 1.3, z: at.z - 0.06 }, { x: at.x + 0.4, y: 1.9, z: at.z + 0.06 }, f(c), f(a));
-    return g.build().translate(0, groundAt(this.layout, at.x, at.z), 0);
-  }
-
-  private label(i: number): string {
-    const r = this.layout.requests[i]!;
-    if (this.done[i]) return `${r.resident}：谢谢你！`;
-    const name = PALETTE[r.color]!.name;
-    if (r.kind === 'recolor') {
-      const walls = recolorWalls(r, this.states);
-      return walls === 4
-        ? `E 告诉${r.resident}：房子涂成${name}了`
-        : `${r.resident}：“${r.line}”（用涂鸦把四面墙涂成${name}：${walls}/4）`;
+  update(dt: number): void {
+    for (const actor of this.villagers) {
+      const distance = actor.root.position.distanceToSquared(this.ctx.player.position);
+      actor.root.visible = distance < 100 * 100;
+      if (actor.root.visible) actor.update(dt, distance < 3.5 * 3.5);
     }
-    if (!this.ctx.state.unlocked.includes(r.color))
-      return `${r.resident}：“${r.line}”（先找到${name}的蜡笔）`;
-    const have = this.ctx.state.inventory.generic;
-    return have >= r.count
-      ? `E 调 ${r.count} 份${name}颜料交给${r.resident}`
-      : `${r.resident}：“${r.line}”（颜料 ${have}/${r.count}）`;
-  }
-
-  private handIn(i: number): void {
-    const r = this.layout.requests[i]!;
-    const result = this.ctx.apply({ kind: 'request', city: this.layout.id, request: i });
-    if (!result.ok) {
-      this.ctx.events.emit('toast', { text: result.reason });
-      return;
-    }
-    const old = this.signs[i]!;
-    old.geometry.dispose();
-    old.geometry = this.signGeometry(r.door, color('cream'));
-    this.ctx.events.emit('toast', { text: `${r.resident}的心愿完成了`, seconds: 4 });
-  }
-
-  /** Requests in a block not yet done. */
-  open(chunk: number): number {
-    return this.layout.requests.filter((r, i) => r.chunk === chunk && !this.done[i]).length;
-  }
-
-  /** Where the nearest open request of a block is, for objectives. */
-  nearestOpen(chunk: number, from: { x: number; z: number }): { x: number; z: number } | null {
-    let best: { x: number; z: number } | null = null;
-    let bestD = Infinity;
-    this.layout.requests.forEach((r, i) => {
-      if (r.chunk !== chunk || this.done[i]) return;
-      const d = Math.hypot(r.door.x - from.x, r.door.z - from.z);
-      if (d < bestD) {
-        bestD = d;
-        best = r.door;
-      }
-    });
-    return best;
   }
 
   dispose(): void {
-    for (const r of this.release) r();
-    for (const s of this.signs) {
-      s.geometry.dispose();
-      s.removeFromParent();
-    }
+    this.disposed = true;
+    for (const actor of this.villagers) actor.dispose();
+    this.villagers.length = 0;
   }
 }

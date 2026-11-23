@@ -1,7 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import { defaultLook } from '@/content/characters';
-import { PAINTABLE } from '@/content/palette';
-import { XP } from '@/content/progression';
 import { TUNING } from '@/content/tuning';
 import { standingMonsters, studioOpen } from '@/world/city/features';
 import { townLayout } from '@/world/city/layout';
@@ -65,7 +63,6 @@ describe('naturally peaceful villages', () => {
     for (let chunk = 0; chunk < layout.chunks ** 2; chunk++)
       expect(standingMonsters(layout, saved.defeated, chunk)).toHaveLength(0);
     expect(s.cities.get(first.cityId)).toMatchObject({ peaceful: true, completed: false });
-    expect(saved.requestsDone.every((v) => v === 0)).toBe(true);
     expect({ inventory: s.inventory, growth: s.growth }).toEqual(before);
     const ctx = context(s);
     for (const patch of [
@@ -80,33 +77,19 @@ describe('naturally peaceful villages', () => {
     expect(savedProgress(s, first.cityId)).toBe(1);
   });
 
-  it('keeps resident wishes and workshop stock earned, without restoration milestones', () => {
+  it('produces studio pigment on the world clock without granting restoration milestones', () => {
     const s = makeWorld();
     const data = cityStates(s, first.cityId, layout);
     const ctx = context(s);
-    s.inventory.generic = 100000;
-    s.unlocked = [...PAINTABLE];
-    expect(layout.requests.length).toBeGreaterThan(0);
+    expect(layout.residents.length).toBeGreaterThan(0);
     expect(layout.studios.every((_, i) => studioOpen(layout, data.states, i))).toBe(true);
     expect(applyPatch(s, { kind: 'collectStock', city: first.cityId, studio: 0 }, ctx).ok).toBe(false);
-    for (const [i, request] of layout.requests.entries()) {
-      if (request.kind === 'recolor') {
-        for (const surface of Object.values(request.walls))
-          expect(
-            applyPatch(s, { kind: 'paint', city: first.cityId, surface, color: request.color }, ctx).ok,
-          ).toBe(true);
-      }
-      expect(applyPatch(s, { kind: 'request', city: first.cityId, request: i }, ctx).ok).toBe(true);
-      expect(applyPatch(s, { kind: 'request', city: first.cityId, request: i }, ctx).ok).toBe(false);
-    }
-    expect(s.growth.xp).toBe(layout.requests.length * XP.request);
+    expect(s.growth.xp).toBe(0);
     expect(s.growth.milestones).not.toContain('first-block');
     expect(s.growth.milestones).not.toContain(`city:${first.cityId}:restored`);
     expect(s.inventory.glider).toBe(false);
-    const studio = layout.studios.findIndex((st) => s.cities.get(first.cityId)!.stockFrom[st.chunk]! >= 0);
-    expect(studio).toBeGreaterThanOrEqual(0);
     s.clock += TUNING.economy.studioStockSeconds;
-    expect(applyPatch(s, { kind: 'collectStock', city: first.cityId, studio }, ctx).ok).toBe(true);
+    expect(applyPatch(s, { kind: 'collectStock', city: first.cityId, studio: 0 }, ctx).ok).toBe(true);
   });
 
   it('preserves visited v1/v2 towns instead of silently normalising their progress', () => {
