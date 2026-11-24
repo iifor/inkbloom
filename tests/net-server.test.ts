@@ -19,7 +19,7 @@ interface Client {
   send(m: object): void;
 }
 
-function client(port: number, name: string, token: string): Promise<Client> {
+function client(port: number, name: string, token: string, hello: object = {}): Promise<Client> {
   const ws = new WebSocket(`ws://127.0.0.1:${port}`);
   const got: ServerMessage[] = [];
   const waiting: { t: string; test: (m: ServerMessage) => boolean; done: (m: ServerMessage) => void }[] = [];
@@ -46,7 +46,7 @@ function client(port: number, name: string, token: string): Promise<Client> {
   };
   return new Promise((done) =>
     ws.on('open', () => {
-      c.send({ t: 'hello', v: PROTOCOL, token, name, look: LOOK });
+      c.send({ t: 'hello', v: PROTOCOL, token, name, look: LOOK, ...hello });
       done(c);
     }),
   );
@@ -69,6 +69,82 @@ async function start(max = 10): Promise<number> {
 }
 
 describe('world server over WebSockets', () => {
+  it('streams room occupancy and lock status to an authenticated non-player', async () => {
+    const host = new WorldHost(createWorldState('directory', SEED), new Map(), 2);
+    server = await serve(host, { port: 0, bind: '127.0.0.1', password: 'service' });
+    const port = server.port;
+    const denied = await client(port, '', '', { t: 'listRooms', password: '' });
+    clients.push(denied);
+    expect(await denied.waitFor('refused')).toMatchObject({ password: true });
+    const observer = await client(port, '', '', { t: 'listRooms', password: 'service' });
+    clients.push(observer);
+    expect(await observer.waitFor('rooms')).toEqual({ t: 'rooms', rooms: [] });
+    expect(host.count).toBe(0);
+    const owner = await client(port, 'owner', 'directory-owner', {
+      room: { action: 'create' },
+      roomPassword: 'secret',
+      password: 'service',
+    });
+    clients.push(owner);
+    const welcome = await owner.waitFor('welcome');
+    if (welcome.t !== 'welcome') throw new Error('missing welcome');
+    const full = await client(port, 'guest', 'directory-guest', {
+      room: { action: 'join', code: welcome.room },
+      roomPassword: 'secret',
+      password: 'service',
+    });
+    clients.push(full);
+    const withCount = (count: number) =>
+      observer.waitFor('rooms', (m) => m.t === 'rooms' && m.rooms[0]?.count === count);
+    expect(await withCount(2)).toEqual({
+      t: 'rooms',
+      rooms: [{ code: welcome.room, count: 2, max: 2, locked: true }],
+    });
+    full.ws.close();
+    owner.ws.close();
+    expect(await withCount(0)).toMatchObject({ rooms: [{ count: 0 }] });
+    const open = await client(port, 'open', 'directory-open', {
+      room: { action: 'create' },
+      password: 'service',
+    });
+    clients.push(open);
+    expect(await observer.waitFor('rooms', (m) => m.t === 'rooms' && m.rooms.length === 2)).toMatchObject({
+      rooms: [{ locked: true }, { locked: false, count: 1 }],
+    });
+  });
+  it('isolates rooms and checks a private room password before joining', async () => {
+    const port = await start();
+    const enter = async (name: string, hello: object) => {
+      const c = await client(port, name, 'token-' + name, hello);
+      clients.push(c);
+      return c;
+    };
+    const create = { action: 'create' };
+    const owner = await enter('owner', { room: create, roomPassword: '花' });
+    const welcome = await owner.waitFor('welcome');
+    if (welcome.t !== 'welcome' || !welcome.room) throw new Error('missing room');
+    const join = { action: 'join', code: welcome.room };
+    const denied = await enter('guest', { room: join, roomPassword: '墨' });
+    expect(await denied.waitFor('refused')).toMatchObject({ roomPassword: true });
+    await new Promise<void>((done) =>
+      denied.ws.readyState === WebSocket.CLOSED ? done() : denied.ws.once('close', done),
+    );
+    const guest = await enter('guest', { room: join, roomPassword: '花' });
+    expect(await guest.waitFor('welcome')).toMatchObject({
+      room: welcome.room,
+      players: [{ name: 'owner' }],
+    });
+    const other = await enter('other', { room: create });
+    const open = await other.waitFor('welcome');
+    if (open.t !== 'welcome') throw new Error('missing welcome');
+    expect(open.players).toEqual([]);
+    expect(open.room).not.toBe(welcome.room);
+    const friend = await enter('friend', { room: { action: 'join', code: open.room } });
+    expect(await friend.waitFor('welcome')).toMatchObject({ players: [{ name: 'other' }] });
+    expect(await owner.waitFor('friends')).toMatchObject({
+      players: expect.not.arrayContaining([expect.objectContaining({ name: 'friend' })]),
+    });
+  });
   it('relays sitting, lying and getting up, then removes the pose on standing', async () => {
     const port = await start();
     const a = await client(port, '坐下的人', 'rest-aaaaaaaa');

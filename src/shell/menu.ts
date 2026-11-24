@@ -1,3 +1,4 @@
+import { ROOM_CODE, type RoomRequest } from '@/world/net/protocol';
 // The overlay menus: main menu at start, pause menu on Escape, and the
 // character, settings, world list and controls screens. Plain DOM; worlds switch by reloading
 // the page with ?world=<id>, so every world starts from a clean session.
@@ -25,6 +26,7 @@ import {
 import { yearDuration } from '@/world/climate/calendar';
 import type { WorldState } from '@/world/state';
 import type { FriendStatus } from '@/game/types';
+import { mountRooms, type WatchRooms } from './rooms-panel';
 import { mountFriends } from './friends-panel';
 import { VILLAGER_MODELS, VILLAGER_ROLES, type VillagerModel } from '@/systems/figures/kaykit-villager';
 
@@ -79,6 +81,8 @@ export interface MenuActions {
   visitFriend(id: number): boolean;
   /** The address used last time, to fill in the join screen. */
   lastServer(): string;
+  watchRooms: WatchRooms;
+  enterRoom(room: RoomRequest, password: string): void;
   joinServer(address: string): void;
   leaveServer(): void;
   /** The arena, or null when playing alone (there is one only on a server). */
@@ -119,7 +123,7 @@ export class Menu {
   private accentPicked = false;
   /** Choosing the first character, on the way into the game. */
   private firstRun = false;
-  private stopFriends: (() => void) | null = null;
+  private stopPanel: (() => void) | null = null;
   private villagerPreview: VillagerModel | null = null;
 
   constructor(
@@ -129,8 +133,8 @@ export class Menu {
   ) {}
 
   show(screen: Screen): void {
-    this.stopFriends?.();
-    this.stopFriends = null;
+    this.stopPanel?.();
+    this.stopPanel = null;
     if (screen === 'main' || screen === 'pause') this.back = screen;
     this.screen = screen;
     this.root.hidden = false;
@@ -140,8 +144,8 @@ export class Menu {
   }
 
   hide(): void {
-    this.stopFriends?.();
-    this.stopFriends = null;
+    this.stopPanel?.();
+    this.stopPanel = null;
     this.root.hidden = true;
     this.root.classList.remove('side');
     this.actions.preview(null);
@@ -215,10 +219,17 @@ export class Menu {
         break;
       case 'join':
         body = `<h2>联机</h2>
-          <p>和朋友进同一个世界，最多 10 人。开服的人在项目里运行 <b>npm run server</b>，把那台电脑的地址发给大家。</p>
-          <label>地址 <input type="text" data-server placeholder="例如 192.168.1.20:5195" value="${esc(this.actions.lastServer())}"></label>
-          <button class="primary" data-a="join-go">加入</button>
-          <p class="hint">联机时用的是服务器上的世界，你在单人世界里的进度不受影响。</p>
+          <section data-rooms aria-label="房间列表"></section>
+          <details><summary>创建新房间</summary>
+          <label>房间密码 <input type="password" data-room-password maxlength="128" autocomplete="off" placeholder="留空即可直接加入"></label>
+          <button data-a="room-create">创建房间</button>
+          <p class="hint">所有人离开 5 分钟后，房间和进度会清除。</p></details>
+          <details><summary>用房间号加入</summary>
+          <label>房间号 <input type="text" data-room maxlength="6" placeholder="6 位房间号"></label>
+          <button data-a="room-join">加入房间</button></details>
+          <details><summary>直连已有世界服务器</summary>
+          <label>地址 <input data-server value="${esc(this.actions.lastServer())}"></label>
+          <button data-a="join-go">直连世界</button></details>
           <button data-a="back">返回</button>`;
         break;
       case 'friends':
@@ -341,9 +352,17 @@ export class Menu {
     const characterList = this.root.querySelector('.chars');
     if (characterList) characterList.scrollTop = characterScroll;
     this.bind();
+    if (this.screen === 'join') {
+      this.stopPanel?.();
+      this.stopPanel = mountRooms(
+        this.root.querySelector('[data-rooms]')!,
+        this.actions.watchRooms,
+        (code, password) => this.actions.enterRoom({ action: 'join', code }, password),
+      );
+    }
     if (this.screen === 'friends') {
-      this.stopFriends?.();
-      this.stopFriends = mountFriends(
+      this.stopPanel?.();
+      this.stopPanel = mountFriends(
         this.root.querySelector('[data-friends]')!,
         () => this.actions.online()?.friends ?? [],
         (id) => this.actions.trackFriend(id),
@@ -466,6 +485,23 @@ export class Menu {
         // the server's answer comes back in a moment; show it then
         setTimeout(() => this.screen === 'arena' && this.show('arena'), 150);
         break;
+      case 'room-create':
+      case 'room-join': {
+        const input = this.root.querySelector<HTMLInputElement>('[data-room]')!;
+        const code = input.value.trim().toUpperCase();
+        if (a === 'room-join' && !ROOM_CODE.test(code)) {
+          input.setCustomValidity('请输入 6 位房间号（数字或 A–F）');
+          input.reportValidity();
+          input.oninput = () => input.setCustomValidity('');
+          break;
+        }
+        const password = this.root.querySelector<HTMLInputElement>('[data-room-password]')!.value;
+        this.actions.enterRoom(
+          a === 'room-create' ? { action: 'create' } : { action: 'join', code },
+          a === 'room-create' ? password : '',
+        );
+        break;
+      }
       case 'join-go': {
         const addr = this.root.querySelector<HTMLInputElement>('input[data-server]')?.value.trim();
         if (addr) this.actions.joinServer(addr);

@@ -1,4 +1,4 @@
-// The world server: one world, up to --max players (10 by default), over WebSockets.
+// The world server: a persistent world and temporary rooms, each up to --max players (10 by default), over WebSockets.
 //
 //   npm run server                      # world "default" on port 5195
 //   npm run server -- --world mine --port 5195 --max 10 --host 0.0.0.0

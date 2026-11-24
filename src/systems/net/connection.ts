@@ -4,6 +4,8 @@
 import type { Look } from '@/content/characters';
 import {
   type ClientMessage,
+  type RoomRequest,
+  type RoomInfo,
   DEFAULT_PORT,
   PROTOCOL,
   type ServerMessage,
@@ -62,6 +64,7 @@ export class JoinRefused extends Error {
   constructor(
     message: string,
     readonly password: boolean,
+    readonly roomPassword = false,
   ) {
     super(message);
   }
@@ -76,16 +79,62 @@ export function playerToken(kv: KeyValue, url: string): string {
   const key = `inkbloom:token:${url}`;
   let t = kv.getItem(key);
   if (!t || !/^[\w-]{8,64}$/.test(t)) {
-    t = crypto.randomUUID();
+    t = Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, '0')).join(
+      '',
+    );
     kv.setItem(key, t);
   }
   return t;
 }
 
+export function roomServerUrl(): string {
+  const endpoint = new URL('/multiplayer', location.href);
+  endpoint.protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  return endpoint.href;
+}
+
+export function watchRooms(
+  url: string,
+  password: string,
+  update: (rooms: readonly RoomInfo[]) => void,
+  failed: (reason: string, needsPassword: boolean) => void,
+): () => void {
+  const ws = new WebSocket(url);
+  const timer = window.setTimeout(() => fail('房间列表请求超时'), 8000);
+  function stop() {
+    clearTimeout(timer);
+    ws.onmessage = ws.onclose = ws.onopen = ws.onerror = null;
+    ws.close();
+  }
+  function fail(reason: string, needsPassword = false) {
+    stop();
+    failed(reason, needsPassword);
+  }
+  ws.onopen = () =>
+    ws.send(JSON.stringify({ t: 'listRooms', v: PROTOCOL, password } satisfies ClientMessage));
+  ws.onmessage = (event) => {
+    const m = parseServerMessage(String(event.data));
+    if (m?.t === 'refused') fail(m.reason, m.password);
+    if (m?.t === 'rooms') {
+      clearTimeout(timer);
+      update(m.rooms);
+    }
+  };
+  ws.onclose = ws.onerror = () => fail('无法连接房间服务');
+  return stop;
+}
+
 /** Connect and join; rejects with a message for the player if it does not work. */
 export function connect(
   url: string,
-  hello: { readonly token: string; readonly name: string; readonly look: Look; readonly password: string },
+  hello: {
+    readonly token: string;
+    readonly name: string;
+    readonly look: Look;
+    readonly password: string;
+    readonly room?: RoomRequest;
+    readonly roomPassword?: string;
+  },
   timeoutMs = 8000,
 ): Promise<Connection> {
   return new Promise((resolve, reject) => {
@@ -109,9 +158,14 @@ export function connect(
       const m = parseServerMessage(String(e.data));
       if (m?.t === 'refused') {
         clearTimeout(timer);
-        reject(new JoinRefused(m.reason, m.password === true));
+        reject(new JoinRefused(m.reason, m.password === true, m.roomPassword === true));
       } else if (m?.t === 'welcome') {
         clearTimeout(timer);
+        if (hello.room && !m.room) {
+          ws.close();
+          reject(new Error('服务器需要更新才能使用房间'));
+          return;
+        }
         resolve(new Connection(ws, url, m));
       }
     };

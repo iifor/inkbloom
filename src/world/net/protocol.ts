@@ -101,7 +101,17 @@ export function validRest(value: unknown): RestMotion | null {
   };
 }
 
+export type RoomRequest = { readonly action: 'create' } | { readonly action: 'join'; readonly code: string };
+export interface RoomInfo {
+  readonly code: string;
+  readonly count: number;
+  readonly max: number;
+  readonly locked: boolean;
+}
+export const ROOM_CODE = /^[A-F0-9]{6}$/;
+
 export type ClientMessage =
+  | { readonly t: 'listRooms'; readonly v: number; readonly password: string }
   | { readonly t: 'visit'; readonly target: number; readonly request: number }
   | {
       readonly t: 'hello';
@@ -112,6 +122,8 @@ export type ClientMessage =
       readonly look: Look;
       /** The server's password, if it has one. */
       readonly password?: string;
+      readonly room?: RoomRequest;
+      readonly roomPassword?: string;
     }
   /** Where the player is, 20 times a second; `town` is the town they are inside, if any. */
   | (Motion & { readonly t: 'move'; readonly scene: SceneRef; readonly town: string | null })
@@ -144,6 +156,7 @@ export const WEAPON_ACTS: Readonly<Record<WeaponKey, readonly [attack: ActKind, 
 };
 
 export type ServerMessage =
+  | { readonly t: 'rooms'; readonly rooms: readonly RoomInfo[] }
   | { readonly t: 'friends'; readonly players: readonly FriendLocation[] }
   | {
       readonly t: 'visit';
@@ -153,6 +166,7 @@ export type ServerMessage =
     }
   | {
       readonly t: 'welcome';
+      readonly room?: string;
       readonly v: number;
       readonly id: number;
       readonly max: number;
@@ -163,7 +177,12 @@ export type ServerMessage =
     }
   /** The server will not take this player (full, a different version, or the password: then
    * `password` is set so the client can ask for it). */
-  | { readonly t: 'refused'; readonly reason: string; readonly password?: boolean }
+  | {
+      readonly t: 'refused';
+      readonly reason: string;
+      readonly password?: boolean;
+      readonly roomPassword?: boolean;
+    }
   | { readonly t: 'joined'; readonly player: PlayerInfo }
   /** Another player nearby attacked or used a skill (outside the arena). */
   | { readonly t: 'gesture'; readonly from: number; readonly g: Gesture }
@@ -251,6 +270,10 @@ export function parseClientMessage(text: string): ClientMessage | null {
   }
   if (!m || typeof m !== 'object') return null;
   switch (m.t) {
+    case 'listRooms':
+      return finite(m.v) && typeof m.password === 'string' && m.password.length <= 128
+        ? { t: 'listRooms', v: m.v, password: m.password }
+        : null;
     case 'visit':
       return Number.isSafeInteger(m.target) &&
         Number(m.target) > 0 &&
@@ -262,6 +285,30 @@ export function parseClientMessage(text: string): ClientMessage | null {
       const look = validLook(m.look);
       if (!finite(m.v) || typeof m.token !== 'string' || !/^[\w-]{8,64}$/.test(m.token) || !look) return null;
       const password = typeof m.password === 'string' ? m.password.slice(0, 128) : '';
+      if (m.room !== undefined) {
+        const room = m.room as Partial<{ action: string; code: string }> | null;
+        if (
+          !room ||
+          (room.action !== 'create' &&
+            !(room.action === 'join' && typeof room.code === 'string' && ROOM_CODE.test(room.code)))
+        )
+          return null;
+        if (
+          m.roomPassword !== undefined &&
+          (typeof m.roomPassword !== 'string' || m.roomPassword.length > 128)
+        )
+          return null;
+        return {
+          t: 'hello',
+          v: m.v,
+          token: m.token,
+          name: cleanName(m.name),
+          look,
+          password,
+          room: room.action === 'create' ? { action: 'create' } : { action: 'join', code: room.code! },
+          roomPassword: m.roomPassword,
+        };
+      }
       return { t: 'hello', v: m.v, token: m.token, name: cleanName(m.name), look, password };
     }
     case 'move': {

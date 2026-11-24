@@ -6,11 +6,13 @@
 // What a connection may do is limited here: pages from other web sites cannot connect (Origin
 // check), an optional password keeps strangers out, each connection has a message budget, a
 // few connections per address at most, and connections that stop answering are dropped.
-import { timingSafeEqual } from 'node:crypto';
+import { randomBytes, randomInt, timingSafeEqual } from 'node:crypto';
+import { isIP } from 'node:net';
 import type { IncomingMessage } from 'node:http';
 import { type WebSocket, WebSocketServer } from 'ws';
 import type { Outgoing } from '@/world/net/arena-host';
-import type { WorldHost } from '@/world/net/host';
+import { createWorldState } from '@/world/state';
+import { WorldHost } from '@/world/net/host';
 import { PROTOCOL, SEND_HZ, type ServerMessage, parseClientMessage } from '@/world/net/protocol';
 
 /** A connection that has not said hello by now is dropped. */
@@ -78,13 +80,12 @@ const samePassword = (given: string, want: string): boolean => {
   return a.length === b.length && timingSafeEqual(a, b);
 };
 
-export function serve(host: WorldHost, opts: ServeOptions): Promise<Served> {
-  const log = opts.log ?? (() => {});
+const send = (ws: WebSocket, m: ServerMessage): void => {
+  if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(m));
+};
+
+function worldSession(host: WorldHost) {
   const sockets = new Map<number, WebSocket>();
-  const perAddress = new Map<string, number>();
-  const send = (ws: WebSocket, m: ServerMessage): void => {
-    if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(m));
-  };
   const broadcast = (m: ServerMessage, except?: number): void => {
     for (const [id, ws] of sockets) if (id !== except) send(ws, m);
   };
@@ -102,7 +103,38 @@ export function serve(host: WorldHost, opts: ServeOptions): Promise<Served> {
       else if (sockets.has(to)) send(sockets.get(to)!, m);
     }
   };
-  const addressOf = (req: IncomingMessage): string => req.socket.remoteAddress ?? '?';
+  return { host, sockets, broadcast, deliver };
+}
+
+export function serve(defaultHost: WorldHost, opts: ServeOptions): Promise<Served> {
+  const log = opts.log ?? (() => {});
+  const lobby = worldSession(defaultHost);
+  const rooms = new Map<string, { session: typeof lobby; password: string; lastActive: number }>();
+  const browsers = new Set<WebSocket>();
+  function roomList(): ServerMessage {
+    return {
+      t: 'rooms',
+      rooms: Array.from(rooms, ([code, { session, password }]) => ({
+        code,
+        count: session.host.count,
+        max: session.host.max,
+        locked: !!password,
+      })),
+    };
+  }
+  function publishRooms(): void {
+    if (!browsers.size) return;
+    const list = roomList();
+    for (const ws of browsers) send(ws, list);
+  }
+  const perAddress = new Map<string, number>();
+  const addressOf = (req: IncomingMessage): string => {
+    const peer = req.socket.remoteAddress ?? '?';
+    const client = req.headers['x-real-ip'];
+    if (['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(peer) && typeof client === 'string' && isIP(client))
+      return client;
+    return peer;
+  };
   const wss = new WebSocketServer({
     port: opts.port,
     host: opts.bind ?? '0.0.0.0',
@@ -123,6 +155,8 @@ export function serve(host: WorldHost, opts: ServeOptions): Promise<Served> {
     alive.set(ws, true);
     ws.on('pong', () => alive.set(ws, true));
     let id: number | null = null;
+    let session = lobby;
+    let roomCode: string | undefined;
     let budget = MESSAGE_BURST;
     let last = performance.now();
     let strikes = 0;
@@ -138,10 +172,11 @@ export function serve(host: WorldHost, opts: ServeOptions): Promise<Served> {
         return;
       }
       budget -= 1;
+      if (ws.readyState !== ws.OPEN) return;
       const m = parseClientMessage(data.toString());
       if (!m) return;
       if (id === null) {
-        if (m.t !== 'hello') return;
+        if (browsers.has(ws) || (m.t !== 'hello' && m.t !== 'listRooms')) return;
         clearTimeout(hello);
         if (m.v !== PROTOCOL) {
           send(ws, { t: 'refused', reason: '游戏版本和服务器不一样，请刷新页面' });
@@ -153,6 +188,38 @@ export function serve(host: WorldHost, opts: ServeOptions): Promise<Served> {
           ws.close();
           return;
         }
+        if (m.t === 'listRooms') {
+          browsers.add(ws);
+          send(ws, roomList());
+          return;
+        }
+        if (m.room?.action === 'create') {
+          if (rooms.size >= 64) {
+            send(ws, { t: 'refused', reason: '房间已满，请稍后再创建' });
+            ws.close();
+            return;
+          }
+          do {
+            roomCode = randomBytes(3).toString('hex').toUpperCase();
+          } while (rooms.has(roomCode));
+          const state = createWorldState(roomCode, randomInt(0x7fffffff), `房间 ${roomCode}`);
+          session = worldSession(new WorldHost(state, new Map(), defaultHost.max));
+          rooms.set(roomCode, { session, password: m.roomPassword ?? '', lastActive: now });
+        } else if (m.room?.action === 'join') {
+          roomCode = m.room.code;
+          const room = rooms.get(roomCode);
+          if (!room || (room.password && !samePassword(m.roomPassword ?? '', room.password))) {
+            send(ws, {
+              t: 'refused',
+              reason: room ? '请输入正确的房间密码' : '房间不存在或已关闭',
+              roomPassword: !!room,
+            });
+            ws.close();
+            return;
+          }
+          session = room.session;
+        }
+        const { host, sockets, broadcast } = session;
         const r = host.join(m.token, m.name, m.look);
         if (!r.ok) {
           send(ws, { t: 'refused', reason: r.reason });
@@ -170,6 +237,7 @@ export function serve(host: WorldHost, opts: ServeOptions): Promise<Served> {
         sockets.set(id, ws);
         send(ws, {
           t: 'welcome',
+          room: roomCode,
           v: PROTOCOL,
           id,
           max: host.max,
@@ -180,9 +248,11 @@ export function serve(host: WorldHost, opts: ServeOptions): Promise<Served> {
         broadcast({ t: 'joined', player: host.info(id)! }, id);
         // how the arena stands, for the menu (once anyone has been in it)
         if (host.arena.started) send(ws, host.arena.stateMessage());
+        if (roomCode) publishRooms();
         log(`+ ${m.name} (${address}) · ${host.count}/${host.max}`);
         return;
       }
+      const { host, sockets, broadcast, deliver } = session;
       switch (m.t) {
         case 'visit':
           send(ws, host.visit(id, m.target, m.request));
@@ -223,15 +293,19 @@ export function serve(host: WorldHost, opts: ServeOptions): Promise<Served> {
 
     ws.on('close', () => {
       clearTimeout(hello);
+      browsers.delete(ws);
       const n = (perAddress.get(address) ?? 1) - 1;
       if (n > 0) perAddress.set(address, n);
       else perAddress.delete(address);
       // replaced by a newer connection of the same player: already handled
+      const { host, sockets, broadcast } = session;
       if (id === null || sockets.get(id) !== ws) return;
       const name = host.info(id)?.name;
       host.leave(id);
+      if (roomCode) rooms.get(roomCode)!.lastActive = performance.now();
       sockets.delete(id);
       broadcast({ t: 'left', id });
+      if (roomCode) publishRooms();
       log(`- ${name} · ${host.count}/${host.max}`);
     });
   });
@@ -260,22 +334,32 @@ export function serve(host: WorldHost, opts: ServeOptions): Promise<Served> {
     const now = performance.now();
     const dt = Math.min(0.5, (now - last) / 1000);
     last = now;
-    // the clock only runs while someone is playing, as it does in a single-player world
-    if (sockets.size) deliver(host.tick(dt));
-    const keepers = host.keepers();
     directoryIn -= dt;
-    if (directoryIn <= 0) {
-      directoryIn = 1;
-      for (const [id, ws] of sockets) send(ws, { t: 'friends', players: host.locations(id) });
+    function tick({ host, sockets, deliver }: typeof lobby) {
+      if (!sockets.size) return;
+      // the clock only runs while someone is playing, as it does in a single-player world
+      deliver(host.tick(dt));
+      const keepers = host.keepers();
+      if (directoryIn <= 0) {
+        for (const [id, ws] of sockets) send(ws, { t: 'friends', players: host.locations(id) });
+      }
+      for (const [id, ws] of sockets)
+        send(ws, {
+          t: 'snap',
+          clock: host.state.clock,
+          players: host.nearby(id),
+          keeps: [...keepers].filter(([, k]) => k === id).map(([town]) => town),
+        });
     }
-    for (const [id, ws] of sockets)
-      send(ws, {
-        t: 'snap',
-        clock: host.state.clock,
-        players: host.nearby(id),
-        keeps: [...keepers].filter(([, k]) => k === id).map(([town]) => town),
-      });
-    dirtyFor = host.dirty ? dirtyFor + dt : 0;
+    tick(lobby);
+    const roomCount = rooms.size;
+    for (const [code, room] of rooms) {
+      if (!room.session.sockets.size && now - room.lastActive >= 300_000) rooms.delete(code);
+      else tick(room.session);
+    }
+    if (rooms.size !== roomCount) publishRooms();
+    if (directoryIn <= 0) directoryIn = 1;
+    dirtyFor = defaultHost.dirty ? dirtyFor + dt : 0;
     if (opts.save && dirtyFor >= (opts.saveDelay ?? 2)) {
       dirtyFor = 0;
       try {

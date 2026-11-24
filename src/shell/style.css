@@ -1082,3 +1082,26 @@ body {
   cursor: default;
   transform: none;
 }
+
+.menu-body [data-rooms],
+.menu-body:has([data-rooms]) details {
+  width: 100%;
+}
+.menu-body [data-rooms] p:empty {
+  display: none;
+}
+.menu-body .room-list {
+  max-height: 32vh;
+  overflow-y: auto;
+}
+.menu-body:has([data-rooms]) summary {
+  cursor: pointer;
+  padding: 6px;
+}
+.menu-body:has([data-rooms]) input[type='password'] {
+  min-width: 0;
+  flex: 1;
+}
+#overlay:has([data-rooms]) {
+  justify-content: safe center;
+}

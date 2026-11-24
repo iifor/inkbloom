@@ -14,7 +14,10 @@ import {
   connect,
   playerToken,
   serverUrl,
+  roomServerUrl,
+  watchRooms,
 } from './systems/net/connection';
+import { ROOM_CODE, type RoomRequest } from './world/net/protocol';
 import { hashString } from './world/math/hash';
 import { deserializeSlice, putSlice } from './world/net/slices';
 import { DEFAULT_NAME, loadProfile, saveProfile } from './world/profile';
@@ -54,33 +57,38 @@ function openWorld(id: string): void {
   url.searchParams.set('world', id);
   url.searchParams.delete('seed');
   url.searchParams.delete('server');
-  location.href = url.toString();
+  url.searchParams.delete('room');
+  history.replaceState(null, '', url);
+  location.reload();
 }
 
 /** Reload into a server world, or (null) back to playing alone. */
 function openServer(address: string | null): void {
   const url = new URL(location.href);
-  if (address) url.searchParams.set('server', address);
-  else url.searchParams.delete('server');
-  location.href = url.toString();
+  url.searchParams.delete('room');
+  url.searchParams.delete('server');
+  history.replaceState(address ? { address } : null, '', url);
+  location.reload();
 }
 
 /** A server's password, as the player last typed it for that server. */
 const passwordKey = (url: string): string => `inkbloom:pw:${url}`;
 
 /** Could not join: say why, offer to try again (with a password, if it wants one) or play alone. */
-function showJoinFailed(kv: KeyValue, url: string, e: unknown): void {
-  const wantsPassword = e instanceof JoinRefused && e.password;
+function showJoinFailed(kv: KeyValue, url: string, e: unknown, room?: RoomRequest): void {
+  const wantsPassword = e instanceof JoinRefused && (e.password || e.roomPassword);
+  const label = e instanceof JoinRefused && e.roomPassword ? '房间密码' : '服务器密码';
   startup.hidden = true;
   overlay.hidden = false;
   overlay.querySelector('.menu-body')!.innerHTML = `<h2>没能加入联机</h2><p></p>
-    ${wantsPassword ? '<label>密码 <input type="password" id="pw" autocomplete="off"></label>' : ''}
+    ${wantsPassword ? `<label>${label} <input type="password" id="pw" maxlength="128" autocomplete="off"></label>` : ''}
     <button class="primary" id="retry">${wantsPassword ? '加入' : '再试一次'}</button><button id="alone">单人游戏</button>`;
-  overlay.querySelector('.menu-body p')!.textContent =
-    `${url}：${e instanceof Error ? e.message : String(e)}`;
+  overlay.querySelector('.menu-body p')!.textContent = e instanceof Error ? e.message : String(e);
   overlay.querySelector<HTMLButtonElement>('#retry')!.onclick = () => {
     const pw = overlay.querySelector<HTMLInputElement>('#pw');
-    if (pw) kv.setItem(passwordKey(url), pw.value);
+    if (pw && e instanceof JoinRefused && e.roomPassword && room?.action === 'join')
+      sessionStorage.setItem(`inkbloom:room-pw:${room.code}`, pw.value);
+    else if (pw) kv.setItem(passwordKey(url), pw.value);
     location.reload();
   };
   overlay.querySelector<HTMLButtonElement>('#alone')!.onclick = () => openServer(null);
@@ -113,12 +121,25 @@ async function boot(): Promise<void> {
 
   let state: WorldState | null = null;
   // a server world: the server sends the world and this player's own things
-  const address = params.get('server');
+  const address: string | null = params.get('server') || history.state?.address || null;
+  const code = params.get('room')?.trim().toUpperCase();
+  const room: RoomRequest | undefined = address
+    ? undefined
+    : code !== undefined
+      ? { action: 'join', code }
+      : history.state?.createRoom
+        ? { action: 'create' }
+        : undefined;
+  const roomKey = `inkbloom:room-pw:${room?.action === 'join' ? room.code : 'create'}`;
   let net: Connection | undefined;
-  if (address) {
-    const url = serverUrl(address);
+  if (address || room) {
+    const url = address ? serverUrl(address) : roomServerUrl();
+    if (room?.action === 'join' && !ROOM_CODE.test(room.code)) {
+      showJoinFailed(kv, url, new Error('房间号格式无效'), room);
+      return;
+    }
     // joining from a link someone sent: say where to, and let the player say no
-    if (kv.getItem('inkbloom:server') !== address && !(await confirmJoin(url))) {
+    if (address && kv.getItem('inkbloom:server') !== address && !(await confirmJoin(url))) {
       openServer(null);
       return;
     }
@@ -126,18 +147,36 @@ async function boot(): Promise<void> {
     startup.hidden = false;
     loading(0, '正在连接世界…');
     // asked once is enough: a retry (a password, a hiccup) goes straight in
-    kv.setItem('inkbloom:server', address);
+    if (address) {
+      kv.setItem('inkbloom:server', address);
+      const clean = new URL(location.href);
+      clean.searchParams.delete('server');
+      clean.searchParams.delete('room');
+      history.replaceState({ address }, '', clean);
+    }
     const p = loadProfile(kv) ?? { name: DEFAULT_NAME, look: defaultLook('courier') };
     try {
       net = await connect(url, {
+        room,
+        roomPassword: room ? (sessionStorage.getItem(roomKey) ?? '') : undefined,
         token: playerToken(kv, url),
         name: p.name,
         look: p.look,
         password: kv.getItem(passwordKey(url)) ?? '',
       });
     } catch (e) {
-      showJoinFailed(kv, url, e);
+      showJoinFailed(kv, url, e, room);
       return;
+    }
+    if (room && net.welcome.room) {
+      const clean = new URL(location.href);
+      clean.searchParams.set('room', net.welcome.room);
+      history.replaceState(null, '', clean);
+      if (room.action === 'create') {
+        const password = sessionStorage.getItem(roomKey);
+        if (password) sessionStorage.setItem(`inkbloom:room-pw:${net.welcome.room}`, password);
+        sessionStorage.removeItem(roomKey);
+      }
     }
     state = deserializeWorld(net.welcome.world);
     putSlice(state, deserializeSlice(net.welcome.you));
@@ -253,7 +292,7 @@ async function boot(): Promise<void> {
       const n = game.net;
       if (!n) return null;
       return {
-        address: address ?? '',
+        address: net?.welcome.room ? `房间 ${net.welcome.room}` : (address ?? ''),
         max: n.max,
         others: n.players.map((p) => p.name),
         down: n.down,
@@ -263,6 +302,31 @@ async function boot(): Promise<void> {
     trackFriend: (id) => game.net?.trackFriend(id),
     visitFriend: (id) => game.net?.visitFriend(id) ?? false,
     lastServer: () => kv.getItem('inkbloom:server') ?? `${location.hostname || '127.0.0.1'}`,
+    watchRooms(password, update, failed) {
+      const url = roomServerUrl();
+      return watchRooms(
+        url,
+        password ?? kv.getItem(passwordKey(url)) ?? '',
+        (rooms) => {
+          if (password !== null) kv.setItem(passwordKey(url), password);
+          update(rooms);
+        },
+        failed,
+      );
+    },
+    enterRoom(request, password) {
+      void game.save.flush().then(() => {
+        const url = new URL(location.href);
+        url.searchParams.delete('server');
+        const key = `inkbloom:room-pw:${request.action === 'join' ? request.code : 'create'}`;
+        if (password) sessionStorage.setItem(key, password);
+        else sessionStorage.removeItem(key);
+        if (request.action === 'join') url.searchParams.set('room', request.code);
+        else url.searchParams.delete('room');
+        history.replaceState({ createRoom: request.action === 'create' }, '', url);
+        location.reload();
+      });
+    },
     joinServer(addr) {
       // chosen in this game's own menu: no need to ask again
       kv.setItem('inkbloom:server', addr);
