@@ -2,6 +2,8 @@
 // change (skin, hair, one accent colour). Shapes live in systems/figures/player-rig.ts. All
 // characters share one hit box, so a look never changes how easy someone is to hit.
 // design: docs/game-design.md section 11.3
+import { CREW_CHARACTERS } from './crew-characters';
+import { PACK_CHARACTERS, SPACE_CHARACTERS, type PackCharacterKey } from './quaternius-characters';
 import { type ColorKey, color } from './palette';
 
 export const SKIN_TONES = ['skinLight', 'skinWarm', 'skinDeep'] as const satisfies readonly ColorKey[];
@@ -25,7 +27,20 @@ export type CharacterKey =
   | 'spacesuit'
   | 'suit'
   | 'swat'
-  | 'worker';
+  | 'worker'
+  | 'witch'
+  | 'women-adventurer'
+  | 'women-casual'
+  | 'women-formal'
+  | 'women-medieval'
+  | 'women-punk'
+  | 'women-scifi'
+  | 'women-soldier'
+  | 'women-suit'
+  | 'women-worker'
+  | PackCharacterKey
+  | (typeof SPACE_CHARACTERS)[number]['key']
+  | (typeof CREW_CHARACTERS)[number]['key'];
 
 /** How one player looks: a character plus the colours they picked. */
 export interface Look {
@@ -52,6 +67,20 @@ export interface CharacterDef {
 
 /** Parts every character has: eyes and cheeks. */
 export const FACE_COLORS = { eye: 'charcoal', blush: 'pink' } as const satisfies Record<string, ColorKey>;
+
+export const PLAYER_PACK_NAMES = {
+  classic: '原有角色',
+  animated: 'Quaternius 动画角色包',
+  rpg: 'Quaternius RPG 角色包',
+  space: 'Quaternius 太空探险包',
+  pirate: 'Quaternius 海盗包',
+  kenney: 'Kenney 迷你人物包',
+  outbreak: 'Quaternius 幸存者包',
+  sushi: 'Quaternius 寿司店角色包',
+  cube: 'Quaternius 方块世界包',
+  cyber: 'Quaternius 赛博朋克包',
+  platformer: 'Quaternius 平台冒险包',
+} as const;
 
 export const CHARACTERS = [
   {
@@ -210,7 +239,100 @@ export const CHARACTERS = [
     colors: { coat: 'sand', trousers: 'bark', boots: 'ink' },
     defaults: { skin: 1, hair: 1, accent: 'orange' },
   },
+  {
+    key: 'witch',
+    name: '绘色女巫',
+    model: 'witch',
+    blurb: '戴着尖帽，提笔为旅途中的风景还色',
+    colors: { coat: 'purple', trousers: 'bark', boots: 'brown' },
+    defaults: { skin: 1, hair: 0, accent: 'purple' },
+  },
+  {
+    key: 'women-adventurer',
+    model: 'women-adventurer',
+    name: '女冒险家',
+    blurb: '旅行皮靴和绿色短衫，适合长途跋涉',
+    colors: { coat: 'green', trousers: 'charcoal', boots: 'brown' },
+    defaults: { skin: 1, hair: 1, accent: 'green' },
+  },
+  {
+    key: 'women-casual',
+    model: 'women-casual',
+    name: '街头画师',
+    blurb: '橙色休闲装与运动鞋',
+    colors: { coat: 'orange', trousers: 'charcoal', boots: 'brown' },
+    defaults: { skin: 0, hair: 2, accent: 'orange' },
+  },
+  {
+    key: 'women-formal',
+    model: 'women-formal',
+    name: '礼服宾客',
+    blurb: '亮色礼服配金色饰物',
+    colors: { coat: 'green', trousers: 'charcoal', boots: 'brown' },
+    defaults: { skin: 1, hair: 1, accent: 'green' },
+  },
+  {
+    key: 'women-medieval',
+    model: 'women-medieval',
+    name: '古镇旅人',
+    blurb: '皮革束腰与长靴',
+    colors: { coat: 'cream', trousers: 'charcoal', boots: 'brown' },
+    defaults: { skin: 1, hair: 1, accent: 'cream' },
+  },
+  {
+    key: 'women-punk',
+    model: 'women-punk',
+    name: '朋克乐手',
+    blurb: '粉色装饰与深色皮衣',
+    colors: { coat: 'pink', trousers: 'charcoal', boots: 'brown' },
+    defaults: { skin: 0, hair: 0, accent: 'pink' },
+  },
+  {
+    key: 'women-scifi',
+    model: 'women-scifi',
+    name: '星际技师',
+    blurb: '蓝色护甲与金属部件',
+    colors: { coat: 'sky', trousers: 'charcoal', boots: 'brown' },
+    defaults: { skin: 0, hair: 0, accent: 'sky' },
+  },
+  {
+    key: 'women-soldier',
+    model: 'women-soldier',
+    name: '女侦察兵',
+    blurb: '战术制服与深色护具',
+    colors: { coat: 'teal', trousers: 'charcoal', boots: 'brown' },
+    defaults: { skin: 1, hair: 1, accent: 'teal' },
+  },
+  {
+    key: 'women-suit',
+    model: 'women-suit',
+    name: '女办事员',
+    blurb: '深色西装与浅色衬衣',
+    colors: { coat: 'cream', trousers: 'charcoal', boots: 'brown' },
+    defaults: { skin: 0, hair: 2, accent: 'cream' },
+  },
+  {
+    key: 'women-worker',
+    model: 'women-worker',
+    name: '女工程师',
+    blurb: '安全帽与反光背心',
+    colors: { coat: 'orange', trousers: 'charcoal', boots: 'brown' },
+    defaults: { skin: 1, hair: 1, accent: 'orange' },
+  },
+  ...[...PACK_CHARACTERS, ...SPACE_CHARACTERS, ...CREW_CHARACTERS].map(({ key, name }) => ({
+    key,
+    name,
+    model: key,
+    blurb: PLAYER_PACK_NAMES[playerPack(key)],
+    colors: { coat: 'cream', trousers: 'charcoal', boots: 'bark' } as const,
+    defaults: { skin: 0, hair: 0, accent: 'teal' } as const,
+  })),
 ] as const satisfies readonly CharacterDef[];
+
+export function playerPack(key: CharacterKey): keyof typeof PLAYER_PACK_NAMES {
+  const prefix = key.split('/')[0]!;
+  return Object.hasOwn(PLAYER_PACK_NAMES, prefix) ? (prefix as keyof typeof PLAYER_PACK_NAMES) : 'classic';
+}
 
 export const CHARACTER_KEYS: readonly CharacterKey[] = CHARACTERS.map((c) => c.key);
 
@@ -225,6 +347,8 @@ export function characterModel(key: CharacterKey): string | undefined {
 export function characterModelPath(key: CharacterKey): string | undefined {
   const model = characterModel(key);
   if (!model) return undefined;
+  if (key.startsWith('kenney/')) return `models/kenney/players/${key.slice(7)}.glb`;
+  if (playerPack(key) !== 'classic') return `models/quaternius/players/${model}.glb`;
   return model.startsWith('kaykit:')
     ? `models/kaykit/player-${model.slice(7)}.glb`
     : `models/quaternius/modular-${model}.glb`;

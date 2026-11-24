@@ -5,6 +5,7 @@
 import * as THREE from 'three';
 import type { GameContext, NetApi, System, FriendStatus } from '@/game/types';
 import { bearing } from '@/world/objectives';
+import { validTravelLeg } from '@/world/wilderness/travellers';
 import type { Fix } from '@/world/net/fix';
 import type { Patch } from '@/world/patch';
 import {
@@ -195,6 +196,10 @@ export class NetSystem implements System, NetApi {
     return this.keeping.has(town);
   }
 
+  requestTravellerPlan(trail: string): void {
+    if (this.conn.welcome.travellerAI && !this.down) this.conn.send({ t: 'traveller', trail });
+  }
+
   sendPatch(patch: Patch): void {
     this.pending.add(++this.seq);
     this.conn.send({ t: 'patch', seq: this.seq, patch });
@@ -223,6 +228,10 @@ export class NetSystem implements System, NetApi {
 
   private handle(m: ServerMessage): void {
     switch (m.t) {
+      case 'traveller':
+        if (typeof m.trail === 'string' && validTravelLeg(m.leg))
+          this.ctx.state.travellerLegs.set(m.trail, m.leg);
+        break;
       case 'friends':
         if (
           Array.isArray(m.players) &&

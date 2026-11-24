@@ -1,9 +1,10 @@
 // Page entry: load or create the world save, start the open world, and drive the menus and
 // pointer lock. URL options: ?world=<id> picks a save slot, ?seed=<n> seeds a new world,
 // ?server=<host:port> joins a world server instead (multiplayer; see server/main.ts).
-import { defaultLook, type Look } from './content/characters';
+import { CHARACTER_KEYS, defaultLook, type Look } from './content/characters';
 import { PALETTE } from './content/palette';
 import { startOpenWorld, type OpenWorld } from './modes/open-world';
+import { prepareOffline } from './shell/offline';
 import { Menu } from './shell/menu';
 import { installDevTools } from './shell/dev-tools';
 import { CharacterPreview } from './systems/figures/preview';
@@ -112,6 +113,7 @@ async function boot(): Promise<void> {
   loading(0, '正在读取世界…');
   const params = new URLSearchParams(location.search);
   const { kv, persistent } = browserKeyValue();
+  prepareOffline(persistent);
   const local = new KeyValueStore(kv);
   let store: WorldStore = local;
   const notices: string[] = [];
@@ -358,7 +360,9 @@ async function boot(): Promise<void> {
     arenaLeave: () => game.arena?.leave(),
     arenaVote: (mode) => game.arena?.vote(mode),
   });
-  menu.show(params.get('preview') === 'courier' ? 'character' : 'main');
+  const previewKey = CHARACTER_KEYS.find((key) => key === params.get('preview'));
+  if (previewKey) menu.editCharacter(previewKey);
+  else menu.show('main');
   input.onLockChange = (locked) => {
     if (!locked) void game.save.flush();
   };

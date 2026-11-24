@@ -144,7 +144,10 @@ describe('saves', () => {
     await expect(store.load('bad')).rejects.toThrow();
     expect(() =>
       deserializeWorld(
-        serializeWorld(createWorldState('a', 1)).replace(`"version":${SAVE_VERSION}`, '"version":9'),
+        serializeWorld(createWorldState('a', 1)).replace(
+          `"version":${SAVE_VERSION}`,
+          `"version":${SAVE_VERSION + 1}`,
+        ),
       ),
     ).toThrow();
   });
@@ -156,6 +159,14 @@ describe('skeleton fingerprints', () => {
     { kind: 'wall', chunk: 2, color: color('cream'), area: 30, x: 300, z: 10 },
   ];
   const REORDERED: SurfaceInfo[] = [SURFACES[1]!, SURFACES[0]!, SURFACES[2]!];
+
+  it('preserves old kills and adds guards only to uncleared strongholds', () => {
+    const s = createWorldState('w', 1);
+    const guards = [0, 1, 1, 0, 1].map((chunk, x) => ({ type: 0, x, z: 0, chunk }));
+    cityStates(s, 'c', { ...SKEL, monsters: guards.slice(0, 3) }).defeated.set([1, 1, 0]);
+    const loaded = deserializeWorld(serializeWorld(s));
+    expect([...cityStates(loaded, 'c', { ...SKEL, monsters: guards }).defeated]).toEqual([1, 1, 0, 1, 0]);
+  });
 
   it('keeps states for the same skeleton', () => {
     const s = createWorldState('w', 1);

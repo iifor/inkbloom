@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { defaultLook } from '@/content/characters';
+import { characterModelPath, defaultLook } from '@/content/characters';
 import { makeInkMaterial } from '@/engine/render/ink-material';
 import { CourierActor } from '@/systems/figures/quaternius-courier';
 import { weaponModel } from '@/systems/figures/player-props';
@@ -113,37 +113,45 @@ describe('imported Quaternius courier', () => {
     material.dispose();
   });
 
-  it('keeps model wrists and brush attached while the first-person camera moves and turns', () => {
-    const material = makeInkMaterial({ cloth: true, viewModel: true });
-    const hands = new CourierViewArms(source, material);
-    const camera = new THREE.PerspectiveCamera(65);
-    camera.add(hands.root);
-    const left = new THREE.Object3D(),
-      right = new THREE.Object3D();
-    left.position.set(-0.32, -0.075, -0.48);
-    right.position.set(0.32, -0.075, -0.48);
-    let reference: THREE.Vector3 | null = null;
-    for (let frame = 0; frame < 40; frame++) {
-      camera.position.set(frame * 0.1, 4 + frame * 0.01, 70);
-      camera.rotation.set(Math.sin(frame) * 0.6, frame * 0.15, 0);
-      hands.update(1 / 60, defaultLook('courier'), left, right, true, false);
-      camera.updateMatrixWorld(true);
-      const r = hands.actor.rig;
-      const actual = pos(hands.actor.model.getObjectByName('hand_r')!);
-      expect(actual.distanceTo(pos(r.foreR))).toBeCloseTo(r.armLengths![1], 3);
-      expect(pos(r.palmR).distanceTo(pos(r.props.brush.node))).toBeLessThan(1e-6);
-      const local = camera.worldToLocal(actual);
-      if (reference) expect(local.distanceTo(reference)).toBeLessThan(1e-5);
-      reference = local;
-    }
-    const finger = hands.actor.model.getObjectByName('index_02_r')!;
-    const clenched = finger.quaternion.clone();
-    hands.update(1, defaultLook('courier'), left, right, false, true);
-    expect(finger.quaternion.angleTo(clenched)).toBeGreaterThan(1);
-    hands.dispose();
-    expect(camera.children).toHaveLength(0);
-    material.dispose();
-  });
+  it.each(['courier', 'witch'] as const)(
+    'keeps the %s wrist and brush attached as the camera moves and turns',
+    async (key) => {
+      const material = makeInkMaterial({ cloth: true, viewModel: true });
+      const bytes = await readFile(new URL(`../public/${characterModelPath(key)}`, import.meta.url));
+      const model = await new GLTFLoader().parseAsync(
+        bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
+        '',
+      );
+      const hands = new CourierViewArms(model.scene, material);
+      const camera = new THREE.PerspectiveCamera(65);
+      camera.add(hands.root);
+      const left = new THREE.Object3D(),
+        right = new THREE.Object3D();
+      left.position.set(-0.32, -0.075, -0.48);
+      right.position.set(0.32, -0.075, -0.48);
+      let reference: THREE.Vector3 | null = null;
+      for (let frame = 0; frame < 40; frame++) {
+        camera.position.set(frame * 0.1, 4 + frame * 0.01, 70);
+        camera.rotation.set(Math.sin(frame) * 0.6, frame * 0.15, 0);
+        hands.update(1 / 60, defaultLook(key), left, right, true, false);
+        camera.updateMatrixWorld(true);
+        const r = hands.actor.rig;
+        const actual = pos(hands.actor.model.getObjectByName('hand_r')!);
+        expect(actual.distanceTo(pos(r.foreR))).toBeCloseTo(r.armLengths![1], 3);
+        expect(pos(r.palmR).distanceTo(pos(r.props.brush.node))).toBeLessThan(1e-6);
+        const local = camera.worldToLocal(actual);
+        if (reference) expect(local.distanceTo(reference)).toBeLessThan(1e-5);
+        reference = local;
+      }
+      const finger = hands.actor.model.getObjectByName('index_02_r')!;
+      const clenched = finger.quaternion.clone();
+      hands.update(1, defaultLook(key), left, right, false, true);
+      expect(finger.quaternion.angleTo(clenched)).toBeGreaterThan(1);
+      hands.dispose();
+      expect(camera.children).toHaveLength(0);
+      material.dispose();
+    },
+  );
 
   it('moves the actual elbow bones more than the shoulders through walking, jogging and running', () => {
     const material = makeInkMaterial({ cloth: true });

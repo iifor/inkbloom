@@ -16,7 +16,8 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "check": "npm run typecheck && npm run test && npm run format:check && vite build",
-    "server": "vite-node server/main.ts --"
+    "server": "go run ./cmd/inkbloom",
+    "server:legacy": "vite-node server/main.ts --"
   },
   "dependencies": {
     "three": "0.170.0",

@@ -1,0 +1,12 @@
+{
+  "t": "hello",
+  "v": 9,
+  "token": "fixture-one",
+  "name": "甲",
+  "look": {
+    "character": "courier",
+    "skin": 0,
+    "hair": 1,
+    "accent": 5
+  }
+}

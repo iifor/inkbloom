@@ -1105,3 +1105,18 @@ body {
 #overlay:has([data-rooms]) {
   justify-content: safe center;
 }
+
+#offline {
+  font-size: 13px;
+  color: var(--ink);
+}
+#overlay #offline button {
+  display: inline-block;
+  width: auto;
+  padding: 2px 8px;
+  font-size: inherit;
+}
+#overlay #offline button[hidden],
+#overlay.side #offline {
+  display: none;
+}

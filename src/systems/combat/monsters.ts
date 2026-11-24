@@ -70,6 +70,7 @@ let nextId = 1;
 interface Monster {
   readonly id: number;
   readonly def: EnemyDef;
+  readonly hitCenterHeight: number;
   readonly body: Body;
   readonly home: THREE.Vector3;
   /** Stolen colours it wears (palette indices). */
@@ -125,6 +126,9 @@ function spitGeo(): THREE.BufferGeometry {
 }
 
 const _to = new THREE.Vector3();
+const _localOrigin = new THREE.Vector3();
+const _localDir = new THREE.Vector3();
+const _up = new THREE.Vector3(0, 1, 0);
 const _view = new THREE.Frustum();
 const _viewMatrix = new THREE.Matrix4();
 const _sphere = new THREE.Sphere();
@@ -163,11 +167,12 @@ export class MonsterGroup implements TargetSource {
   }
 
   spawn(type: number, pos: THREE.Vector3, opts: SpawnOptions): void {
-    const def = ENEMIES[type]!;
+    const def: EnemyDef = ENEMIES[type]!;
     this.monsters.push({
       id: nextId++,
       def,
       body: makeBody(pos, def.halfWidth, def.height, 0.55),
+      hitCenterHeight: ((def.hitBottom ?? 0) + def.height) / 2,
       home: pos.clone(),
       colors: opts.colors?.length ? opts.colors : [color('red')],
       yaw: Math.random() * Math.PI * 2,
@@ -225,7 +230,14 @@ export class MonsterGroup implements TargetSource {
       if (m.dead) continue;
       const p = m.body.pos;
       const w = m.def.halfWidth;
-      const t = slab(o, d, p.x - w, p.y, p.z - w, p.x + w, p.y + m.def.height, p.z + w);
+      _localOrigin.copy(o).sub(p);
+      _localDir.copy(d);
+      const length = m.def.halfLength ?? w;
+      if (m.def.halfLength) {
+        _localOrigin.applyAxisAngle(_up, -m.yaw);
+        _localDir.applyAxisAngle(_up, -m.yaw);
+      }
+      const t = slab(_localOrigin, _localDir, -w, m.def.hitBottom ?? 0, -length, w, m.def.height, length);
       if (t !== null && t < bestT) {
         bestT = t;
         best = m;
@@ -264,7 +276,7 @@ export class MonsterGroup implements TargetSource {
             if (m.act?.kind === 'lunge') m.act = null;
           }
         }
-        const at = { x: m.body.pos.x, y: m.body.pos.y + m.def.height * 0.5, z: m.body.pos.z };
+        const at = { x: m.body.pos.x, y: m.body.pos.y + m.hitCenterHeight, z: m.body.pos.z };
         if (broke && m.hp > 0) this.ctx.events.emit('monster:interrupted', { at, id: m.id });
         if (m.hp > 0) {
           this.ctx.events.emit('monster:hit', {
@@ -288,8 +300,7 @@ export class MonsterGroup implements TargetSource {
     const cos = Math.cos(halfAngle);
     for (const m of this.monsters) {
       if (m.dead) continue;
-      const c = m.body.pos;
-      _to.set(c.x - o.x, c.y + m.def.height * 0.5 - o.y, c.z - o.z);
+      toMonsterAxis(m, o, _to);
       const dist = Math.max(0, _to.length() - m.def.halfWidth);
       if (dist > range) continue;
       if (_to.normalize().dot(d) < cos && dist > 0.6) continue;
@@ -302,11 +313,8 @@ export class MonsterGroup implements TargetSource {
     const out: TargetHit[] = [];
     for (const m of this.monsters) {
       if (m.dead) continue;
-      const c = m.body.pos;
-      const dist = Math.max(
-        0,
-        Math.hypot(c.x - p.x, c.y + m.def.height * 0.5 - p.y, c.z - p.z) - m.def.halfWidth,
-      );
+      toMonsterAxis(m, p, _to);
+      const dist = Math.max(0, _to.length() - m.def.halfWidth);
       if (dist <= radius) out.push(this.hitOn(m, dist));
     }
     return out.sort((a, b) => a.dist - b.dist);
@@ -428,6 +436,15 @@ export class MonsterGroup implements TargetSource {
       }
       const b = m.body;
       const def = m.def;
+      // Distant, idle garrisons can stay at their posts until the player approaches.
+      if (
+        m.tag === 'stronghold' &&
+        !m.aggro &&
+        !m.act &&
+        b.pos.distanceToSquared(pp) > DRAW_RANGE ** 2 &&
+        b.pos.distanceToSquared(m.home) < 1
+      )
+        continue;
       if (b.pos.y < -50) {
         this.remove(m);
         continue;
@@ -710,6 +727,19 @@ export class MonsterGroup implements TargetSource {
     this.monsters.length = 0;
     this.spits.length = 0;
   }
+}
+
+// Direction to the closest point along a long creature's body for melee and splash hits.
+function toMonsterAxis(m: Monster, point: THREE.Vector3, out: THREE.Vector3): void {
+  out.copy(m.body.pos).sub(point);
+  out.y += m.hitCenterHeight;
+  if (!m.def.halfLength) return;
+  const x = Math.sin(m.yaw);
+  const z = Math.cos(m.yaw);
+  const extent = m.def.halfLength - m.def.halfWidth;
+  const along = THREE.MathUtils.clamp(-(out.x * x + out.z * z), -extent, extent);
+  out.x += along * x;
+  out.z += along * z;
 }
 
 /** Angle into -π..π. */

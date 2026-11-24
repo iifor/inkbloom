@@ -1,0 +1,157 @@
+[
+  {
+    "name": "Cube World Kit",
+    "author": "Quaternius",
+    "license": "CC0-1.0",
+    "page": "https://quaternius.com/packs/cubeworldkit.html",
+    "models": [
+      {
+        "source": "Character_Female_1.gltf",
+        "sourceUrl": "https://raw.githubusercontent.com/agentkaerf/FreeModels/db3df04d1e4714298a09510b26fb6de6645138a2/Cube%20World%20-%20Aug%202023/Characters/glTF/Character_Female_1.gltf",
+        "sourceSha256": "e964fa235a490678fa7e630327403f0fb7b619b3aacceab5cc2139c53ce8bf07",
+        "file": "quaternius/players/cube/Character_Female_1.glb",
+        "sha256": "b6aeab66557cb444259105fcfe85b89ba5faa4c7dc076882c90398173663770f",
+        "residentFile": "quaternius/cube/Character_Female_1.glb",
+        "residentSha256": "6aa995cf8fe9c5ad65b232ca3b29a60e9b0883fc0d665062a561837c17dae83d"
+      },
+      {
+        "source": "Character_Female_2.gltf",
+        "sourceUrl": "https://raw.githubusercontent.com/agentkaerf/FreeModels/db3df04d1e4714298a09510b26fb6de6645138a2/Cube%20World%20-%20Aug%202023/Characters/glTF/Character_Female_2.gltf",
+        "sourceSha256": "4d8131f22cd1c7c21d7e207f861706c0aafc982ed7c9c137a3520880473c4ef3",
+        "file": "quaternius/players/cube/Character_Female_2.glb",
+        "sha256": "359d6be59b86316cf4f688ed685032f027647a884aa7234635247883f071534e",
+        "residentFile": "quaternius/cube/Character_Female_2.glb",
+        "residentSha256": "25dd67d69aa648f9fa9c5361f7dacfe42d943bf9d999b6253909c5c21b0ba95f"
+      },
+      {
+        "source": "Character_Male_1.gltf",
+        "sourceUrl": "https://raw.githubusercontent.com/agentkaerf/FreeModels/db3df04d1e4714298a09510b26fb6de6645138a2/Cube%20World%20-%20Aug%202023/Characters/glTF/Character_Male_1.gltf",
+        "sourceSha256": "115a112834453eddb9eee06cb014b729d374ec61c08ee23c1610941c604d6a68",
+        "file": "quaternius/players/cube/Character_Male_1.glb",
+        "sha256": "9a0f928ed37c9e5854ca13bba1632b9b4851c2a7b9a8aa0c4418e3a191c2b6a7",
+        "residentFile": "quaternius/cube/Character_Male_1.glb",
+        "residentSha256": "401aa313fa505d2ca6b97d47193502dc8af4da0cbdd6d3665cd611184b42143f"
+      },
+      {
+        "source": "Character_Male_2.gltf",
+        "sourceUrl": "https://raw.githubusercontent.com/agentkaerf/FreeModels/db3df04d1e4714298a09510b26fb6de6645138a2/Cube%20World%20-%20Aug%202023/Characters/glTF/Character_Male_2.gltf",
+        "sourceSha256": "27722e29a224bfa04440f759490fa226c56d5cffc6b86d52bc0aceacc3c69ba7",
+        "file": "quaternius/players/cube/Character_Male_2.glb",
+        "sha256": "0f8a232598144cb392414f10d1f6ab066defd94d23ad2e59f44ef357280d2256",
+        "residentFile": "quaternius/cube/Character_Male_2.glb",
+        "residentSha256": "68f5f6682a991626ebc1ddf09955f6e42eaf4486c8c57c5d77eab8b0809f7e09"
+      },
+      {
+        "source": "Demon.gltf",
+        "sourceUrl": "https://raw.githubusercontent.com/agentkaerf/FreeModels/db3df04d1e4714298a09510b26fb6de6645138a2/Cube%20World%20-%20Aug%202023/Enemies/glTF/Demon.gltf",
+        "sourceSha256": "8f4daf85b4e0924a3c30f4b204b08adb2bbb990f6efda4dddc5e8c687eb7d810",
+        "file": "wild/cube/Demon.glb",
+        "sha256": "93e85a450ce0124518e858bda76f6f657c16c38baadfeeda3b71a1438383630c"
+      },
+      {
+        "source": "Giant.gltf",
+        "sourceUrl": "https://raw.githubusercontent.com/agentkaerf/FreeModels/db3df04d1e4714298a09510b26fb6de6645138a2/Cube%20World%20-%20Aug%202023/Enemies/glTF/Giant.gltf",
+        "sourceSha256": "13e58586c478da58fd3e92872a1843db1fbf8ffccd9d996bfeb213aab2a114e8",
+        "file": "wild/cube/Giant.glb",
+        "sha256": "420ae82c35e3fe000d7ce38f5d982a0c5ab3b26a1aa1e720b1f5c7f6bde39910"
+      },
+      {
+        "source": "Goblin.gltf",
+        "sourceUrl": "https://raw.githubusercontent.com/agentkaerf/FreeModels/db3df04d1e4714298a09510b26fb6de6645138a2/Cube%20World%20-%20Aug%202023/Enemies/glTF/Goblin.gltf",
+        "sourceSha256": "5287770ca8fb4baaa7769d80e4a183411341d8ef391e28667436af13bbe3abe5",
+        "file": "wild/cube/Goblin.glb",
+        "sha256": "bf1fdf77af65db0cd6e3d086dffb51070da2b9afbde1f7797fcee2b786df73ae"
+      },
+      {
+        "source": "Skeleton.gltf",
+        "sourceUrl": "https://raw.githubusercontent.com/agentkaerf/FreeModels/db3df04d1e4714298a09510b26fb6de6645138a2/Cube%20World%20-%20Aug%202023/Enemies/glTF/Skeleton.gltf",
+        "sourceSha256": "72d6dd0c3e6038131618538a0a01233004af2d5e19ba3ed959b7ea08ce707119",
+        "file": "wild/cube/Skeleton.glb",
+        "sha256": "85de64585a209aedf3757f4882cdb00abe9b8f9b84a92c3e4f7bbfb8ffc8dbbf"
+      },
+      {
+        "source": "Skeleton_Armor.gltf",
+        "sourceUrl": "https://raw.githubusercontent.com/agentkaerf/FreeModels/db3df04d1e4714298a09510b26fb6de6645138a2/Cube%20World%20-%20Aug%202023/Enemies/glTF/Skeleton_Armor.gltf",
+        "sourceSha256": "e81043792f4ecc70de105715eae5805c3ccda6a81f0c304b987fbf93982a7e7c",
+        "file": "wild/cube/Skeleton_Armor.glb",
+        "sha256": "c5a54aa730a321b1c452df1abd18784282d9afbc5376a702523f491d8c236fd5"
+      },
+      {
+        "source": "Wizard.gltf",
+        "sourceUrl": "https://raw.githubusercontent.com/agentkaerf/FreeModels/db3df04d1e4714298a09510b26fb6de6645138a2/Cube%20World%20-%20Aug%202023/Enemies/glTF/Wizard.gltf",
+        "sourceSha256": "3e3313548501d069aac0ef66cba24bcbdf1671c8264ab9f7ef90255cba9ec62f",
+        "file": "wild/cube/Wizard.glb",
+        "sha256": "a61520390d216ad0d17f8eb5e10133035ad077a53373b2833f1b32cdea6f3be6"
+      },
+      {
+        "source": "Yeti.gltf",
+        "sourceUrl": "https://raw.githubusercontent.com/agentkaerf/FreeModels/db3df04d1e4714298a09510b26fb6de6645138a2/Cube%20World%20-%20Aug%202023/Enemies/glTF/Yeti.gltf",
+        "sourceSha256": "03988fb8bc28271e99678885bd5b3ea52fe1f3f06f4ca8e180c33effc41d45ca",
+        "file": "wild/cube/Yeti.glb",
+        "sha256": "5373787c382f548a07f7a8535ff9b496157c2945a4fd53c56a7a00dfbc4e719c"
+      },
+      {
+        "source": "Zombie.gltf",
+        "sourceUrl": "https://raw.githubusercontent.com/agentkaerf/FreeModels/db3df04d1e4714298a09510b26fb6de6645138a2/Cube%20World%20-%20Aug%202023/Enemies/glTF/Zombie.gltf",
+        "sourceSha256": "c4802b78266314a357d9329f58f87c1974249bb2eb5d2a01b5934c88b1f50843",
+        "file": "wild/cube/Zombie.glb",
+        "sha256": "866d2dae52c6d54eef16fabd31c658d2fcfa5993b839b33ccff02b6310cff9c8"
+      }
+    ]
+  },
+  {
+    "name": "Cyberpunk Game Kit",
+    "author": "Quaternius",
+    "license": "CC0-1.0",
+    "page": "https://quaternius.com/packs/cyberpunkgamekit.html",
+    "models": [
+      {
+        "source": "Character.glb",
+        "sourceUrl": "https://raw.githubusercontent.com/trebeljahr/quaternius-showcase/0128ca510d653bb04d6d1e4885bd8890b5050b4f/public/glb/cyberpunk_pack/Character.glb",
+        "sourceSha256": "006e28f474c8fc20f010ed19c761856a07fbeb967c87e3f5b14474ef745ae844",
+        "file": "quaternius/players/cyber/Character.glb",
+        "sha256": "f09e856cd103433215bd1db7b4a036194663424b8d79fe97cfe598ca6d186136",
+        "residentFile": "quaternius/cyber/Character.glb",
+        "residentSha256": "bb94fb57e49e1038a7953ace49f2431c57ecd41b10a9faf278db03833cf0db0c"
+      },
+      {
+        "source": "Enemy_2Legs.glb",
+        "sourceUrl": "https://raw.githubusercontent.com/trebeljahr/quaternius-showcase/0128ca510d653bb04d6d1e4885bd8890b5050b4f/public/glb/cyberpunk_pack/Enemy_2Legs.glb",
+        "sourceSha256": "d5d1de1481560415c9006dd1989c2dd09ee1b59955c43bcd8d331445a5e69cb7",
+        "file": "wild/cyber/Enemy_2Legs.glb",
+        "sha256": "eb611766a05f0ce7aee8b93972c3971e51fba4a3d3516059768d10ce573b6e14"
+      },
+      {
+        "source": "Enemy_Flying.glb",
+        "sourceUrl": "https://raw.githubusercontent.com/trebeljahr/quaternius-showcase/0128ca510d653bb04d6d1e4885bd8890b5050b4f/public/glb/cyberpunk_pack/Enemy_Flying.glb",
+        "sourceSha256": "7e3a27532b43807b375e3d3ad9cbe1f7e20d8bb723f2dcc2a3c9efb38da73a5b",
+        "file": "wild/cyber/Enemy_Flying.glb",
+        "sha256": "5d41d0fa9b06d8593f2189fda63aab3d08d2446a929ae2cb12352998283c47a8"
+      },
+      {
+        "source": "Enemy_Large.glb",
+        "sourceUrl": "https://raw.githubusercontent.com/trebeljahr/quaternius-showcase/0128ca510d653bb04d6d1e4885bd8890b5050b4f/public/glb/cyberpunk_pack/Enemy_Large.glb",
+        "sourceSha256": "1d21ee204a8080897623171baadcd3b4b10fd24c9c959eae2a94c0042a5462d7",
+        "file": "wild/cyber/Enemy_Large.glb",
+        "sha256": "de101b685f893852d035f7266a95a2667aa5889d57d082e93156efcbc1530ed2"
+      }
+    ]
+  },
+  {
+    "name": "Platformer Game Kit",
+    "author": "Quaternius",
+    "license": "CC0-1.0",
+    "page": "https://quaternius.com/packs/ultimateplatformer.html",
+    "models": [
+      {
+        "source": "Character.glb",
+        "sourceUrl": "https://raw.githubusercontent.com/trebeljahr/quaternius-showcase/0128ca510d653bb04d6d1e4885bd8890b5050b4f/public/glb/platformer_game_pack/Character.glb",
+        "sourceSha256": "140d72d10993ebe83815170fc0a061a9190b499e41b63ded0e10c8c4ec876108",
+        "file": "quaternius/players/platformer/Character.glb",
+        "sha256": "9884a015af770e03548778ad35b81e4138eb2857149ccbadbceb32ab4da7cdce",
+        "residentFile": "quaternius/platformer/Character.glb",
+        "residentSha256": "d49b621d84288db028e93e84adad462649657d3b9c0f52291d31f63a16f9164b"
+      }
+    ]
+  }
+]

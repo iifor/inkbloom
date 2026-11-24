@@ -8,3 +8,7 @@ world-data/
 # Download cache and visual QA for the Quaternius courier sample.
 artifacts/quaternius/
 art/models/quaternius/*.blend1
+# Local development worktrees, machine-specific launch paths and Python bytecode.
+.claude/worktrees/
+.claude/launch.json
+__pycache__/

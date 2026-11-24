@@ -11,6 +11,7 @@ import {
   SKIN_NAMES,
   SKIN_TONES,
   characterDef,
+  playerPack,
   defaultLook,
 } from '@/content/characters';
 import { PALETTE, color } from '@/content/palette';
@@ -28,7 +29,7 @@ import type { WorldState } from '@/world/state';
 import type { FriendStatus } from '@/game/types';
 import { mountRooms, type WatchRooms } from './rooms-panel';
 import { mountFriends } from './friends-panel';
-import { VILLAGER_MODELS, VILLAGER_ROLES, type VillagerModel } from '@/systems/figures/kaykit-villager';
+import { RESIDENT_MODELS, residentInfo, type ResidentModel } from '@/systems/figures/resident-models';
 
 export type Screen =
   'main' | 'pause' | 'character' | 'join' | 'settings' | 'worlds' | 'controls' | 'arena' | 'friends';
@@ -71,7 +72,7 @@ export interface MenuActions {
   saveProfile(p: Profile): void;
   /** Stand `look` in the world beside the menu, or take it away with null. */
   preview(look: Look | null): void;
-  previewVillager?(key: VillagerModel): void;
+  previewVillager?(key: ResidentModel): void;
   mountPreview?(stage: HTMLElement, controls: HTMLElement): void;
   /** Colours offered as the accent: the crayons found in this world. */
   accents(): readonly number[];
@@ -124,7 +125,9 @@ export class Menu {
   /** Choosing the first character, on the way into the game. */
   private firstRun = false;
   private stopPanel: (() => void) | null = null;
-  private villagerPreview: VillagerModel | null = null;
+  private villagerPreview: ResidentModel | null = null;
+  private residentPack = '';
+  private characterPack = '';
 
   constructor(
     private readonly root: HTMLElement,
@@ -152,14 +155,16 @@ export class Menu {
   }
 
   /** Open the character screen on the current character (or a default one). */
-  private editCharacter(): void {
+  editCharacter(previewKey?: Look['character']): void {
     this.villagerPreview = null;
     const p = this.actions.profile();
-    this.draft = p
-      ? { name: p.name, look: { ...p.look } }
-      : { name: DEFAULT_NAME, look: defaultLook('courier') };
-    this.accentPicked = p !== null;
+    const look = previewKey ? defaultLook(previewKey) : (p?.look ?? defaultLook('courier'));
+    const pack = playerPack(look.character);
+    this.characterPack = pack === 'classic' ? '' : pack;
+    this.draft = { name: p?.name ?? DEFAULT_NAME, look: { ...look } };
+    this.accentPicked = !previewKey && p !== null;
     this.show('character');
+    this.root.querySelector('.chars .on')?.scrollIntoView({ block: 'nearest' });
   }
 
   get visible(): boolean {
@@ -292,18 +297,13 @@ export class Menu {
       }
       case 'character': {
         const villager = this.villagerPreview;
-        const names: Record<VillagerModel, string> = {
-          rogue: '轻装村民',
-          'rogue-hooded': '兜帽村民',
-          knight: '守卫',
-          barbarian: '伐木工',
-          mage: '法师',
-        };
         const d = this.draft;
         const accents = this.actions.accents().includes(d.look.accent)
           ? this.actions.accents()
           : [...this.actions.accents(), d.look.accent];
-        const choices = villager ? VILLAGER_MODELS.map((key) => ({ key, name: names[key] })) : CHARACTERS;
+        const choices = villager
+          ? this.filteredResidents().map((key) => ({ key, name: residentInfo(key).name }))
+          : this.filteredCharacters();
         const chars = choices
           .map(({ key, name }) => {
             const selected = key === (villager ?? d.look.character);
@@ -314,19 +314,47 @@ export class Menu {
         const row = (label: string, swatches: string): string =>
           `<div class="swatches"><span>${label}</span>${swatches}</div>`;
         const colors = `<section class="picker-colors"><h3>外观配色</h3>
-          ${row('肤色', SKIN_TONES.map((k, i) => swatch('skin', i, color(k), SKIN_NAMES[i]!, d.look.skin === i)).join(''))}
-          ${row('发色', HAIR_COLORS.map((k, i) => swatch('hair', i, color(k), HAIR_NAMES[i]!, d.look.hair === i)).join(''))}
-          ${row('强调色', accents.map((c) => swatch('accent', c, c, PALETTE[c]!.name, d.look.accent === c)).join(''))}
+          ${
+            playerPack(d.look.character) === 'classic'
+              ? `${row('肤色', SKIN_TONES.map((k, i) => swatch('skin', i, color(k), SKIN_NAMES[i]!, d.look.skin === i)).join(''))}
+          ${row('发色', HAIR_COLORS.map((k, i) => swatch('hair', i, color(k), HAIR_NAMES[i]!, d.look.hair === i)).join(''))}`
+              : ''
+          }
+          ${row(playerPack(d.look.character) === 'classic' ? '强调色' : '画笔色', accents.map((c) => swatch('accent', c, c, PALETTE[c]!.name, d.look.accent === c)).join(''))}
           </section>`;
+        const packOptions = [
+          ['', '全部素材包'],
+          villager ? ['kaykit', 'KayKit 村民'] : ['classic', '原有角色'],
+          ['animated', '动画角色包'],
+          ['rpg', 'RPG 角色包'],
+          ...(villager
+            ? []
+            : [
+                ['space', '太空探险包'],
+                ['pirate', '海盗包'],
+                ['kenney', 'Kenney 迷你人物包'],
+                ['outbreak', '幸存者包'],
+                ['sushi', '寿司店角色包'],
+              ]),
+          ['cube', '方块世界包'],
+          ['cyber', '赛博朋克包'],
+          ['platformer', '平台冒险包'],
+        ]
+          .map(
+            ([key, label]) =>
+              `<option value="${key}" ${key === (villager ? this.residentPack : this.characterPack) ? 'selected' : ''}>${label}</option>`,
+          )
+          .join('');
         body = `<section class="picker" role="dialog" aria-labelledby="picker-title">
           <header><h2 id="picker-title">${villager ? '村民预览' : '选择角色'}</h2>
           ${villager ? '' : `<label>玩家昵称<input type="text" data-name maxlength="${NAME_MAX}" value="${esc(d.name)}"></label>`}</header>
           <div class="picker-main">
             <aside class="picker-list"><h3>${villager ? '村民列表' : '角色列表'}</h3>
+            <select ${villager ? 'data-resident-pack' : 'data-character-pack'} aria-label="${villager ? '村民' : '玩家'}素材包">${packOptions}</select>
             <div class="chars">${chars}</div>
             ${villager ? '' : '<button class="picker-switch" data-a="villager-preview">查看村民动作 ›</button>'}</aside>
-            <figure><div class="picker-stage"></div><figcaption><b>${villager ? names[villager] : current.name}</b>
-              <span>${villager ? (VILLAGER_ROLES[villager].profession ? '携带职业装备' : '普通村民 · 无武器') : esc(current.blurb)}</span></figcaption></figure>
+            <figure><div class="picker-stage"></div><figcaption><b>${villager ? residentInfo(villager).name : current.name}</b>
+              <span>${villager ? residentInfo(villager).collection : esc(current.blurb)}</span></figcaption></figure>
             <aside class="picker-tools"><div data-motion-host></div>${villager ? '' : colors}</aside>
           </div><footer>${
             villager
@@ -373,6 +401,17 @@ export class Menu {
     }
   }
 
+  private filteredCharacters() {
+    return CHARACTERS.filter((c) => !this.characterPack || playerPack(c.key) === this.characterPack);
+  }
+
+  private filteredResidents(): readonly ResidentModel[] {
+    if (!this.residentPack) return RESIDENT_MODELS;
+    return RESIDENT_MODELS.filter(
+      (key) => (key.includes('/') ? key.split('/')[0] : 'kaykit') === this.residentPack,
+    );
+  }
+
   private bind(): void {
     const body = this.root.querySelector<HTMLElement>('.menu-body')!;
     body.querySelectorAll<HTMLButtonElement>('button[data-a]').forEach((b) => {
@@ -381,24 +420,43 @@ export class Menu {
     body.querySelectorAll<HTMLButtonElement>('button[data-world]').forEach((b) => {
       b.onclick = () => this.actions.openWorld(b.dataset.world!);
     });
-    body.querySelectorAll<HTMLButtonElement>('[data-villager]').forEach((button) => {
-      button.onclick = () => {
-        this.villagerPreview = button.dataset.villager as VillagerModel;
-        this.actions.previewVillager?.(this.villagerPreview);
-        void this.render();
-      };
-    });
     const edit = (look: Partial<Look>): void => {
       this.draft.look = { ...this.draft.look, ...look };
       this.actions.preview(this.draft.look);
       void this.render();
     };
-    body.querySelectorAll<HTMLButtonElement>('button[data-char]').forEach((b) => {
-      b.onclick = () => {
-        const def = defaultLook(b.dataset.char as Look['character']);
-        // skin and hair are the player's own; the accent follows the character until picked
-        edit({ character: def.character, accent: this.accentPicked ? this.draft.look.accent : def.accent });
+    const selectCharacter = (key: Look['character']) => {
+      const look = defaultLook(key);
+      edit({ character: key, accent: this.accentPicked ? this.draft.look.accent : look.accent });
+    };
+    const playerFilter = body.querySelector<HTMLSelectElement>('[data-character-pack]');
+    if (playerFilter)
+      playerFilter.onchange = () => {
+        this.characterPack = playerFilter.value;
+        body.querySelector('.chars')!.scrollTop = 0;
+        if (this.characterPack && playerPack(this.draft.look.character) !== this.characterPack)
+          selectCharacter(this.filteredCharacters()[0]!.key);
+        else void this.render();
+        body.querySelector('.chars .on')?.scrollIntoView({ block: 'nearest' });
       };
+    const pack = body.querySelector<HTMLSelectElement>('[data-resident-pack]');
+    if (pack)
+      pack.onchange = () => {
+        this.residentPack = pack.value;
+        this.villagerPreview = this.filteredResidents()[0]!;
+        body.querySelector('.chars')!.scrollTop = 0;
+        this.actions.previewVillager?.(this.villagerPreview);
+        void this.render();
+      };
+    body.querySelectorAll<HTMLButtonElement>('[data-villager]').forEach((button) => {
+      button.onclick = () => {
+        this.villagerPreview = button.dataset.villager as ResidentModel;
+        this.actions.previewVillager?.(this.villagerPreview);
+        void this.render();
+      };
+    });
+    body.querySelectorAll<HTMLButtonElement>('button[data-char]').forEach((b) => {
+      b.onclick = () => selectCharacter(b.dataset.char as Look['character']);
     });
     body.querySelectorAll<HTMLButtonElement>('button[data-skin]').forEach((b) => {
       b.onclick = () => edit({ skin: Number(b.dataset.skin) });
@@ -433,6 +491,7 @@ export class Menu {
   private act(a: string): void {
     switch (a) {
       case 'villager-preview':
+        this.residentPack = '';
         this.villagerPreview = 'rogue';
         this.actions.previewVillager?.(this.villagerPreview);
         void this.render();

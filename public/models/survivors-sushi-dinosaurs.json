@@ -1,0 +1,180 @@
+[
+  {
+    "name": "Zombie Apocalypse Kit",
+    "author": "Quaternius",
+    "license": "CC0-1.0",
+    "page": "https://quaternius.com/packs/zombieapocalypsekit.html",
+    "models": [
+      {
+        "source": "Characters_Lis.gltf",
+        "sourceUrl": "https://raw.githubusercontent.com/agentkaerf/FreeModels/db3df04d1e4714298a09510b26fb6de6645138a2/Zombie%20Apocalypse%20Kit%20-%20March%202024/Characters/glTF/Characters_Lis.gltf",
+        "sourceSha256": "08859979e78ed5a9c0c3f606452921c47ef8966904b85b5e4b7c4ccf9719ec28",
+        "file": "quaternius/players/outbreak/Lis.glb",
+        "sha256": "61096ba5ced01c77c3fd117b665368a9aabae07f453901c04e313a35cad0640b"
+      },
+      {
+        "source": "Characters_Matt.gltf",
+        "sourceUrl": "https://raw.githubusercontent.com/agentkaerf/FreeModels/db3df04d1e4714298a09510b26fb6de6645138a2/Zombie%20Apocalypse%20Kit%20-%20March%202024/Characters/glTF/Characters_Matt.gltf",
+        "sourceSha256": "43aa41cca71c27ac079758bf6a38ff1449c9cec7eee85de612c614bbf29b1ef0",
+        "file": "quaternius/players/outbreak/Matt.glb",
+        "sha256": "af81c70aa57a44b6b72a0df4d901e2dc066a2e17820bbc4168b52699ead1e28f"
+      },
+      {
+        "source": "Characters_Sam.gltf",
+        "sourceUrl": "https://raw.githubusercontent.com/agentkaerf/FreeModels/db3df04d1e4714298a09510b26fb6de6645138a2/Zombie%20Apocalypse%20Kit%20-%20March%202024/Characters/glTF/Characters_Sam.gltf",
+        "sourceSha256": "a8eba67ba6809db0b8f14746102f3cce83df588fef7d20e14f4638e50ef4fb28",
+        "file": "quaternius/players/outbreak/Sam.glb",
+        "sha256": "6c3b1905e94cf846a1f53031696e600db1dc77af8fe922909d32bc39571f3bcc"
+      },
+      {
+        "source": "Characters_Shaun.gltf",
+        "sourceUrl": "https://raw.githubusercontent.com/agentkaerf/FreeModels/db3df04d1e4714298a09510b26fb6de6645138a2/Zombie%20Apocalypse%20Kit%20-%20March%202024/Characters/glTF/Characters_Shaun.gltf",
+        "sourceSha256": "7d81bb5d2f4283b48bf9f64c3f53d0b4ea9656a88dc492b65801802749441217",
+        "file": "quaternius/players/outbreak/Shaun.glb",
+        "sha256": "747e83d663d17bc1f97f95d83ff8cdb1f32d269cce400f3e7d20b462f8e6654a"
+      },
+      {
+        "source": "Zombie_Arm.gltf",
+        "sourceUrl": "https://raw.githubusercontent.com/agentkaerf/FreeModels/db3df04d1e4714298a09510b26fb6de6645138a2/Zombie%20Apocalypse%20Kit%20-%20March%202024/Characters/glTF/Zombie_Arm.gltf",
+        "sourceSha256": "6b43b8e282afce1129858cd470430d0f891e83ec2604e0684638c3da3e0c25bf",
+        "file": "wild/outbreak/Zombie_Arm.glb",
+        "sha256": "083df9765c2a7c0b80a6299969b67787f2d02711f812d8ed3399fa87839d08aa"
+      },
+      {
+        "source": "Zombie_Basic.gltf",
+        "sourceUrl": "https://raw.githubusercontent.com/agentkaerf/FreeModels/db3df04d1e4714298a09510b26fb6de6645138a2/Zombie%20Apocalypse%20Kit%20-%20March%202024/Characters/glTF/Zombie_Basic.gltf",
+        "sourceSha256": "c6eab64ef87f89cbd6862b59964b20024ca7e329d3d44f72c76fced6c24861c8",
+        "file": "wild/outbreak/Zombie_Basic.glb",
+        "sha256": "68d67db1c0062964deb33c2a61a56950a4cda7ca0edd7ab8e8c016236d1dd836"
+      },
+      {
+        "source": "Zombie_Chubby.gltf",
+        "sourceUrl": "https://raw.githubusercontent.com/agentkaerf/FreeModels/db3df04d1e4714298a09510b26fb6de6645138a2/Zombie%20Apocalypse%20Kit%20-%20March%202024/Characters/glTF/Zombie_Chubby.gltf",
+        "sourceSha256": "7c65bae6f0c5f7754ca177a7de7658fc0e4c8de7c8aff33a872d7ffff57a423c",
+        "file": "wild/outbreak/Zombie_Chubby.glb",
+        "sha256": "cd849363cecf712b0467689e5385d633000bfb1742f605801ab8d6c6672d49d9"
+      },
+      {
+        "source": "Zombie_Ribcage.gltf",
+        "sourceUrl": "https://raw.githubusercontent.com/agentkaerf/FreeModels/db3df04d1e4714298a09510b26fb6de6645138a2/Zombie%20Apocalypse%20Kit%20-%20March%202024/Characters/glTF/Zombie_Ribcage.gltf",
+        "sourceSha256": "3b9ee3e504e34e6b1421076e9c51bc5d6a647350900eb6aa214d0a62491866f3",
+        "file": "wild/outbreak/Zombie_Ribcage.glb",
+        "sha256": "c21bebd0e72ed4d51dcf9fe15df5e71ef5744fdc4f7ea1835949cc753cbb5b8b"
+      }
+    ]
+  },
+  {
+    "name": "Sushi Restaurant Kit",
+    "author": "Quaternius",
+    "license": "CC0-1.0",
+    "page": "https://quaternius.com/packs/sushirestaurantkit.html",
+    "models": [
+      {
+        "source": "Panda.gltf",
+        "sourceUrl": "https://raw.githubusercontent.com/agentkaerf/FreeModels/db3df04d1e4714298a09510b26fb6de6645138a2/Sushi%20Restaurant%20Kit%20-%20May%202023/Characters/Normal/glTF/Panda.gltf",
+        "sourceSha256": "82544401968336efd3153e860a0f348fee869b7e79f8591b9a776ada18177519",
+        "file": "quaternius/players/sushi/Panda.glb",
+        "sha256": "36096a2f42f768a2a1f524ea1196429a1260355007052f0901be5150838e208e"
+      },
+      {
+        "source": "Rabbit_Bald.gltf",
+        "sourceUrl": "https://raw.githubusercontent.com/agentkaerf/FreeModels/db3df04d1e4714298a09510b26fb6de6645138a2/Sushi%20Restaurant%20Kit%20-%20May%202023/Characters/Normal/glTF/Rabbit_Bald.gltf",
+        "sourceSha256": "f03891a9cb381c1842d78a11d9188f5b856169e36e983ffd7bc32a86c7849b55",
+        "file": "quaternius/players/sushi/Rabbit_Bald.glb",
+        "sha256": "a0bb8c06eeb5e4f6eb79d5552d3ed21531aa2ff480ee4810166ad2c0133ed80b"
+      },
+      {
+        "source": "Rabbit_Blond.gltf",
+        "sourceUrl": "https://raw.githubusercontent.com/agentkaerf/FreeModels/db3df04d1e4714298a09510b26fb6de6645138a2/Sushi%20Restaurant%20Kit%20-%20May%202023/Characters/Normal/glTF/Rabbit_Blond.gltf",
+        "sourceSha256": "c1b8f798c1bde42c91f3bc8e9ad566c79533193e393d3e683265280969956c0c",
+        "file": "quaternius/players/sushi/Rabbit_Blond.glb",
+        "sha256": "de0dac5776e97bfca4a677d6ba8a76a1e8144ce03befc7ee2b338ed0c7108bc0"
+      },
+      {
+        "source": "Rabbit_Cyan.gltf",
+        "sourceUrl": "https://raw.githubusercontent.com/agentkaerf/FreeModels/db3df04d1e4714298a09510b26fb6de6645138a2/Sushi%20Restaurant%20Kit%20-%20May%202023/Characters/Normal/glTF/Rabbit_Cyan.gltf",
+        "sourceSha256": "0e63813daf3e992a7bfde5264ab7f7b9e77caf8c4d94200d55b28435374702e8",
+        "file": "quaternius/players/sushi/Rabbit_Cyan.glb",
+        "sha256": "b367a1ff02cb0f34df7e3eb31f5ccbd2d4bd3ed93dc1fc17586df2fb801d90bf"
+      },
+      {
+        "source": "Rabbit_Green.gltf",
+        "sourceUrl": "https://raw.githubusercontent.com/agentkaerf/FreeModels/db3df04d1e4714298a09510b26fb6de6645138a2/Sushi%20Restaurant%20Kit%20-%20May%202023/Characters/Normal/glTF/Rabbit_Green.gltf",
+        "sourceSha256": "b07166cfafce62043d643afb476bea45eff0c85bba9015e64c5ef09745a230ef",
+        "file": "quaternius/players/sushi/Rabbit_Green.glb",
+        "sha256": "1372365c9fd10d51de53e075f605ce6386ffe7c9b507058f047d7fefe72fe06b"
+      },
+      {
+        "source": "Rabbit_Grey.gltf",
+        "sourceUrl": "https://raw.githubusercontent.com/agentkaerf/FreeModels/db3df04d1e4714298a09510b26fb6de6645138a2/Sushi%20Restaurant%20Kit%20-%20May%202023/Characters/Normal/glTF/Rabbit_Grey.gltf",
+        "sourceSha256": "236a5ec62a35a5aad58e04305d003f0be6e734aa1909a2768225674682a6a478",
+        "file": "quaternius/players/sushi/Rabbit_Grey.glb",
+        "sha256": "e95812e42cf688dd3f64d9077e612feabbb96a8f75d78da1fa2c4f7d21e3a494"
+      },
+      {
+        "source": "Rabbit_Pink.gltf",
+        "sourceUrl": "https://raw.githubusercontent.com/agentkaerf/FreeModels/db3df04d1e4714298a09510b26fb6de6645138a2/Sushi%20Restaurant%20Kit%20-%20May%202023/Characters/Normal/glTF/Rabbit_Pink.gltf",
+        "sourceSha256": "a04077a74134db4bac82d8e3001002f459846d691fa17e31aeec010b967f7577",
+        "file": "quaternius/players/sushi/Rabbit_Pink.glb",
+        "sha256": "70548c72f150c80b836e99575db75858f1a432ecdda73a8ef80b7115b6ac29fa"
+      },
+      {
+        "source": "Rabbit_Purple.gltf",
+        "sourceUrl": "https://raw.githubusercontent.com/agentkaerf/FreeModels/db3df04d1e4714298a09510b26fb6de6645138a2/Sushi%20Restaurant%20Kit%20-%20May%202023/Characters/Normal/glTF/Rabbit_Purple.gltf",
+        "sourceSha256": "fc994bca4ffd7a1f229618f38d3f578ea25753845f2fccc17db18c74bde6740a",
+        "file": "quaternius/players/sushi/Rabbit_Purple.glb",
+        "sha256": "025a5b2bfff9dc97e8577f830d1fa41b3fe8940be4c668875ed2c80b9759991f"
+      }
+    ]
+  },
+  {
+    "name": "Animated Dinosaur Pack",
+    "author": "Quaternius",
+    "license": "CC0-1.0",
+    "page": "https://quaternius.com/packs/animateddinosaurs.html",
+    "models": [
+      {
+        "source": "Apatosaurus.glb",
+        "sourceUrl": "https://raw.githubusercontent.com/trebeljahr/quaternius-showcase/0128ca510d653bb04d6d1e4885bd8890b5050b4f/public/glb/dinosaurs_pack/Apatosaurus.glb",
+        "sourceSha256": "b0fc50a2d7c973c2a14b7889156ff8e63b02e5c352af3728981d77c29c6f7b31",
+        "file": "wild/dinosaurs/Apatosaurus.glb",
+        "sha256": "b0de415a8919ac19fd7768fed6df7de4b495f3b81add2796631b37c9711a8a31"
+      },
+      {
+        "source": "Parasaurolophus.glb",
+        "sourceUrl": "https://raw.githubusercontent.com/trebeljahr/quaternius-showcase/0128ca510d653bb04d6d1e4885bd8890b5050b4f/public/glb/dinosaurs_pack/Parasaurolophus.glb",
+        "sourceSha256": "163d80abed38e380f7e799d0d040c77fdd86abad7da50cd8292f3f8a98ffbbd7",
+        "file": "wild/dinosaurs/Parasaurolophus.glb",
+        "sha256": "8d257cbe5c198ba5c3c7899b9f8317877b6b50361cf7efae34da9af5467474cb"
+      },
+      {
+        "source": "Stegosaurus.glb",
+        "sourceUrl": "https://raw.githubusercontent.com/trebeljahr/quaternius-showcase/0128ca510d653bb04d6d1e4885bd8890b5050b4f/public/glb/dinosaurs_pack/Stegosaurus.glb",
+        "sourceSha256": "a3dff577342e98f847d1ec4985f28d594c47d2e7d9b05cab78ae8aecf2272f35",
+        "file": "wild/dinosaurs/Stegosaurus.glb",
+        "sha256": "6f7ad2df26736045669321d4d086e218e91e6b4c864620370214f24548f4bd31"
+      },
+      {
+        "source": "Trex.glb",
+        "sourceUrl": "https://raw.githubusercontent.com/trebeljahr/quaternius-showcase/0128ca510d653bb04d6d1e4885bd8890b5050b4f/public/glb/dinosaurs_pack/Trex.glb",
+        "sourceSha256": "e1c9862deef89f096c7d85dacf62aa9ce48089e5867d2bf632ed1e1733013349",
+        "file": "wild/dinosaurs/Trex.glb",
+        "sha256": "ad2143a0410d8ad53dc16e12e6b0e33b5d60e1eda73f827d7d84910f17eade4d"
+      },
+      {
+        "source": "Triceratops.glb",
+        "sourceUrl": "https://raw.githubusercontent.com/trebeljahr/quaternius-showcase/0128ca510d653bb04d6d1e4885bd8890b5050b4f/public/glb/dinosaurs_pack/Triceratops.glb",
+        "sourceSha256": "79ade346de5e778a58ce8c253c7e6dbd505499176a616583d1a29fa4624f498c",
+        "file": "wild/dinosaurs/Triceratops.glb",
+        "sha256": "a55bba691f6f7cb5c22feecfec46975572b043f89ff36b9ed40a22885c4cf74b"
+      },
+      {
+        "source": "Velociraptor.glb",
+        "sourceUrl": "https://raw.githubusercontent.com/trebeljahr/quaternius-showcase/0128ca510d653bb04d6d1e4885bd8890b5050b4f/public/glb/dinosaurs_pack/Velociraptor.glb",
+        "sourceSha256": "1d9ecad0a65c0c858a216ff25f224d02b18ce86fa0ed4df8f9ecece43f3a745c",
+        "file": "wild/dinosaurs/Velociraptor.glb",
+        "sha256": "ac5abf710875543940aa1b4525c259a3d77dcfd1451117f49322de99b987508a"
+      }
+    ]
+  }
+]

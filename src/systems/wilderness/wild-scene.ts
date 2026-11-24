@@ -2,7 +2,7 @@
 // never hitches), owns their colliders (and, while they stand, the towns'), registers each
 // pigment source as an interactable, and hosts the monsters that roam drained land (and guard
 // its ink wells) and the deer that graze the rest.
-import { pathsOf } from '@/world/wilderness/paths';
+import { pathsOf, type Trail } from '@/world/wilderness/paths';
 import { SPAWN_CENTER } from '@/world/wilderness/spawn-circle';
 import * as THREE from 'three';
 import { SEASONS } from '@/content/seasons';
@@ -26,14 +26,20 @@ import { WildFish } from './fish';
 import { Waterweed } from './waterweed';
 import { GrassField } from './grass';
 import { WildDeer } from './deer';
+import { WildTravellers } from './travellers';
 import { WildInkWells } from './ink-wells';
 import { WindFlags } from '@/engine/render/wind-flags';
 import { lookoutFlag } from './build-landmarks';
 import { DistantTerrain } from './distant-terrain';
 import { buildFarmstead } from './build-farmstead';
+import { Residents, farmPopulation } from '@/systems/city/residents';
+import { farmActivities } from '@/world/city/resident-sites';
+import type { Homecomings } from '@/world/city/homecoming';
+import { peacefulVillage } from '@/world/state';
 import { mountFarmDoor } from './farm-door';
 
 interface Loaded {
+  readonly trails: readonly Trail[];
   readonly mesh: THREE.Mesh;
   readonly release: (() => void)[];
 }
@@ -60,6 +66,7 @@ export class WildScene implements GameScene {
   private readonly material = makeInkMaterial();
   private readonly trees = new WildTrees(this.root);
   private readonly landscape: DistantTerrain;
+  private readonly households = new Set<Residents>();
   private readonly loaded = new Map<string, Loaded>();
   /** The chunk being built a little each frame, if any; see update(). */
   private building: { readonly key: string; readonly steps: Generator<void, void, void> } | null = null;
@@ -69,6 +76,7 @@ export class WildScene implements GameScene {
   private readonly ruins: WildRuins;
   private readonly marks: WildMarks;
   private readonly deer: WildDeer;
+  private readonly travellers: WildTravellers;
   private readonly wells: WildInkWells;
   private readonly grass: GrassField;
   private readonly flags: WindFlags;
@@ -82,7 +90,10 @@ export class WildScene implements GameScene {
   private riverZ = NaN;
   private readonly offStroke: () => void;
 
-  constructor(private readonly ctx: GameContext) {
+  constructor(
+    private readonly ctx: GameContext,
+    private readonly homecomings: Homecomings,
+  ) {
     this.root.name = 'wild';
     this.landscape = new DistantTerrain(ctx.wilderness, this.root);
     // rolling hills: bodies stand on the height function itself, not on colliders
@@ -94,6 +105,7 @@ export class WildScene implements GameScene {
     this.ruins = new WildRuins(ctx, this.material, this.root);
     this.marks = new WildMarks(ctx, this.material, this.root);
     this.deer = new WildDeer(ctx, this.root, this.material);
+    this.travellers = new WildTravellers(ctx, this.root, this.material);
     this.wells = new WildInkWells(ctx, this.material, this.root);
     this.offStroke = ctx.events.on('player:stroke', ({ hands }) => {
       for (const h of hands) ctx.renderer.ripple(h.x, h.z, true);
@@ -224,6 +236,9 @@ export class WildScene implements GameScene {
     this.monsters.update(dt);
     this.ruins.update(dt);
     this.deer.update(dt);
+    this.travellers.update(dt, this.loaded);
+    this.homecomings.update();
+    for (const household of this.households) household.update(dt);
     this.wells.update(dt);
     this.drainT -= dt;
     if (this.drainT <= 0) {
@@ -281,7 +296,9 @@ export class WildScene implements GameScene {
   /** Loading a chunk as a sequence of steps, each a millisecond or two. */
   private *loadSteps(cx: number, cz: number): Generator<void, void, void> {
     const key = chunkKey(cx, cz);
-    const chunk = yield* generateWildChunkSteps(this.ctx.wilderness, cx, cz);
+    const chunk = yield* generateWildChunkSteps(this.ctx.wilderness, cx, cz, (id) =>
+      peacefulVillage(this.ctx.state, id),
+    );
     yield;
     const g = new GeometryBuilder();
     yield* buildTerrainSteps(chunk, this.ctx.wilderness, g);
@@ -290,6 +307,17 @@ export class WildScene implements GameScene {
     addChunkColliders(chunk, this.physics, group);
     const release: (() => void)[] = [];
     if (chunk.farmstead) {
+      const household = new Residents(
+        this.ctx,
+        farmPopulation(this.ctx, chunk.farmstead, this.homecomings),
+        this.root,
+        () => farmActivities(this.ctx.wilderness, chunk, chunk.farmstead!),
+      );
+      this.households.add(household);
+      release.push(() => {
+        this.households.delete(household);
+        household.dispose();
+      });
       let index = 0;
       buildFarmstead(
         g,
@@ -319,7 +347,7 @@ export class WildScene implements GameScene {
     release.push(this.ctx.renderer.lamps.add(mesh.geometry));
     mesh.name = group;
     this.root.add(mesh);
-    this.loaded.set(key, { mesh, release });
+    this.loaded.set(key, { mesh, release, trails: chunk.trails });
   }
 
   private unload(key: string, item: Loaded): void {
@@ -349,6 +377,7 @@ export class WildScene implements GameScene {
     this.monsters.dispose();
     this.marks.dispose();
     this.deer.dispose();
+    this.travellers.dispose();
     this.wells.dispose();
     this.grass.dispose();
     this.flags.dispose();

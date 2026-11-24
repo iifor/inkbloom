@@ -7,10 +7,11 @@ import type { ArenaMode, ArenaState } from '../arena/match';
 import type { Patch } from '../patch';
 import { cleanName, validLook } from '../profile';
 import type { SceneRef } from '../state';
+import type { TravelLeg } from '../wilderness/travellers';
 import type { Fix } from './fix';
 import { validCity, validPatch, validScene } from './validate';
 
-export const PROTOCOL = 6;
+export const PROTOCOL = 9;
 export const DEFAULT_PORT = 5195;
 export const DEFAULT_MAX_PLAYERS = 10;
 /** Motion updates per second, each way. */
@@ -107,10 +108,12 @@ export interface RoomInfo {
   readonly count: number;
   readonly max: number;
   readonly locked: boolean;
+  readonly paused?: boolean;
 }
 export const ROOM_CODE = /^[A-F0-9]{6}$/;
 
 export type ClientMessage =
+  | { readonly t: 'traveller'; readonly trail: string }
   | { readonly t: 'listRooms'; readonly v: number; readonly password: string }
   | { readonly t: 'visit'; readonly target: number; readonly request: number }
   | {
@@ -156,6 +159,7 @@ export const WEAPON_ACTS: Readonly<Record<WeaponKey, readonly [attack: ActKind, 
 };
 
 export type ServerMessage =
+  | { readonly t: 'traveller'; readonly trail: string; readonly leg: TravelLeg }
   | { readonly t: 'rooms'; readonly rooms: readonly RoomInfo[] }
   | { readonly t: 'friends'; readonly players: readonly FriendLocation[] }
   | {
@@ -166,6 +170,7 @@ export type ServerMessage =
     }
   | {
       readonly t: 'welcome';
+      readonly travellerAI?: boolean;
       readonly room?: string;
       readonly v: number;
       readonly id: number;
@@ -270,6 +275,10 @@ export function parseClientMessage(text: string): ClientMessage | null {
   }
   if (!m || typeof m !== 'object') return null;
   switch (m.t) {
+    case 'traveller':
+      return typeof m.trail === 'string' && /^[a-z0-9_:-]{1,80}$/.test(m.trail)
+        ? { t: 'traveller', trail: m.trail }
+        : null;
     case 'listRooms':
       return finite(m.v) && typeof m.password === 'string' && m.password.length <= 128
         ? { t: 'listRooms', v: m.v, password: m.password }

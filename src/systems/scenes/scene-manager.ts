@@ -385,7 +385,10 @@ export class SceneManager implements SceneApi, System {
         town.build(BUILD_MS);
         break;
       }
-    for (const town of this.towns.values()) town.updateDetail(this.ctx.renderer.camera);
+    for (const town of this.towns.values()) {
+      town.updateDetail(this.ctx.renderer.camera);
+      town.updateResidents(dt);
+    }
     for (const town of this.towns.values())
       if (town === this.city) town.update(dt);
       else if (townDistance(town.entrance, p.x, p.z) < GUARDS_WAKE) town.updateOutside(dt);

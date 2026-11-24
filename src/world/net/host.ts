@@ -9,6 +9,11 @@
 // A client is not trusted beyond what it may do (messages are checked in protocol.ts and
 // validate.ts first): it may only act near where it stands, only a town's keeper may drain it or
 // claim its tide, and a patch that fails leaves nothing behind.
+import { pathsOf } from '../wilderness/paths';
+import { journeyOn, travellerPose } from '../wilderness/travellers';
+import { travelOptions, commitTravellerStop, decisionDue } from '../wilderness/traveller-talk';
+import { rememberedSightings } from '../wilderness/traveller-memory';
+import type { TravelOption, Sighting } from '../wilderness/traveller-options';
 import type { Look } from '@/content/characters';
 import { ARENA } from '@/content/arena';
 import { TUNING } from '@/content/tuning';
@@ -136,6 +141,55 @@ export class WorldHost {
     this.arena = new ArenaHost(wilderness, () => this.state.clock);
   }
 
+  private nextTravellerThink = 0;
+  private thinking = false;
+
+  async planTraveller(
+    player: number,
+    trailId: string,
+    choose: (options: TravelOption[], memory: Sighting[]) => Promise<number | null>,
+  ) {
+    const plan = this.beginTravellerPlan(player, trailId);
+    if (!plan) return null;
+    try {
+      return plan.finish(await choose(plan.options, plan.memory));
+    } catch (error) {
+      plan.finish(null);
+      throw error;
+    }
+  }
+
+  beginTravellerPlan(player: number, trailId: string) {
+    const motion = this.members.get(player)?.motion;
+    if (!motion || this.thinking || this.uptime < this.nextTravellerThink) return null;
+    this.nextTravellerThink = this.uptime + 3;
+    const [x, , z] = motion.p;
+    const trail = pathsOf(this.wilderness)
+      .trailsNear(x - 150, z - 150, x + 150, z + 150)
+      .find((t) => t.id === trailId);
+    const j = trail && journeyOn(this.state.seed, trail);
+    const old = this.state.travellerLegs.get(trailId);
+    if (!j || !decisionDue(j, this.state.clock, old)) return null;
+    const p = travellerPose(j, this.state.clock, old);
+    if (Math.hypot(x - p.x, z - p.z) > 155) return null;
+    const options = travelOptions(this.wilderness, this.state, j);
+    if (!options.length) return null;
+    const memory = rememberedSightings(this.wilderness, this.state, j);
+    this.thinking = true;
+    return {
+      options,
+      memory,
+      finish: (index: number | null) => {
+        this.thinking = false;
+        const stop = index !== null && options[index];
+        if (!stop || !this.count || this.state.travellerLegs.get(trailId) !== old) return null;
+        const leg = commitTravellerStop(this.wilderness, this.state, j, stop.at);
+        if (leg) this.dirty = true;
+        return leg;
+      },
+    };
+  }
+
   get count(): number {
     return this.members.size;
   }
@@ -234,7 +288,8 @@ export class WorldHost {
     m.motion = motion;
     m.motionAt = this.uptime;
     // a town a player claims to be in has to be where they stand (it makes them its keeper)
-    const inTown = !inArena && town !== null && this.near(motion, { kind: 'complete', city: town }) ? town : null;
+    const inTown =
+      !inArena && town !== null && this.near(motion, { kind: 'complete', city: town }) ? town : null;
     if (inTown !== m.town) {
       m.town = inTown;
       m.townSince = this.uptime;

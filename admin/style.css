@@ -1,0 +1,286 @@
+:root {
+  color-scheme: light;
+  --paper: #f6f5ef;
+  --ink: #1c342b;
+  --line: #d4d9cb;
+  --green: #356248;
+  font:
+    15px/1.55 'Atkinson Hyperlegible Next',
+    'PingFang SC',
+    system-ui,
+    sans-serif;
+  color: var(--ink);
+  background: var(--paper);
+}
+* {
+  box-sizing: border-box;
+}
+[hidden] {
+  display: none !important;
+}
+body {
+  margin: 0;
+  display: grid;
+  grid-template-columns: 218px minmax(0, 1fr);
+  min-height: 100vh;
+}
+aside {
+  background: #18382f;
+  color: #f3f3df;
+  padding: 40px 23px;
+  display: flex;
+  flex-direction: column;
+  gap: 48px;
+}
+.brand,
+.account,
+.toolbar,
+header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.brand {
+  font:
+    600 25px Georgia,
+    serif;
+}
+.brand small {
+  display: block;
+  font: 10px/2 system-ui;
+  letter-spacing: 0.23em;
+  color: #c9d6bd;
+}
+.seal {
+  display: grid;
+  place-items: center;
+  color: #18382f;
+  background: #d0dfad;
+  border-radius: 10px 4px 9px 3px;
+  width: 44px;
+  height: 46px;
+}
+nav {
+  display: grid;
+  gap: 7px;
+}
+button,
+select,
+input {
+  font: inherit;
+}
+button,
+select {
+  cursor: pointer;
+  color: inherit;
+  border: 1px solid var(--line);
+  background: white;
+  border-radius: 6px;
+  padding: 6px 12px;
+}
+button:hover {
+  border-color: var(--green);
+}
+button:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
+nav button,
+.account button {
+  background: transparent;
+  color: #d2dfd3;
+  border-color: transparent;
+  text-align: left;
+}
+nav button[aria-current] {
+  border-color: #688274;
+  background: #284f40;
+  color: white;
+}
+.account {
+  margin-top: auto;
+  justify-content: space-between;
+  font-size: 13px;
+}
+main {
+  padding: clamp(25px, 5vw, 80px);
+  max-width: 1540px;
+  width: 100%;
+}
+header,
+.toolbar {
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+header {
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 20px;
+}
+h1,
+h2 {
+  margin: 0;
+  font-family: 'Hedvig Letters Serif', 'Songti SC', serif;
+}
+h1 {
+  font-size: clamp(27px, 4vw, 42px);
+}
+h2 {
+  font-size: 21px;
+  margin: 30px 0 13px;
+}
+small,
+#sample {
+  color: #586b5d;
+}
+#notice:empty,
+#debugStatus:empty {
+  display: none;
+}
+#notice,
+#debugStatus {
+  color: #885027;
+}
+.metrics {
+  margin: 26px 0;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+article,
+.tablewrap,
+form,
+dialog {
+  border: 1px solid var(--line);
+  background: #fffefa;
+  border-radius: 10px;
+}
+article {
+  padding: 20px;
+}
+strong {
+  display: block;
+  font: 42px Georgia;
+  color: var(--green);
+}
+.tablewrap {
+  overflow: auto;
+}
+table {
+  border-collapse: collapse;
+  width: 100%;
+  text-align: left;
+  white-space: nowrap;
+}
+td,
+th {
+  padding: 12px 15px;
+  border-bottom: 1px solid #e5e8de;
+}
+tbody tr:last-child td {
+  border-bottom: 0;
+}
+th {
+  font-weight: 500;
+  color: #536559;
+  background: #eef0e7;
+  font-size: 13px;
+}
+.empty {
+  padding: 18px;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  color: #667669;
+}
+.primary {
+  background: var(--green);
+  color: white;
+  border: 0;
+  padding: 9px 17px;
+}
+form {
+  max-width: 430px;
+  margin-top: 32px;
+  padding: 27px;
+}
+label {
+  display: grid;
+  gap: 5px;
+  margin-bottom: 18px;
+}
+input {
+  padding: 9px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+}
+dialog {
+  width: min(770px, 94vw);
+  max-height: 88vh;
+  color: var(--ink);
+  padding: 24px;
+}
+dialog::backdrop {
+  background: #142a24aa;
+}
+dialog h2 {
+  margin: 0;
+}
+pre {
+  background: #f0f2eb;
+  border-radius: 5px;
+  padding: 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font:
+    13px/1.6 ui-monospace,
+    monospace;
+}
+h3 {
+  font-size: 15px;
+  margin: 22px 0 6px;
+}
+#chain {
+  padding: 12px 0;
+}
+.toolbar select {
+  font-size: 13px;
+}
+@media (max-width: 750px) {
+  body {
+    display: block;
+  }
+  aside {
+    padding: 14px 18px;
+    flex-direction: row;
+    align-items: center;
+    gap: 14px;
+    flex-wrap: wrap;
+  }
+  .brand {
+    font-size: 19px;
+  }
+  .brand small {
+    display: none;
+  }
+  .seal {
+    width: 32px;
+    height: 34px;
+  }
+  nav {
+    display: flex;
+  }
+  .account {
+    margin: 0 0 0 auto;
+  }
+  .metrics {
+    gap: 7px;
+  }
+  article {
+    padding: 10px;
+  }
+  strong {
+    font-size: 30px;
+  }
+  main {
+    padding: 20px 14px;
+  }
+}

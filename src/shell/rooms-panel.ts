@@ -54,18 +54,18 @@ export function mountRooms(
         rows.delete(code);
       }
     }
-    for (const { code, count, max, locked } of rooms) {
+    for (const { code, count, max, locked, paused } of rooms) {
       let row = rows.get(code);
       if (!row) {
         row = document.createElement('button');
         rows.set(code, row);
         list.append(row);
       }
-      row.textContent = `房间 ${code} · ${count}/${max} 人 · ${count >= max ? '已满' : locked ? '凭密码加入' : '直接加入'}`;
-      row.disabled = count >= max;
+      row.textContent = `房间 ${code} · ${count}/${max} 人 · ${paused ? '暂停加入' : count >= max ? '已满' : locked ? '凭密码加入' : '直接加入'}`;
+      row.disabled = !!paused || count >= max;
       row.onclick = () => (locked ? askPassword(code) : join(code, ''));
     }
-    if (selected && !rooms.some((r) => r.code === selected && r.count < r.max)) {
+    if (selected && !rooms.some((r) => r.code === selected && !r.paused && r.count < r.max)) {
       status.textContent = `房间 ${selected} 已满或已关闭`;
       selected = null;
       form.hidden = true;

@@ -2,6 +2,7 @@
 // drained the land is), so the host can re-derive any monster from its id to validate a kill.
 // Restoring the nearby city makes the land colourful again and the monsters stop appearing.
 // A chunk with a seeping ink well also has its guards (see ink-wells.ts).
+import { WILD_MODELS } from '@/content/wild-models';
 import { enemyIndex } from '@/content/enemies';
 import { TUNING } from '@/content/tuning';
 import { hashAt, unit } from '../math/hash';
@@ -19,6 +20,24 @@ export interface WildMonster {
 }
 
 const ATTEMPTS = 10;
+const wildCreatures = [
+  'rat',
+  'snake',
+  'snake-angry',
+  'spider',
+  'wasp',
+  'star-mote',
+  'star-orb',
+  'star-wing',
+  'star-brute',
+] as const;
+
+function creatureType(seed: number, cx: number, cz: number, slot: number): number {
+  const roll = hashAt(seed, 'wild-creature', cx, cz, slot);
+  if (unit(hashAt(seed, 'wild-model-pack', cx, cz, slot)) < 0.45)
+    return enemyIndex(WILD_MODELS[roll % WILD_MODELS.length]!.key);
+  return enemyIndex(wildCreatures[roll % wildCreatures.length]!);
+}
 
 /** How many monsters a chunk holds at this saturation (0 grey .. 1 full colour). */
 export function wildMonsterCount(seed: number, cx: number, cz: number, saturation: number): number {
@@ -63,7 +82,11 @@ export function wildMonstersInChunk(
           : kind <
               TUNING.combat.spitterChance + (1 - TUNING.combat.spitterChance) * TUNING.combat.weaselChance
             ? enemyIndex('weasel')
-            : enemyIndex('blot');
+            : kind >= 1 - TUNING.combat.wildFrogChance
+              ? enemyIndex('frog')
+              : kind >= 1 - TUNING.combat.wildFrogChance - TUNING.combat.wildCreatureChance
+                ? creatureType(w.seed, cx, cz, k)
+                : enemyIndex('blot');
       out.push({ id: `${cx},${cz}:${k}`, type, x, y, z });
       break;
     }

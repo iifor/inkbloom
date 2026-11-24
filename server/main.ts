@@ -14,6 +14,7 @@ import { hashString } from '@/world/math/hash';
 import { WorldHost } from '@/world/net/host';
 import { DEFAULT_MAX_PLAYERS, DEFAULT_PORT } from '@/world/net/protocol';
 import { createWorldState } from '@/world/state';
+import { travellerModel } from './traveller-model';
 import { serve } from './serve';
 
 function arg(name: string, fallback: string): string {
@@ -60,7 +61,15 @@ function save(): void {
   renameSync(`${file}.tmp`, file);
 }
 
-await serve(host, { port, bind, password, origins, save, log: (line) => console.log(line) });
+await serve(host, {
+  port,
+  bind,
+  password,
+  origins,
+  save,
+  chooseStop: travellerModel(process.env),
+  log: (line) => console.log(line),
+});
 console.log(
   `inkbloom world "${worldName}" on ws://${bind}:${port} · up to ${max} players` +
     (password ? ' · password set' : ' · no password (anyone who can reach this port can join)'),

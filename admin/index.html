@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>重彩 · 世界管理</title>
+  </head>
+  <body>
+    <aside>
+      <div class="brand">
+        <span class="seal">彩</span>
+        <div>重彩 <small>INKBLOOM</small></div>
+      </div>
+      <nav hidden>
+        <button data-view="world" aria-current="page">世界总览</button
+        ><button data-view="trace">模型调用链</button>
+      </nav>
+      <div class="account" hidden><span id="user"></span><button id="logout">退出</button></div>
+    </aside>
+    <main>
+      <header>
+        <h1 id="title">管理登录</h1>
+        <span id="sample"></span>
+      </header>
+      <p id="notice" role="status"></p>
+      <form id="login" hidden>
+        <label>管理员账号<input name="user" value="admin" autocomplete="username" required /></label
+        ><label>密码<input name="password" type="password" autocomplete="current-password" required /></label
+        ><button class="primary">登录管理后台</button>
+      </form>
+      <section id="world" hidden>
+        <div class="metrics">
+          <article><small>在线玩家</small><strong id="online">—</strong></article>
+          <article><small>运行中房间</small><strong id="roomsCount">—</strong></article>
+          <article><small>联机世界存档</small><strong id="saveCount">—</strong></article>
+        </div>
+        <h2>房间列表</h2>
+        <div id="rooms"></div>
+        <h2>世界存档</h2>
+        <div id="saves"></div>
+        <h2>最近备份</h2>
+        <div id="backups"></div>
+      </section>
+      <section id="trace" hidden>
+        <div class="toolbar">
+          <h2>旅行者选站</h2>
+          <select id="mode" aria-label="筛选调用来源">
+            <option value="">全部来源</option>
+            <option>单机</option>
+            <option>联机</option>
+            <option>调试</option>
+          </select>
+        </div>
+        <div id="calls"></div>
+        <div class="toolbar">
+          <button id="newer" disabled>上一页</button><button id="older" disabled>更早记录</button>
+        </div>
+      </section>
+    </main>
+    <dialog id="detail">
+      <div class="toolbar">
+        <h2>调用详情</h2>
+        <button id="close">关闭</button>
+      </div>
+      <div id="chain"></div>
+      <button class="primary" id="replay">用相同上下文重新调用</button>
+      <p id="debugStatus" role="status"></p>
+    </dialog>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

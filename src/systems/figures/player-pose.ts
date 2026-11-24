@@ -77,7 +77,7 @@ function poseRest(r: Rig, { sitting, lying }: NonNullable<PlayerPose['rest']>): 
     seatHeight + r.torso.position.y * Math.cos(seatTilt) - r.torso.position.z * Math.sin(seatTilt);
   const shoulderRadius = Math.hypot(r.armR.position.y, r.armR.position.z);
   const seatTorso = Math.max(
-    0.12,
+    0.16,
     Math.acos(Math.max(-1, Math.min(1, (reachLength - 0.025 - chestBase) / shoulderRadius))) -
       Math.atan2(r.armR.position.z, r.armR.position.y) -
       seatTilt,

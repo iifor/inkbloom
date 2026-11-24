@@ -48,17 +48,20 @@ export class CourierViewArms {
   private readonly pole = new THREE.Vector3();
   private grip = 0;
   private readonly compact: boolean;
+  private readonly shoulderSetback: number;
 
   constructor(source: THREE.Object3D, material: THREE.ShaderMaterial) {
     this.actor = new CourierActor(source, material);
-    this.compact = !!source.getObjectByName('KayKitPlayerRig');
+    this.compact = !!(
+      source.getObjectByName('KayKitPlayerRig') || source.getObjectByName('QuaterniusResidentPlayer')
+    );
     const { model, rig } = this.actor;
+    // Long astronaut arms need the camera-space shoulders farther behind the tool.
+    this.shoulderSetback = this.compact ? Math.max(0, rig.armLengths![0] - 0.25) : 0;
     // Retain the skeleton and the author's topology. Only the triangle index is cropped;
     // shared source geometry and the full third-person character remain untouched.
-    this.actor.retainTriangles(
-      /^(upperarm|lowerarm|hand|palm|grip|index_\d+|middle_\d+|ring_\d+|pinky_\d+|thumb_\d+)_[lr]$/,
-      (weight) => weight > 0.65,
-    );
+    // Follow each arm through its whole skeleton, including authored metacarpals.
+    this.actor.retainTriangles(['upperarm_l', 'upperarm_r'], (weight) => weight > 0.65, true);
     rig.hips.position.set(0, 0, 0);
     rig.torso.position.set(0, 0, 0);
     rig.armL.position.set(-0.34, -0.36, 0);
@@ -104,11 +107,15 @@ export class CourierViewArms {
     this.brush.visible = false;
     const r = this.actor.rig;
     const grips = WEAPON_GRIPS[key];
-    weapon.scale.setScalar(this.compact ? 0.68 : 1);
     // Match the character's one-handed sword/staff stance. Long firearms use a support hand.
     const count = key === 'rifle' || key === 'sniper' || key === 'launcher' ? 2 : 1;
-    r.armL.position.set(this.compact ? -0.2 : -0.26, -0.36, -0.04);
-    r.armR.position.set(this.compact ? 0.2 : 0.26, -0.36, -0.04);
+    const setback = this.shoulderSetback;
+    // A two-handed tool has to span the gloves as well as both contact points.
+    const toolScale = this.compact ? Math.min(1, 0.68 + (count === 2 ? setback * 1.4 : 0)) : 1;
+    weapon.scale.setScalar(toolScale);
+    const shoulderX = (this.compact ? 0.2 : 0.26) + setback * 0.65;
+    r.armL.position.set(-shoulderX, -0.36 - setback * 0.3, -0.04 + setback * 1.3);
+    r.armR.position.set(shoulderX, r.armL.position.y, r.armL.position.z);
     for (let i = 0; i < count; i++) {
       const sign = i === 0 ? 1 : -1;
       const grip = grips[i]!;
@@ -185,6 +192,10 @@ export class CourierViewArms {
     this.grip = THREE.MathUtils.damp(this.grip, brush && !open ? 1 : 0, 18, dt);
     const r = this.actor.rig;
     const [upper, lower] = r.armLengths!;
+    // Block palms and the platformer's boxing gloves need more space in front of the lens.
+    const wideHands = look.character.startsWith('cube/') || look.character === 'platformer/Character';
+    const depth = wideHands ? 0.14 : 0;
+    this.brush.scale.setScalar(wideHands ? 0.85 : 0.68);
     for (const side of ['L', 'R'] as const) {
       const sign = side === 'R' ? 1 : -1;
       const anchor = side === 'R' ? right : left;
@@ -193,16 +204,17 @@ export class CourierViewArms {
         palm = r[`palm${side}`];
       // Grip targets use the existing gait and painting motion; the elbow and wrist now
       // articulate on the real model instead of rotating a single merged hand shape.
+      arm.position.set(sign * (0.34 + this.shoulderSetback * 0.4), -0.36, this.shoulderSetback - depth);
       const desired = anchor.position;
       this.foreQ.copy(arm.quaternion).multiply(fore.quaternion);
       for (let i = 0; i < 4; i++) {
-        this.contact.set(r.gripOffset!.x * sign, 0, 0).applyQuaternion(this.foreQ);
-        this.target.set(desired.x * 0.88, desired.y - 0.07, desired.z).sub(this.contact);
+        this.contact.set(r.gripOffset!.x * sign, 0, r.gripOffset!.z).applyQuaternion(this.foreQ);
+        this.target.set(desired.x * 0.88, desired.y - 0.07, desired.z - depth).sub(this.contact);
         reach(arm, fore, sign, this.target, [upper, lower - r.gripOffset!.y]);
         this.foreQ.copy(arm.quaternion).multiply(fore.quaternion);
       }
       palm.quaternion.identity();
-      palm.position.set(r.gripOffset!.x * sign, -lower + r.gripOffset!.y, 0);
+      palm.position.set(r.gripOffset!.x * sign, -lower + r.gripOffset!.y, r.gripOffset!.z);
       if (side === 'R') {
         const prop = r.props.brush.node;
         prop.position.set(0, -upper, 0).applyQuaternion(arm.quaternion).add(arm.position);

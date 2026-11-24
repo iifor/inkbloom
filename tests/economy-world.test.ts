@@ -88,6 +88,8 @@ describe('city ink stains and studios', () => {
 describe('resident homes', () => {
   it.each([1, 2, 99])('place residents at real houses in every block (seed %i)', (seed) => {
     const city = generateCity('x', seed, 2);
+    expect(city.residents.length).toBeGreaterThanOrEqual(city.buildings.length * 1.2);
+    expect(city.residents.length).toBeLessThanOrEqual(city.buildings.length * 2.1);
     const studios = new Set(city.studios.map((s) => s.building));
     for (let b = 0; b < city.chunks * city.chunks; b++) {
       const mine = city.residents.filter((r) => r.chunk === b);

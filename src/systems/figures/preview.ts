@@ -13,13 +13,8 @@ import { ACTION_SECONDS } from './player-hold';
 import { loadCourier } from './quaternius-courier';
 import { FirstPersonPreview } from './preview-first-person';
 import { spawnStoneDistance } from '@/world/wilderness/spawn-circle';
-import {
-  KayKitVillager,
-  loadVillager,
-  VILLAGER_MOTIONS,
-  type VillagerModel,
-  type VillagerMotion,
-} from './kaykit-villager';
+import { ResidentFigure, type VillagerMotion } from './kaykit-villager';
+import { loadResident, residentMotions, isKayKit, type ResidentModel } from './resident-models';
 
 const ACTS = {
   idle: '待机',
@@ -37,6 +32,9 @@ type PreviewAct = keyof typeof ACTS | VillagerMotion;
 
 const DISTANCE = 3.1;
 const BODY_CENTER = 0.9;
+// A swimmer is posed relative to the waterline. On the dry preview stage its
+// underwater pull needs clearance, and the outstretched arm reaches toward the camera.
+const SWIM_CLEARANCE = 1.12;
 const HOP = 0.4;
 type Perspective = 'first' | 'third';
 
@@ -64,8 +62,8 @@ export class CharacterPreview {
   private savedYaw = 0;
   private cameraWasVisible = true;
   private savedFov = 78;
-  private villagerKey: VillagerModel | null = null;
-  private villager: KayKitVillager | null = null;
+  private villagerKey: ResidentModel | null = null;
+  private villager: ResidentFigure | null = null;
   private villagerGeneration = 0;
 
   constructor(private readonly ctx: GameContext) {
@@ -119,9 +117,13 @@ export class CharacterPreview {
   }
 
   /** Read-only village model preview, independent of the player's saved look. */
-  showVillager(key: VillagerModel): void {
+  showVillager(key: ResidentModel): void {
     this.show(defaultLook('courier'));
     this.villagerKey = key;
+    if (!isKayKit(key)) {
+      this.perspective = 'third';
+      this.applyPerspective();
+    }
     this.act = 'idle';
     this.firstPerson?.dispose();
     this.firstPerson = null;
@@ -133,10 +135,10 @@ export class CharacterPreview {
     const generation = ++this.villagerGeneration;
     const status = this.controls!.querySelector<HTMLElement>('[data-status]')!;
     status.textContent = '村民模型载入中…';
-    void loadVillager(key)
+    void loadResident(key)
       .then((source) => {
         if (generation !== this.villagerGeneration || this.villagerKey !== key) return;
-        this.villager = new KayKitVillager(source);
+        this.villager = new ResidentFigure(source, 0, residentMotions(key));
         this.ctx.renderer.scene.add(this.villager.root);
         status.textContent = '村民原版动作';
       })
@@ -164,11 +166,11 @@ export class CharacterPreview {
     panel.innerHTML = `<div class="preview-heading">
       <span data-status>动作预览</span>
       <div role="group" aria-label="预览视角">
-        <button type="button" data-perspective="first" aria-pressed="${this.perspective === 'first'}">第一人称</button>
+        <button type="button" ${this.villagerKey && !isKayKit(this.villagerKey) ? 'hidden' : ''} data-perspective="first" aria-pressed="${this.perspective === 'first'}">第一人称</button>
         <button type="button" data-perspective="third" aria-pressed="${this.perspective === 'third'}">第三人称</button>
       </div>
       </div><div role="group" aria-label="动作">${(this.villagerKey
-        ? Object.entries(VILLAGER_MOTIONS).map(([key, value]) => [key, value.label])
+        ? Object.entries(residentMotions(this.villagerKey)).map(([key, motion]) => [key, motion!.label])
         : Object.entries(ACTS)
       )
         .map(
@@ -220,9 +222,14 @@ export class CharacterPreview {
   private place(): void {
     const cam = this.ctx.renderer.camera;
     const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(cam.quaternion).setY(0).normalize();
-    this.at.copy(cam.position).addScaledVector(fwd, DISTANCE);
+    const swimming = !this.villagerKey && this.act === 'swim';
+    const distance = swimming ? DISTANCE + 0.55 : DISTANCE;
+    this.at.copy(cam.position).addScaledVector(fwd, distance);
     this.at.y = this.groundAt(this.at.x, this.at.z);
-    this.ctx.player.pitch = Math.atan2(this.at.y + BODY_CENTER - cam.position.y, DISTANCE);
+    // Keep raised hands and airborne poses in view while the preview feet leave the ground.
+    const lift = this.villagerKey ? 0 : this.lift * (this.act === 'glide' ? 1.35 : 1);
+    const center = swimming ? SWIM_CLEARANCE + 0.1 : BODY_CENTER;
+    this.ctx.player.pitch = Math.atan2(this.at.y + center + lift - cam.position.y, distance);
     // face the camera
     this.facing = Math.atan2(-(cam.position.x - this.at.x), -(cam.position.z - this.at.z));
   }
@@ -272,8 +279,7 @@ export class CharacterPreview {
     const jump = this.act === 'jump' ? Math.max(0, Math.sin(this.actionT * 3.2)) : 0;
     this.lift = THREE.MathUtils.lerp(
       this.lift,
-      // Dry-land inspection must leave room below the swimmer for the underwater pull.
-      jump * 0.65 + (this.act === 'swim' ? 0.65 : this.act === 'glide' ? 0.5 : 0),
+      jump * 0.65 + (this.act === 'glide' ? 0.5 : 0),
       1 - Math.exp(-16 * dt),
     );
     const held =
@@ -310,7 +316,7 @@ export class CharacterPreview {
     this.figures.begin();
     this.figures.draw(this.look, {
       x: this.at.x,
-      y: this.at.y + hop * 0.35 + this.lift,
+      y: this.at.y + hop * 0.35 + this.lift + (this.act === 'swim' ? SWIM_CLEARANCE : 0),
       z: this.at.z,
       // turn slowly to each side and back, so the hat and hair read from more than the front
       yaw: this.facing + this.turn + Math.sin(this.t * 0.6) * 0.12,

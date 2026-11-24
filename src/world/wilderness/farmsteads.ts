@@ -1,6 +1,7 @@
 import { TUNING } from '@/content/tuning';
 import { hashAt, hashInts, unit } from '../math/hash';
-import { type Wilderness, WATER_LEVEL } from './generator';
+import { startsPeaceful } from '../city/origin';
+import { type Wilderness, townDistance, WATER_LEVEL } from './generator';
 import { pathsOf } from './paths';
 
 export interface FarmBuilding {
@@ -12,9 +13,14 @@ export interface FarmBuilding {
   base: number;
   height: number;
   barn: boolean;
+  residents: number;
 }
 
+export const OUTSKIRTS_RANGE = 180;
+
 export interface Farmstead {
+  /** Original village of displaced households. Peaceful outlying farms stay occupied. */
+  refugeFor?: string;
   x: number;
   z: number;
   hw: number;
@@ -34,25 +40,48 @@ export function farmsteadInChunk(
   cx: number,
   cz: number,
   obstacles: readonly { x: number; z: number; room: number }[],
+  isPeaceful = (id: string) => startsPeaceful(w.seed, id),
 ): Farmstead | null {
   if (w.terrainVersion < 4) return null;
-  // One candidate chunk per region, with empty regions and unsuitable sites left alone.
-  const h = hashAt(w.seed, 'farmstead', Math.floor(cx / GRID), Math.floor(cz / GRID));
+  // Preserve the original farm plots. Extra households use a separate stream around towns.
+  const region = hashAt(w.seed, 'farmstead', Math.floor(cx / GRID), Math.floor(cz / GRID));
+  const original =
+    unit(region) < 0.85 &&
+    ((cx % GRID) + GRID) % GRID === hashInts(region, 1) % GRID &&
+    ((cz % GRID) + GRID) % GRID === hashInts(region, 2) % GRID;
+  const h = original ? region : hashAt(w.seed, 'refuge-homes', cx, cz);
+  const centreX = (cx + 0.5) * SIZE,
+    centreZ = (cz + 0.5) * SIZE;
+  const towns = w.entrancesNear(centreX, centreZ, 1);
+  function nearbyVillage(x: number, z: number) {
+    let nearest,
+      distance = OUTSKIRTS_RANGE;
+    for (const town of towns) {
+      const d = townDistance(town, x, z);
+      if (d < distance) {
+        nearest = town;
+        distance = d;
+      }
+    }
+    return nearest;
+  }
   if (
-    unit(h) >= 0.85 ||
-    ((cx % GRID) + GRID) % GRID !== hashInts(h, 1) % GRID ||
-    ((cz % GRID) + GRID) % GRID !== hashInts(h, 2) % GRID
+    !original &&
+    (unit(h) > 0.65 || !towns.some((t) => townDistance(t, centreX, centreZ) < OUTSKIRTS_RANGE + SIZE / 2))
   )
     return null;
   const roll = unit(hashInts(h, 3));
-  const count = roll < 0.52 ? 1 : roll < 0.85 ? 2 : 3;
-  const hw = count === 1 ? 9 : 14;
-  const hd = count === 3 ? 13 : 10;
   const paths = pathsOf(w);
   for (let i = 0; i < 12; i++) {
     const spot = hashInts(h, 10 + i);
     const x = cx * SIZE + 32 + unit(spot) * (SIZE - 64);
     const z = cz * SIZE + 32 + unit(hashInts(spot, 1)) * (SIZE - 64);
+    const nearest = nearbyVillage(x, z);
+    const refuge = !!nearest && !isPeaceful(nearest.cityId);
+    if (!original && (!nearest || (!refuge && unit(h) >= 0.12))) continue;
+    const count = original ? (roll < 0.52 ? 1 : roll < 0.85 ? 2 : 3) : refuge ? (roll < 0.6 ? 2 : 3) : 1;
+    const hw = count === 1 ? 9 : 14;
+    const hd = count === 3 ? 13 : 10;
     if (Math.hypot(x - SIZE / 2, z - SIZE / 2) < 155 || w.townAt(x, z, 43)) continue;
     if (
       obstacles.some(
@@ -88,11 +117,22 @@ export function farmsteadInChunk(
         foot: range.low - 0.14,
         base: range.high + 0.08,
         height: (index === 2 ? 2.8 : 3.25) + unit(hashInts(h, 40 + index)) * 0.65,
-        barn: index === 1,
+        barn: original && index === 1,
+        residents: original && index === 1 ? 0 : (refuge ? 2 : 1) + (hashInts(h, 50, index) % 2),
       };
     });
     if (buildings.some((b) => b.base - b.foot > 1.05)) continue;
-    return { x, z, hw, hd, front, stoneWall: unit(hashInts(h, 4)) < 0.45, seed: h, buildings };
+    return {
+      refugeFor: refuge ? nearest!.cityId : undefined,
+      x,
+      z,
+      hw,
+      hd,
+      front,
+      stoneWall: unit(hashInts(h, 4)) < 0.45,
+      seed: h,
+      buildings,
+    };
   }
   return null;
 }

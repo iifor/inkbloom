@@ -49,6 +49,17 @@ export function restHands(r: Rig, sitting: number, lying: number): void {
       contact.x *= sign;
       contact.applyQuaternion(handQ);
       target.sub(contact);
+      // Preserve the floor contact on broad mittens. If the wrist is out of reach,
+      // draw it horizontally towards the shoulder instead of lifting the palm.
+      r.root.worldToLocal(r.torso.localToWorld(target)).sub(shoulder);
+      const radius = lengths[0] + lengths[1] - 0.002;
+      const reachXZ = Math.sqrt(Math.max(0, radius * radius - target.y * target.y));
+      const horizontal = Math.hypot(target.x, target.z);
+      if (horizontal > reachXZ) {
+        target.x *= reachXZ / horizontal;
+        target.z *= reachXZ / horizontal;
+      }
+      r.torso.worldToLocal(r.root.localToWorld(target.add(shoulder)));
     }
     pole.set(sign * 0.8, 0.25, 0.25).applyQuaternion(torsoQ);
     reach(arm, fore, sign, target, lengths, pole);

@@ -10,6 +10,7 @@ import * as THREE from 'three';
 import { color } from '@/content/palette';
 import type { EnemyDef } from '@/content/enemies';
 import { FigureRenderer, type Part, RigBuilder, rigTop } from '@/systems/figures/figure';
+import { animalTemplate, isInkAnimal, InkAnimal, type InkAnimalKey } from './ink-animal';
 
 /** What a monster is doing this frame, for posing. */
 export interface Pose {
@@ -348,8 +349,12 @@ const INK = color('ink');
 export class MonsterFigures {
   private readonly rigs = new Map<string, Rig>();
   private readonly figures: FigureRenderer;
+  private readonly animals = new Map<InkAnimalKey, { instances: InkAnimal[]; used: number }>();
 
-  constructor(parent: THREE.Object3D, material: THREE.Material) {
+  constructor(
+    private readonly parent: THREE.Object3D,
+    private readonly material: THREE.Material,
+  ) {
     this.figures = new FigureRenderer(parent, material);
   }
 
@@ -363,10 +368,29 @@ export class MonsterFigures {
   }
 
   begin(): void {
+    for (const pool of this.animals.values()) pool.used = 0;
     this.figures.begin();
   }
 
   draw(def: EnemyDef, p: Pose): void {
+    if (isInkAnimal(def.key)) {
+      const source = animalTemplate(def.key);
+      if (source) {
+        let pool = this.animals.get(def.key);
+        if (!pool) {
+          pool = { instances: [], used: 0 };
+          this.animals.set(def.key, pool);
+        }
+        let animal = pool.instances[pool.used++];
+        if (!animal) {
+          animal = new InkAnimal(def.key, source, this.material);
+          pool.instances.push(animal);
+          this.parent.add(animal.root);
+        }
+        animal.pose(p, def.height);
+        return;
+      }
+    }
     const r = this.rig(def);
     pose(r, p);
     r.root.updateMatrixWorld(true);
@@ -379,10 +403,13 @@ export class MonsterFigures {
   }
 
   end(): void {
+    for (const { instances, used } of this.animals.values())
+      for (let i = used; i < instances.length; i++) instances[i]!.root.visible = false;
     this.figures.end();
   }
 
   dispose(): void {
+    for (const { instances } of this.animals.values()) for (const animal of instances) animal.dispose();
     this.figures.dispose();
   }
 }

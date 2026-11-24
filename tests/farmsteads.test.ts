@@ -5,7 +5,7 @@ import { GeometryBuilder } from '@/engine/render/geometry-builder';
 import { buildFarmstead } from '@/systems/wilderness/build-farmstead';
 import { generateWildChunk } from '@/world/wilderness/chunk';
 import { farmsteadInChunk } from '@/world/wilderness/farmsteads';
-import { createWilderness, WATER_LEVEL } from '@/world/wilderness/generator';
+import { createWilderness, townDistance, WATER_LEVEL } from '@/world/wilderness/generator';
 import { pathsOf } from '@/world/wilderness/paths';
 
 it('streams an isolated farmstead with a clear yard, a solid fence and an open gate', () => {
@@ -50,4 +50,37 @@ it('streams an isolated farmstead with a clear yard, a solid fence and an open g
   expect(mesh.build().getAttribute('position').count).toBeGreaterThan(0);
   physics.removeGroup('farmstead');
   expect(physics.boxCount).toBe(0);
+});
+
+it('places more occupied homes around an infected village than at the same peaceful site', () => {
+  const w = createWilderness(4242);
+  const town = w.entranceInCell(0, 0)!;
+  const homes = (peaceful: boolean) => {
+    const residents: number[] = [];
+    const size = TUNING.world.chunkSize;
+    for (
+      let cx = Math.floor((town.ox - 180) / size);
+      cx <= Math.floor((town.ox + town.size + 180) / size);
+      cx++
+    )
+      for (
+        let cz = Math.floor((town.oz - 180) / size);
+        cz <= Math.floor((town.oz + town.size + 180) / size);
+        cz++
+      ) {
+        const farm = farmsteadInChunk(w, cx, cz, [], () => peaceful);
+        if (!farm || townDistance(town, farm.x, farm.z) > 180) continue;
+        for (const building of farm.buildings) {
+          if (building.barn) expect(building.residents).toBe(0);
+          else residents.push(building.residents);
+        }
+      }
+    return residents;
+  };
+  const ordinary = homes(true),
+    infected = homes(false);
+  expect(ordinary.length).toBeGreaterThan(0);
+  expect(infected.length).toBeGreaterThan(ordinary.length);
+  expect(ordinary.every((n) => n === 1 || n === 2)).toBe(true);
+  expect(infected.every((n) => n === 2 || n === 3)).toBe(true);
 });

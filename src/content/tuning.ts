@@ -161,6 +161,10 @@ export const TUNING = {
     giantChance: { wild: 0.15, tide: 0.35 },
     /** Chance that a wild or tide monster that is not a spitter is a 墨鼬 rather than a blot. */
     weaselChance: 0.3,
+    /** Upper end of the wild kind roll reserved for ink frogs. */
+    wildFrogChance: 0.12,
+    /** Share of wild rolls reserved for imported wilderness creatures other than frogs. */
+    wildCreatureChance: 0.23,
     /** Monsters that come with each ink tide: [min, max]. */
     tideMonsters: [2, 4],
     /** A monster gives up and goes home beyond this distance from its post. */

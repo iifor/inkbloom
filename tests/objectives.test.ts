@@ -125,30 +125,16 @@ describe('the first city', () => {
 });
 
 describe('strongholds', () => {
-  it.each([1, 2, 3, 99])('stand on roads, in sized groups, never in the gate block (seed %i)', (seed) => {
-    const c = generateCity('x', seed);
-    const side = c.chunks;
+  it.each([1, 2, 3, 5])('places infected villagers on streets in proportion to houses (size %i)', (side) => {
+    const c = generateCity('x', 42, side);
+    expect(c.monsters.length).toBeGreaterThanOrEqual(c.buildings.length);
+    expect(c.monsters.length).toBeLessThanOrEqual(c.buildings.length * 1.5);
     const spawnChunk =
       Math.floor(c.spawn.z / (c.size / side)) * side + Math.floor(c.spawn.x / (c.size / side));
-    const [lo, hi] = TUNING.combat.stronghold.other;
-    const perBlock = new Map<number, number>();
     for (const m of c.monsters) {
       expect(c.roads[Math.floor(m.z / c.cell) * c.n + Math.floor(m.x / c.cell)]).not.toBe(0);
-      expect(m.chunk).not.toBe(spawnChunk);
-      perBlock.set(m.chunk, (perBlock.get(m.chunk) ?? 0) + 1);
+      if (side > 1) expect(m.chunk).not.toBe(spawnChunk);
+      else expect(Math.hypot(m.x - c.spawn.x, m.z - c.spawn.z)).toBeGreaterThan(12);
     }
-    for (const n of perBlock.values()) {
-      expect(n).toBeGreaterThanOrEqual(lo);
-      expect(n).toBeLessThanOrEqual(hi);
-    }
-  });
-
-  it('are lighter in the first city', () => {
-    const w = createWilderness(20261102);
-    const e = w.entranceInCell(0, 0)!;
-    const c = generateCity(e.cityId, e.seed, e.chunks);
-    const [, hi] = TUNING.combat.stronghold.first;
-    expect(c.monsters.length).toBeGreaterThan(0);
-    expect(c.monsters.length).toBeLessThanOrEqual(hi * (c.chunks * c.chunks - 1));
   });
 });

@@ -75,5 +75,824 @@
     "sourceUrl": "https://raw.githubusercontent.com/trebeljahr/quaternius-showcase/main/public/glb/modular_men/Worker.glb",
     "sourceSha256": "1c07d49d6ef060fb3d69897d91334093d389f0e729a874d7647fdb6b59f92127",
     "outputSha256": "a99b95939f326db6d0e6f834ad30e1f3e8e3f94fd2b63631c1a376b779af542f"
+  },
+  {
+    "character": "Adventurer",
+    "file": "modular-women-adventurer.glb",
+    "sourceUrl": "https://raw.githubusercontent.com/trebeljahr/quaternius-showcase/06c3e49a14b59148292b503b20685bfdb42311ac/public/glb/modular_women/Adventurer.glb",
+    "sourceSha256": "543d6737d622510be9cc2513daaa2e0df84a1b4444cdc77b6459fafb4f3a27e2",
+    "outputSha256": "196b0abdfa30f333d951468feb40856fc2dee4eccaa10e673f1e0c08f5100d9d"
+  },
+  {
+    "character": "Casual",
+    "file": "modular-women-casual.glb",
+    "sourceUrl": "https://raw.githubusercontent.com/trebeljahr/quaternius-showcase/06c3e49a14b59148292b503b20685bfdb42311ac/public/glb/modular_women/Casual.glb",
+    "sourceSha256": "522cd442880c6769bdf079f1a2161a1aaffe78b32f1de64fb990644b2e327fea",
+    "outputSha256": "5727fb275bc2ca5e04e2cba3287303a1a488f3d2f4d02f1263d604cfe81a15d5"
+  },
+  {
+    "character": "Formal",
+    "file": "modular-women-formal.glb",
+    "sourceUrl": "https://raw.githubusercontent.com/trebeljahr/quaternius-showcase/06c3e49a14b59148292b503b20685bfdb42311ac/public/glb/modular_women/Formal.glb",
+    "sourceSha256": "f1b635c27f9fc2b200eb188ba18c625e7d9b0e19d46e8e4d1695e6100fa3735d",
+    "outputSha256": "18cc7b43acd96c1812a073d2420135a23eaf5a42e5ead6a98edaf46384bc2f35"
+  },
+  {
+    "character": "Medieval",
+    "file": "modular-women-medieval.glb",
+    "sourceUrl": "https://raw.githubusercontent.com/trebeljahr/quaternius-showcase/06c3e49a14b59148292b503b20685bfdb42311ac/public/glb/modular_women/Medieval.glb",
+    "sourceSha256": "66ea27f811ee04e2d1aef79630b7616fb32589936263954fed598c04e5665e38",
+    "outputSha256": "dfe5dfaf63e4509db5572b637139b915b668b5fae59ebb5cac956bd88e364181"
+  },
+  {
+    "character": "Punk",
+    "file": "modular-women-punk.glb",
+    "sourceUrl": "https://raw.githubusercontent.com/trebeljahr/quaternius-showcase/06c3e49a14b59148292b503b20685bfdb42311ac/public/glb/modular_women/Punk.glb",
+    "sourceSha256": "8bfe90e4496874dc3eb358a827209a6984b5ac1df5e5044dfdbf6db0f235f162",
+    "outputSha256": "3c001a29f415d1b149cef42312006087296ac41f4a2cb98b304710caa2da853f"
+  },
+  {
+    "character": "SciFi",
+    "file": "modular-women-scifi.glb",
+    "sourceUrl": "https://raw.githubusercontent.com/trebeljahr/quaternius-showcase/06c3e49a14b59148292b503b20685bfdb42311ac/public/glb/modular_women/SciFi.glb",
+    "sourceSha256": "46d26abdc728782630b76e617ae49ecd2237912e6fe729458eebb1cb2f3de9e3",
+    "outputSha256": "aec68ae3af1b93cff683d9df4679bfa1d479ec26f84d61b057aaa402fd726d97"
+  },
+  {
+    "character": "Soldier",
+    "file": "modular-women-soldier.glb",
+    "sourceUrl": "https://raw.githubusercontent.com/trebeljahr/quaternius-showcase/06c3e49a14b59148292b503b20685bfdb42311ac/public/glb/modular_women/Soldier.glb",
+    "sourceSha256": "875bf2bed49498a58b8c7116536863bdb4f23ca09e22dc83ea60d091cc516fd1",
+    "outputSha256": "766033a22ffe4787e355f00894fa28490f931b5daecb114746d1f7673cd8cc0d"
+  },
+  {
+    "character": "Suit",
+    "file": "modular-women-suit.glb",
+    "sourceUrl": "https://raw.githubusercontent.com/trebeljahr/quaternius-showcase/06c3e49a14b59148292b503b20685bfdb42311ac/public/glb/modular_women/Suit.glb",
+    "sourceSha256": "af53a5b6a7c3f1b790ba647934da87613020d141916c2e3f15b88eaad5aff32b",
+    "outputSha256": "3baca4fe00112ba5db1f6973cd021c470b8d5e34cefd481e6584d9703aefb89a"
+  },
+  {
+    "character": "Witch",
+    "file": "modular-witch.glb",
+    "sourceUrl": "https://raw.githubusercontent.com/trebeljahr/quaternius-showcase/06c3e49a14b59148292b503b20685bfdb42311ac/public/glb/modular_women/Witch.glb",
+    "sourceSha256": "980a6436197dacab3cc54b8f26d8695f6968e1f86b2856ead53936053b82e581",
+    "outputSha256": "2a9076bcdf7976d982ed7b93b1d8f08d91c27343dc24a31008351b5133ea10b6"
+  },
+  {
+    "character": "Worker",
+    "file": "modular-women-worker.glb",
+    "sourceUrl": "https://raw.githubusercontent.com/trebeljahr/quaternius-showcase/06c3e49a14b59148292b503b20685bfdb42311ac/public/glb/modular_women/Worker.glb",
+    "sourceSha256": "00bd8f9da25b9196f61d2f4d9f21972f98632665926ed4da2652c0c020fd0bc6",
+    "outputSha256": "f325fe21bba88d523a5089c39bddce482c890279eaf629b783a8275528f6131c"
+  },
+  {
+    "character": "Frog",
+    "file": "ink-frog.glb",
+    "sourceUrl": "https://raw.githubusercontent.com/trebeljahr/quaternius-showcase/06c3e49a14b59148292b503b20685bfdb42311ac/public/glb/easy_enemies_pack/Frog.glb",
+    "sourceSha256": "92dc96c90e7228676f8c43dc7711ba5ed5505029ebb2f6d4ad198d9e35bdbfe0",
+    "outputSha256": "92dc96c90e7228676f8c43dc7711ba5ed5505029ebb2f6d4ad198d9e35bdbfe0"
+  },
+  {
+    "character": "Rat",
+    "file": "ink-rat.glb",
+    "sourceUrl": "https://raw.githubusercontent.com/trebeljahr/quaternius-showcase/06c3e49a14b59148292b503b20685bfdb42311ac/public/glb/easy_enemies_pack/Rat.glb",
+    "sourceSha256": "68f67077981102e957059fd00aaf3799e6867c269de900bd52c9f12cec1d5f56",
+    "outputSha256": "68f67077981102e957059fd00aaf3799e6867c269de900bd52c9f12cec1d5f56"
+  },
+  {
+    "character": "Snake",
+    "file": "ink-snake.glb",
+    "sourceUrl": "https://raw.githubusercontent.com/trebeljahr/quaternius-showcase/06c3e49a14b59148292b503b20685bfdb42311ac/public/glb/easy_enemies_pack/Snake.glb",
+    "sourceSha256": "70b4af1088dec939e167b07c0a5e69992a4851beac8bd24a9da1189b65ae101c",
+    "outputSha256": "70b4af1088dec939e167b07c0a5e69992a4851beac8bd24a9da1189b65ae101c"
+  },
+  {
+    "character": "Snake_angry",
+    "file": "ink-snake-angry.glb",
+    "sourceUrl": "https://raw.githubusercontent.com/trebeljahr/quaternius-showcase/06c3e49a14b59148292b503b20685bfdb42311ac/public/glb/easy_enemies_pack/Snake_angry.glb",
+    "sourceSha256": "41aab79b037ac1e3ee7935e73b264c3961c08cd74225ef1a60e2f1ac907e79e5",
+    "outputSha256": "41aab79b037ac1e3ee7935e73b264c3961c08cd74225ef1a60e2f1ac907e79e5"
+  },
+  {
+    "character": "Spider",
+    "file": "ink-spider.glb",
+    "sourceUrl": "https://raw.githubusercontent.com/trebeljahr/quaternius-showcase/06c3e49a14b59148292b503b20685bfdb42311ac/public/glb/easy_enemies_pack/Spider.glb",
+    "sourceSha256": "d759e35f6cf5adc7eb7e3f70135cd2a808787fc36337a523015592ba840ccd6d",
+    "outputSha256": "d759e35f6cf5adc7eb7e3f70135cd2a808787fc36337a523015592ba840ccd6d"
+  },
+  {
+    "character": "Wasp",
+    "file": "ink-wasp.glb",
+    "sourceUrl": "https://raw.githubusercontent.com/trebeljahr/quaternius-showcase/06c3e49a14b59148292b503b20685bfdb42311ac/public/glb/easy_enemies_pack/Wasp.glb",
+    "sourceSha256": "050fe9f39c61f62c00691303fa44f85cbd6548d385f27d95011fa9936d2b48a3",
+    "outputSha256": "75426f0547b4b71e9872d70ba0dd376ba7b06ad0280e3875059fd9538fd77b8a"
+  },
+  {
+    "character": "BaseCharacter",
+    "file": "animated/BaseCharacter.glb",
+    "sourceUrl": "https://raw.githubusercontent.com/chibifire-stages/quaternius-stage/ed5dc51b1e44006c0fc843e6c7b4a840dfb498ab/models/UltimateAnimatedCharacter/SK_BaseCharacter.usda",
+    "sourceSha256": "a4a6a4f1a8f650eb502c7d2f2d0744316444255c95d89a1d4869e7320b65512c",
+    "outputSha256": "e0ebbaec40886155fed4bb769610cb6741153caed3ba58240b360e857f60a9f8",
+    "playerFile": "players/animated/BaseCharacter.glb",
+    "playerSha256": "19123107abad8a26ab5636903d30318bf779fd7dfab48906aa115d8df0008ae4",
+    "motionSources": [
+      {
+        "clip": "Death",
+        "sourceUrl": "https://media.githubusercontent.com/media/nginetechnologies/pack-zoo-character.nplugin/d3e3cebcb73e449cff192eb0bc74d2d443f72da5/Assets/Modular_Toon/Animations/A_Modular_Toon_Death.fbx",
+        "sourceSha256": "074d8274e48b66fd64feada1f63a896e10c25a79b377bfcf5ae033b1ae2718f1"
+      },
+      {
+        "clip": "Defeat",
+        "sourceUrl": "https://media.githubusercontent.com/media/nginetechnologies/pack-zoo-character.nplugin/d3e3cebcb73e449cff192eb0bc74d2d443f72da5/Assets/Modular_Toon/Animations/A_Modular_Toon_Defeat.fbx",
+        "sourceSha256": "491c869bfb96235b90cf8bf29c1fe5aa32712274605f76c5bff43f94c5e71db4"
+      },
+      {
+        "clip": "Hit_React",
+        "sourceUrl": "https://media.githubusercontent.com/media/nginetechnologies/pack-zoo-character.nplugin/d3e3cebcb73e449cff192eb0bc74d2d443f72da5/Assets/Modular_Toon/Animations/A_Modular_Toon_Hit_React.fbx",
+        "sourceSha256": "3a6b504c066eddd134be569a21a4c1dee85173a065628b97d415023b291063f7"
+      },
+      {
+        "clip": "Idle",
+        "sourceUrl": "https://media.githubusercontent.com/media/nginetechnologies/pack-zoo-character.nplugin/d3e3cebcb73e449cff192eb0bc74d2d443f72da5/Assets/Modular_Toon/Animations/A_Modular_Toon_Idle.fbx",
+        "sourceSha256": "af1653a1aba0305ffefb2784a43fe07b1daded4e6d8df8e7c168d73ddd20b0e7"
+      },
+      {
+        "clip": "Jump_End",
+        "sourceUrl": "https://media.githubusercontent.com/media/nginetechnologies/pack-zoo-character.nplugin/d3e3cebcb73e449cff192eb0bc74d2d443f72da5/Assets/Modular_Toon/Animations/A_Modular_Toon_Jump_End.fbx",
+        "sourceSha256": "00cb21ad0534b0e1c030962dbc325cb0230cc31b2221b5f8b51fa1214f5611cf"
+      },
+      {
+        "clip": "Jump_Loop",
+        "sourceUrl": "https://media.githubusercontent.com/media/nginetechnologies/pack-zoo-character.nplugin/d3e3cebcb73e449cff192eb0bc74d2d443f72da5/Assets/Modular_Toon/Animations/A_Modular_Toon_Jump_Loop.fbx",
+        "sourceSha256": "4b7c4af6345f86078d13f343ab14aafeb4301cb9a21189b684c1876ef1a2c19e"
+      },
+      {
+        "clip": "Jump_Start",
+        "sourceUrl": "https://media.githubusercontent.com/media/nginetechnologies/pack-zoo-character.nplugin/d3e3cebcb73e449cff192eb0bc74d2d443f72da5/Assets/Modular_Toon/Animations/A_Modular_Toon_Jump_Start.fbx",
+        "sourceSha256": "46104bc6329c296e2b4868843e055db8862078877631d48a4f7a08d9805275e2"
+      },
+      {
+        "clip": "Pickup",
+        "sourceUrl": "https://media.githubusercontent.com/media/nginetechnologies/pack-zoo-character.nplugin/d3e3cebcb73e449cff192eb0bc74d2d443f72da5/Assets/Modular_Toon/Animations/A_Modular_Toon_Pickup.fbx",
+        "sourceSha256": "67b5792dcd5a5ed5c814e51d31b4f7dc00d5ca84cd5c05495e9f7e9da2582b13"
+      },
+      {
+        "clip": "Punch",
+        "sourceUrl": "https://media.githubusercontent.com/media/nginetechnologies/pack-zoo-character.nplugin/d3e3cebcb73e449cff192eb0bc74d2d443f72da5/Assets/Modular_Toon/Animations/A_Modular_Toon_Punch.fbx",
+        "sourceSha256": "8308b823ef64f82ac92e92cfc438e9bbb4a95984ed49d1dc6251031dc211cd67"
+      },
+      {
+        "clip": "Roll",
+        "sourceUrl": "https://media.githubusercontent.com/media/nginetechnologies/pack-zoo-character.nplugin/d3e3cebcb73e449cff192eb0bc74d2d443f72da5/Assets/Modular_Toon/Animations/A_Modular_Toon_Roll.fbx",
+        "sourceSha256": "c608f2a3c4385e48e871c53067c6401d140c02e59f072ca946ccffad805f5c3a"
+      },
+      {
+        "clip": "Run",
+        "sourceUrl": "https://media.githubusercontent.com/media/nginetechnologies/pack-zoo-character.nplugin/d3e3cebcb73e449cff192eb0bc74d2d443f72da5/Assets/Modular_Toon/Animations/A_Modular_Toon_Run.fbx",
+        "sourceSha256": "3885cb5afc0b8e76e478a21f56db8f51612be6180282e40a9240e8909027ebef"
+      },
+      {
+        "clip": "Run_Carry",
+        "sourceUrl": "https://media.githubusercontent.com/media/nginetechnologies/pack-zoo-character.nplugin/d3e3cebcb73e449cff192eb0bc74d2d443f72da5/Assets/Modular_Toon/Animations/A_Modular_Toon_Run_Carry.fbx",
+        "sourceSha256": "907362b87e585be0579ce3bb0c4274ab6fbabb6ba30b66bc28185e26d572241b"
+      },
+      {
+        "clip": "Shoot_1_Hand",
+        "sourceUrl": "https://media.githubusercontent.com/media/nginetechnologies/pack-zoo-character.nplugin/d3e3cebcb73e449cff192eb0bc74d2d443f72da5/Assets/Modular_Toon/Animations/A_Modular_Toon_Shoot_1_Hand.fbx",
+        "sourceSha256": "2742234bbb4a7f2314fb9b4b99d618ea289b5a0e716eec9fe223c0fe75b5fe14"
+      },
+      {
+        "clip": "Sit_Down",
+        "sourceUrl": "https://media.githubusercontent.com/media/nginetechnologies/pack-zoo-character.nplugin/d3e3cebcb73e449cff192eb0bc74d2d443f72da5/Assets/Modular_Toon/Animations/A_Modular_Toon_Sit_Down.fbx",
+        "sourceSha256": "6f6ac1c91d3ca53daf3ae14b0a105f05d6978c01b4145e64de8fa0992e453fd6"
+      },
+      {
+        "clip": "Stand_Up",
+        "sourceUrl": "https://media.githubusercontent.com/media/nginetechnologies/pack-zoo-character.nplugin/d3e3cebcb73e449cff192eb0bc74d2d443f72da5/Assets/Modular_Toon/Animations/A_Modular_Toon_Stand_Up.fbx",
+        "sourceSha256": "888f2d77486e738541280611541f6ab52b8b1d5c115b379f4cf748ea8e323a6b"
+      },
+      {
+        "clip": "Sword_Slash",
+        "sourceUrl": "https://media.githubusercontent.com/media/nginetechnologies/pack-zoo-character.nplugin/d3e3cebcb73e449cff192eb0bc74d2d443f72da5/Assets/Modular_Toon/Animations/A_Modular_Toon_Sword_Slash.fbx",
+        "sourceSha256": "31c8cd2f0c2ebf442a8239094cb93efd166376e1170a60dfb0bf215bee181e72"
+      },
+      {
+        "clip": "Victory",
+        "sourceUrl": "https://media.githubusercontent.com/media/nginetechnologies/pack-zoo-character.nplugin/d3e3cebcb73e449cff192eb0bc74d2d443f72da5/Assets/Modular_Toon/Animations/A_Modular_Toon_Victory.fbx",
+        "sourceSha256": "4e065e7ade4d033b8ee4a4dcb6fe9c5894ebe640c36ee60dc590533e05407bf9"
+      },
+      {
+        "clip": "Walk",
+        "sourceUrl": "https://media.githubusercontent.com/media/nginetechnologies/pack-zoo-character.nplugin/d3e3cebcb73e449cff192eb0bc74d2d443f72da5/Assets/Modular_Toon/Animations/A_Modular_Toon_Walk.fbx",
+        "sourceSha256": "794b8b7234856e2697424dc1b2252afa68c71a0b665d4145817844ac3a6573f2"
+      },
+      {
+        "clip": "Walk_Carry",
+        "sourceUrl": "https://media.githubusercontent.com/media/nginetechnologies/pack-zoo-character.nplugin/d3e3cebcb73e449cff192eb0bc74d2d443f72da5/Assets/Modular_Toon/Animations/A_Modular_Toon_Walk_Carry.fbx",
+        "sourceSha256": "fedbc5bea399b4f3dffb9ae9d24eb1bb36b72a19973d0d5e3423e2995a8b3e18"
+      }
+    ]
+  },
+  {
+    "character": "BlueSoldierFemale",
+    "file": "animated/BlueSoldierFemale.glb",
+    "sourceUrl": "https://raw.githubusercontent.com/chibifire-stages/quaternius-stage/ed5dc51b1e44006c0fc843e6c7b4a840dfb498ab/models/UltimateAnimatedCharacter/SK_BlueSoldierFemale.usda",
+    "sourceSha256": "67ebe6d8528685a298d4c42f57e24e4e7af7fb687cc62c9894d837df82bad27e",
+    "outputSha256": "716f229d6421bf8a2851f49f134726bc03738868bdf4607f37c32c36b0c95a56",
+    "playerFile": "players/animated/BlueSoldierFemale.glb",
+    "playerSha256": "32158f687d43703e754806d3149261ceaef1113938ed1b52e143c32c7e485482"
+  },
+  {
+    "character": "BlueSoldierMale",
+    "file": "animated/BlueSoldierMale.glb",
+    "sourceUrl": "https://raw.githubusercontent.com/chibifire-stages/quaternius-stage/ed5dc51b1e44006c0fc843e6c7b4a840dfb498ab/models/UltimateAnimatedCharacter/SK_BlueSoldierMale.usda",
+    "sourceSha256": "8cfe242e935ae5851e1e1ee0e3f2edd2ce935d7a2c9c75a24c361bd4db599a06",
+    "outputSha256": "b867023dbd9342c4a8a17b70c7d56bb9b0b2f1a723a8aec580c9a7a39e237814",
+    "playerFile": "players/animated/BlueSoldierMale.glb",
+    "playerSha256": "9276d08d85218caeb3d548e992c32e1a5280fc81395f2c78a57f7c9928f861b5"
+  },
+  {
+    "character": "Casual2Female",
+    "file": "animated/Casual2Female.glb",
+    "sourceUrl": "https://raw.githubusercontent.com/chibifire-stages/quaternius-stage/ed5dc51b1e44006c0fc843e6c7b4a840dfb498ab/models/UltimateAnimatedCharacter/SK_Casual2Female.usda",
+    "sourceSha256": "62eec4da00766d698306b446dd662ca3c76d281dc8de38f717f547dac63a184b",
+    "outputSha256": "3e3280e30111889c63df48c121166e0ed3324f571d3f7d7b6bd6c48bb38c28d4",
+    "playerFile": "players/animated/Casual2Female.glb",
+    "playerSha256": "d5f8facb9b9a420df53cbdfc20bba30f61c969b0771d4914bc1ee59a6b09ef18"
+  },
+  {
+    "character": "Casual2Male",
+    "file": "animated/Casual2Male.glb",
+    "sourceUrl": "https://raw.githubusercontent.com/chibifire-stages/quaternius-stage/ed5dc51b1e44006c0fc843e6c7b4a840dfb498ab/models/UltimateAnimatedCharacter/SK_Casual2Male.usda",
+    "sourceSha256": "2b4f5bb250b6c69b65e2160e3516ca2badb0258cc0cd1cb56cb5566acac26e2c",
+    "outputSha256": "675d879490d6161920653525dbff62feb351d6b972cbb6b9ee4bfc14eeb769d6",
+    "playerFile": "players/animated/Casual2Male.glb",
+    "playerSha256": "87737a9299a070eac192fb2694ece85f3c46203f463929fd3c5da0810f12f9af"
+  },
+  {
+    "character": "Casual3Female",
+    "file": "animated/Casual3Female.glb",
+    "sourceUrl": "https://raw.githubusercontent.com/chibifire-stages/quaternius-stage/ed5dc51b1e44006c0fc843e6c7b4a840dfb498ab/models/UltimateAnimatedCharacter/SK_Casual3Female.usda",
+    "sourceSha256": "ce2ec5908ddc0cdc0c5e39acf7fe4f903648a300932c5d753e51468e6d31a9ce",
+    "outputSha256": "a11542753d59f60c45b828bd904958f3d3fa0b84cb4d11b6c49cb2fdd37558d9",
+    "playerFile": "players/animated/Casual3Female.glb",
+    "playerSha256": "d9c06e5b6722cd5ed5ab512a486b66ce54cdeb3a78ff2f015180bf2dc3acf3d9"
+  },
+  {
+    "character": "Casual3Male",
+    "file": "animated/Casual3Male.glb",
+    "sourceUrl": "https://raw.githubusercontent.com/chibifire-stages/quaternius-stage/ed5dc51b1e44006c0fc843e6c7b4a840dfb498ab/models/UltimateAnimatedCharacter/SK_Casual3Male.usda",
+    "sourceSha256": "2bc7db6665d65264316d051d1487b291e7e4e2f189a7d161839b8bcb269cb36a",
+    "outputSha256": "59954ab9ff4dafd6af2e547cca51ca969eb4a60a486958666246073bdce739a9",
+    "playerFile": "players/animated/Casual3Male.glb",
+    "playerSha256": "e440f0c1487803d1bdc294b3f498ff3b6e3488ff535574196881b77b56040a43"
+  },
+  {
+    "character": "CasualBald",
+    "file": "animated/CasualBald.glb",
+    "sourceUrl": "https://raw.githubusercontent.com/chibifire-stages/quaternius-stage/ed5dc51b1e44006c0fc843e6c7b4a840dfb498ab/models/UltimateAnimatedCharacter/SK_CasualBald.usda",
+    "sourceSha256": "115b803dd922ae4b46b657d7660bde8f16ceaabdaa78fd9de7405420c883e592",
+    "outputSha256": "928ff2ce3b7f4dcaa9ef742c48ea4ce055c30eee262cb2f948a290ec2d70ae99",
+    "playerFile": "players/animated/CasualBald.glb",
+    "playerSha256": "11a0865f5f375b626b15fe9ef80932fb66426be2b2edd4805c1237fe9f4d6126"
+  },
+  {
+    "character": "CasualFemale",
+    "file": "animated/CasualFemale.glb",
+    "sourceUrl": "https://raw.githubusercontent.com/chibifire-stages/quaternius-stage/ed5dc51b1e44006c0fc843e6c7b4a840dfb498ab/models/UltimateAnimatedCharacter/SK_CasualFemale.usda",
+    "sourceSha256": "118b10a875e67d11a0f62420b093ab1218b694910ca571941f78e007262ee08f",
+    "outputSha256": "8cd0e8134427df6225cbd80b8a17a087f6cdf96f8ca77558a13e2bf2658eb263",
+    "playerFile": "players/animated/CasualFemale.glb",
+    "playerSha256": "b9b6d775c64f96bfd8163e74c163a893ab4122c7990f6507f5c35d0caedfcba2"
+  },
+  {
+    "character": "CasualMale",
+    "file": "animated/CasualMale.glb",
+    "sourceUrl": "https://raw.githubusercontent.com/chibifire-stages/quaternius-stage/ed5dc51b1e44006c0fc843e6c7b4a840dfb498ab/models/UltimateAnimatedCharacter/SK_CasualMale.usda",
+    "sourceSha256": "eaf4915e8f68c1bd9b98676608a8d833117a8bea35db07d0773b3b99ac7399be",
+    "outputSha256": "0c0202fc6387ab32c1ec059b7bf6d7015d2844bf0cc97dd3f7b291ed9a6a2bf6",
+    "playerFile": "players/animated/CasualMale.glb",
+    "playerSha256": "ec47d5b6a54f1201a3acbac4472aed5034a669ff25b121c736213f9f451469dd"
+  },
+  {
+    "character": "ChefFemale",
+    "file": "animated/ChefFemale.glb",
+    "sourceUrl": "https://raw.githubusercontent.com/chibifire-stages/quaternius-stage/ed5dc51b1e44006c0fc843e6c7b4a840dfb498ab/models/UltimateAnimatedCharacter/SK_ChefFemale.usda",
+    "sourceSha256": "fc29a841323e54f9b2b66c8fc85f34a3ef58a1ae2b42ec85a2ea2873c76731a2",
+    "outputSha256": "931c41769467b6a90c40ae8c451f274ffa4452cec5655cd162a8085252bc1986",
+    "playerFile": "players/animated/ChefFemale.glb",
+    "playerSha256": "d1579914255532efcf263b5c6fb6dc3b32bd19af7b81e3c9167dbd45126051bb"
+  },
+  {
+    "character": "ChefHat",
+    "file": "animated/ChefHat.glb",
+    "sourceUrl": "https://raw.githubusercontent.com/chibifire-stages/quaternius-stage/ed5dc51b1e44006c0fc843e6c7b4a840dfb498ab/models/UltimateAnimatedCharacter/SK_ChefHat.usda",
+    "sourceSha256": "489fbe99da9815e2633ac7248280034f5033b08bed10d42e002ebc3a41031197",
+    "outputSha256": "cb2fade13bf868030ff926a355edeec6b09405fb0b8ff3a34150c29c756790e8",
+    "playerFile": "players/animated/ChefHat.glb",
+    "playerSha256": "2639b0eb2330da9b51222025f0e71e1b1de94ee1eded519ee622407ee9d281c2"
+  },
+  {
+    "character": "ChefMale",
+    "file": "animated/ChefMale.glb",
+    "sourceUrl": "https://raw.githubusercontent.com/chibifire-stages/quaternius-stage/ed5dc51b1e44006c0fc843e6c7b4a840dfb498ab/models/UltimateAnimatedCharacter/SK_ChefMale.usda",
+    "sourceSha256": "1b3dc10adc780e319dc01dba4b435a83aafe6e6d4e0caaa14319742256739154",
+    "outputSha256": "c5b52da3793b3f2090dfcf068ab564270878595df81f37a41d345c647de86f59",
+    "playerFile": "players/animated/ChefMale.glb",
+    "playerSha256": "7edb9c0b0ca0e31313445f518d9a03ee0c916f92cef4cdc6f9aeadb21f058c1d"
+  },
+  {
+    "character": "Cow",
+    "file": "animated/Cow.glb",
+    "sourceUrl": "https://raw.githubusercontent.com/chibifire-stages/quaternius-stage/ed5dc51b1e44006c0fc843e6c7b4a840dfb498ab/models/UltimateAnimatedCharacter/SK_Cow.usda",
+    "sourceSha256": "0296eb65f5682ad7ff22d53af7583c4409b8978d545c612d57c36d9dbecaecfd",
+    "outputSha256": "5c9638496d2194ea72ef7a46c2ac2cb3417e7eb5601d917891ac2212de631b2a",
+    "playerFile": "players/animated/Cow.glb",
+    "playerSha256": "dd01dddbf1253518c7229112ecf0fbef922bccde2d9621e0bc6d285c9bbdd1e3"
+  },
+  {
+    "character": "CowboyFemale",
+    "file": "animated/CowboyFemale.glb",
+    "sourceUrl": "https://raw.githubusercontent.com/chibifire-stages/quaternius-stage/ed5dc51b1e44006c0fc843e6c7b4a840dfb498ab/models/UltimateAnimatedCharacter/SK_CowboyFemale.usda",
+    "sourceSha256": "7c4c85cb45a8e766662f900c5ca6e06d2419ae484b6c0cf22422dddc0da6ad9a",
+    "outputSha256": "da08404bb85578bf8f6e8709406b2fac35eafeb7a7eff67666bd37d881d4b40b",
+    "playerFile": "players/animated/CowboyFemale.glb",
+    "playerSha256": "6ab4ef6f3c8213dd56baca263d9bf7fc427aa785d302b786cf473e1786c0d767"
+  },
+  {
+    "character": "CowboyHair",
+    "file": "animated/CowboyHair.glb",
+    "sourceUrl": "https://raw.githubusercontent.com/chibifire-stages/quaternius-stage/ed5dc51b1e44006c0fc843e6c7b4a840dfb498ab/models/UltimateAnimatedCharacter/SK_CowboyHair.usda",
+    "sourceSha256": "c07c2a752453d8ee6cade7a47029501bb674a2fe6c6eb16f949621123772c0e4",
+    "outputSha256": "2baafd7ba7d7541ea78f39b5828930cfc41b285feb1a53f1a132c9d1746f9bdd",
+    "playerFile": "players/animated/CowboyHair.glb",
+    "playerSha256": "980548b9174c8387001641fdab5ca5a2066818d9784496960e503c0a06d6b2a6"
+  },
+  {
+    "character": "CowboyMale",
+    "file": "animated/CowboyMale.glb",
+    "sourceUrl": "https://raw.githubusercontent.com/chibifire-stages/quaternius-stage/ed5dc51b1e44006c0fc843e6c7b4a840dfb498ab/models/UltimateAnimatedCharacter/SK_CowboyMale.usda",
+    "sourceSha256": "f0ccd87c1d3c9f10b8007474a8adcca957f0199045a17f3399a189753667c8bf",
+    "outputSha256": "b4da1f7cfc2c2d529023d834c149dcc6790bfb16e202824c26ea22bff99fcb91",
+    "playerFile": "players/animated/CowboyMale.glb",
+    "playerSha256": "620f14c9f7a1ebcd46f3c9eefd1d2d192eae4d01ef2bbeda2f1b763582638e45"
+  },
+  {
+    "character": "DoctorFemaleOld",
+    "file": "animated/DoctorFemaleOld.glb",
+    "sourceUrl": "https://raw.githubusercontent.com/chibifire-stages/quaternius-stage/ed5dc51b1e44006c0fc843e6c7b4a840dfb498ab/models/UltimateAnimatedCharacter/SK_DoctorFemaleOld.usda",
+    "sourceSha256": "5ac6991ea3e062e3e4c8c5a06c3c9f64b5a19b73e27361df51ed32f6174f499b",
+    "outputSha256": "255ac41c10a3bd826cf1910876c9f250172d7032f6ae1089f5b37e9c415c74e0",
+    "playerFile": "players/animated/DoctorFemaleOld.glb",
+    "playerSha256": "26a2c1b188a2727879102e8313cad9e0c476da50acb4435d6c736fb8b4f1a52f"
+  },
+  {
+    "character": "DoctorFemaleYoung",
+    "file": "animated/DoctorFemaleYoung.glb",
+    "sourceUrl": "https://raw.githubusercontent.com/chibifire-stages/quaternius-stage/ed5dc51b1e44006c0fc843e6c7b4a840dfb498ab/models/UltimateAnimatedCharacter/SK_DoctorFemaleYoung.usda",
+    "sourceSha256": "0eec8987be1e5e12632685ffc68189be29c39bb7d82ef6e6d153cbdc94a1d34e",
+    "outputSha256": "af34cb15512181872a0e91322dc4a86fa4b421fa33bf872cef58341a6eb5ca9f",
+    "playerFile": "players/animated/DoctorFemaleYoung.glb",
+    "playerSha256": "56923608888c2c50a03d9fbe810589438bee70d3aec25ab2dd57ea321ae69dab"
+  },
+  {
+    "character": "DoctorMaleOld",
+    "file": "animated/DoctorMaleOld.glb",
+    "sourceUrl": "https://raw.githubusercontent.com/chibifire-stages/quaternius-stage/ed5dc51b1e44006c0fc843e6c7b4a840dfb498ab/models/UltimateAnimatedCharacter/SK_DoctorMaleOld.usda",
+    "sourceSha256": "6fc37766b9895f87508c3056553cc45babda33dc3258b43ac9fa4055933abfb3",
+    "outputSha256": "112f217d6824a9fae3c8928aa9f4f807b7dd1d27249c85982d321fda9d681fe1",
+    "playerFile": "players/animated/DoctorMaleOld.glb",
+    "playerSha256": "311170a42962f125a64a09d93e529ebffd0ad9e162c56ccb35af0bbe335b5620"
+  },
+  {
+    "character": "DoctorMaleYoung",
+    "file": "animated/DoctorMaleYoung.glb",
+    "sourceUrl": "https://raw.githubusercontent.com/chibifire-stages/quaternius-stage/ed5dc51b1e44006c0fc843e6c7b4a840dfb498ab/models/UltimateAnimatedCharacter/SK_DoctorMaleYoung.usda",
+    "sourceSha256": "a0b20f204db6c1adc12798e1a4e18f6243de4c95df9ade137c5686f19bfcfd89",
+    "outputSha256": "85ae4cf4899b2466b27097ae0ec3734eaf28575ac6cf6382918b3359936bb8d3",
+    "playerFile": "players/animated/DoctorMaleYoung.glb",
+    "playerSha256": "0ab4beaf9b5953a0cf6777cc52f6c7047526a2b102ef4ca4d3181f5d0ddf8415"
+  },
+  {
+    "character": "Elf",
+    "file": "animated/Elf.glb",
+    "sourceUrl": "https://raw.githubusercontent.com/chibifire-stages/quaternius-stage/ed5dc51b1e44006c0fc843e6c7b4a840dfb498ab/models/UltimateAnimatedCharacter/SK_Elf.usda",
+    "sourceSha256": "8ba0be13039227cca585b1362a98eac20ba0beb6b97a57b96eed42d12d0221ff",
+    "outputSha256": "f8d169b72a3a353756a3d69913570f0be0f630e09d2fadc2cb807baa77ef359a",
+    "playerFile": "players/animated/Elf.glb",
+    "playerSha256": "d467c3bddd069031388c545dc314a8990e341776664bdf18472ab74636671349"
+  },
+  {
+    "character": "GoblinFemale",
+    "file": "animated/GoblinFemale.glb",
+    "sourceUrl": "https://raw.githubusercontent.com/chibifire-stages/quaternius-stage/ed5dc51b1e44006c0fc843e6c7b4a840dfb498ab/models/UltimateAnimatedCharacter/SK_GoblinFemale.usda",
+    "sourceSha256": "b82cfc5e36d82ad8af573faa4c56b67f2a3fc34f156b0fc57b7e1970c621ea16",
+    "outputSha256": "fd8c0e5e5d9cb90a1bb9c1db77d427d0510c9a0b7a07245ae28e9079bfe92214",
+    "playerFile": "players/animated/GoblinFemale.glb",
+    "playerSha256": "d09526408c928b4edcbb1fc202656e4055bc82eb4f88bfd74d0fb8fbcde9de0e"
+  },
+  {
+    "character": "GoblinMale",
+    "file": "animated/GoblinMale.glb",
+    "sourceUrl": "https://raw.githubusercontent.com/chibifire-stages/quaternius-stage/ed5dc51b1e44006c0fc843e6c7b4a840dfb498ab/models/UltimateAnimatedCharacter/SK_GoblinMale.usda",
+    "sourceSha256": "56cbf4624d854cd80f7a359ff5839f85f1a1e3e3dc10d636736ce8066f18a04f",
+    "outputSha256": "d6bf4df72975b0b15476c42d070bcef4226307d77da897c708dfd2e6894087d3",
+    "playerFile": "players/animated/GoblinMale.glb",
+    "playerSha256": "136ac4cfb3dc1c2e3d4b661f328a873f58c0881d55cac27d352d393e75c42738"
+  },
+  {
+    "character": "KimonoFemale",
+    "file": "animated/KimonoFemale.glb",
+    "sourceUrl": "https://raw.githubusercontent.com/chibifire-stages/quaternius-stage/ed5dc51b1e44006c0fc843e6c7b4a840dfb498ab/models/UltimateAnimatedCharacter/SK_KimonoFemale.usda",
+    "sourceSha256": "6367557359097bd606496ed2a7ab4ea79077366ef02071541d26b329e25bf7c5",
+    "outputSha256": "29bd0f37351cddc00f51ac5399ab41f42acd5d8c8675befe23e4422c092d14ce",
+    "playerFile": "players/animated/KimonoFemale.glb",
+    "playerSha256": "f58e74db068955564ad517b1036b994112f8f636b04ac788bbf88bf28f30495f"
+  },
+  {
+    "character": "KimonoMale",
+    "file": "animated/KimonoMale.glb",
+    "sourceUrl": "https://raw.githubusercontent.com/chibifire-stages/quaternius-stage/ed5dc51b1e44006c0fc843e6c7b4a840dfb498ab/models/UltimateAnimatedCharacter/SK_KimonoMale.usda",
+    "sourceSha256": "491143e4b5db95904c6014e9da73a8cabd69064723f5ca2fd3020f11b333f0a7",
+    "outputSha256": "13e47fc14a277928a8558194b23f5fdf30e8c3fc46ab2b11103c20d803a977d8",
+    "playerFile": "players/animated/KimonoMale.glb",
+    "playerSha256": "2497c0d3b359159ee282aabbb65aa695e4163f77286ad2d9acf256b5a89b11c4"
+  },
+  {
+    "character": "KnightGoldenFemale",
+    "file": "animated/KnightGoldenFemale.glb",
+    "sourceUrl": "https://raw.githubusercontent.com/chibifire-stages/quaternius-stage/ed5dc51b1e44006c0fc843e6c7b4a840dfb498ab/models/UltimateAnimatedCharacter/SK_KnightGoldenFemale.usda",
+    "sourceSha256": "c2567397debf14cf55f26eb3e7286deb11679a72d1274b312aff541f78513bfb",
+    "outputSha256": "c38e3f6b3931d3071949b9682a36f1844eb74ad9e640709687fc2163f0936edf",
+    "playerFile": "players/animated/KnightGoldenFemale.glb",
+    "playerSha256": "a9a4ff45b45df47abe34be1fe1a7dffd0a0554723adb7d27a6104e725c256962"
+  },
+  {
+    "character": "KnightGoldenMale",
+    "file": "animated/KnightGoldenMale.glb",
+    "sourceUrl": "https://raw.githubusercontent.com/chibifire-stages/quaternius-stage/ed5dc51b1e44006c0fc843e6c7b4a840dfb498ab/models/UltimateAnimatedCharacter/SK_KnightGoldenMale.usda",
+    "sourceSha256": "cd6fe0ec584e6e00c4dfb2dfd54797ae110f6daa84c8b1de8e70e3e79990f121",
+    "outputSha256": "a8c3ab7fc2967d8cb4e3dda9b30c1bcb8ae8623b8d1e5d8befb0696856f39609",
+    "playerFile": "players/animated/KnightGoldenMale.glb",
+    "playerSha256": "1acd5ec8972d3c5f3936ae91459c1021f4d74ebf2073aa3e62e957ff625b67a9"
+  },
+  {
+    "character": "KnightMale",
+    "file": "animated/KnightMale.glb",
+    "sourceUrl": "https://raw.githubusercontent.com/chibifire-stages/quaternius-stage/ed5dc51b1e44006c0fc843e6c7b4a840dfb498ab/models/UltimateAnimatedCharacter/SK_KnightMale.usda",
+    "sourceSha256": "1d7667f1b599cf051404243bcbcd4202cd94a6302807695fec9c62c5002c0ee4",
+    "outputSha256": "e76e9850fbc4528e11217772b3f07cbe320277596994a8f5d130200b33de5187",
+    "playerFile": "players/animated/KnightMale.glb",
+    "playerSha256": "e5910e740bc2e7076b71c5f68c32efea268efc62a51f74313e8b0263b2989da9"
+  },
+  {
+    "character": "NinjaFemale",
+    "file": "animated/NinjaFemale.glb",
+    "sourceUrl": "https://raw.githubusercontent.com/chibifire-stages/quaternius-stage/ed5dc51b1e44006c0fc843e6c7b4a840dfb498ab/models/UltimateAnimatedCharacter/SK_NinjaFemale.usda",
+    "sourceSha256": "b84236d4ad33e75114b65ee21dc024a1a4e0a7cc1fb4fab29ee46e61f105ab42",
+    "outputSha256": "bd5b6ca5f1ffbb87c65a43eb4826b623229c41e1f412da28e154b677c2483a75",
+    "playerFile": "players/animated/NinjaFemale.glb",
+    "playerSha256": "3f7d4b311c8c414b3c82ba27530a596c119d7944d9d4e29dd7c5ad1cc82d7ab4"
+  },
+  {
+    "character": "NinjaMale",
+    "file": "animated/NinjaMale.glb",
+    "sourceUrl": "https://raw.githubusercontent.com/chibifire-stages/quaternius-stage/ed5dc51b1e44006c0fc843e6c7b4a840dfb498ab/models/UltimateAnimatedCharacter/SK_NinjaMale.usda",
+    "sourceSha256": "67dc0f2e49d5b5c876927db663a19885fe617c2eb8d45e380b43e4b6840c4507",
+    "outputSha256": "4bdb978d312a731a7e36ab5f7e461e42330780e3fcf4af8adcfef60d1307df4f",
+    "playerFile": "players/animated/NinjaMale.glb",
+    "playerSha256": "a8477578e94faacbeb282c107b7c1a2e978a667e60e1a3b66ff333e4a21d1709"
+  },
+  {
+    "character": "NinjaMaleHair",
+    "file": "animated/NinjaMaleHair.glb",
+    "sourceUrl": "https://raw.githubusercontent.com/chibifire-stages/quaternius-stage/ed5dc51b1e44006c0fc843e6c7b4a840dfb498ab/models/UltimateAnimatedCharacter/SK_NinjaMaleHair.usda",
+    "sourceSha256": "643b2c95aa22efe03dea270a8a5e97ba14fbda2a9b8eecde980d4d607d5d4112",
+    "outputSha256": "3d28c3b417a3eb46c6a6c744332baf4e273c10058494206a2c71678d0b3331bf",
+    "playerFile": "players/animated/NinjaMaleHair.glb",
+    "playerSha256": "e582aeef266acedf250f2202acf3b93fc5beb397f62f2993739d2a9897313c8f"
+  },
+  {
+    "character": "NinjaSand",
+    "file": "animated/NinjaSand.glb",
+    "sourceUrl": "https://raw.githubusercontent.com/chibifire-stages/quaternius-stage/ed5dc51b1e44006c0fc843e6c7b4a840dfb498ab/models/UltimateAnimatedCharacter/SK_NinjaSand.usda",
+    "sourceSha256": "b0ddc9e42f5d4ee85c1e815cf76553a129382d2185f95e3f96c3980277ac7c54",
+    "outputSha256": "43dca7d0c640441a1933bc2e086ec7f02b39af9f7fcd4ee36035dec116ab155b",
+    "playerFile": "players/animated/NinjaSand.glb",
+    "playerSha256": "e79dda52a5999a31263ebaa85db3c47f41d76363ff1f88927628de5e66ab9758"
+  },
+  {
+    "character": "NinjaSandFemale",
+    "file": "animated/NinjaSandFemale.glb",
+    "sourceUrl": "https://raw.githubusercontent.com/chibifire-stages/quaternius-stage/ed5dc51b1e44006c0fc843e6c7b4a840dfb498ab/models/UltimateAnimatedCharacter/SK_NinjaSandFemale.usda",
+    "sourceSha256": "609f71cc0e152c16a4458eef7fd1f13d13067a169105e4d076188582ca9de3ad",
+    "outputSha256": "238920d1bdb3865ccc74648bcf1769c5244d600878a13b4e78476df85201d36e",
+    "playerFile": "players/animated/NinjaSandFemale.glb",
+    "playerSha256": "22fe48f9e68c2b63e8cfe9f76553e747755c11a13f1317fad3e85726edf6b31c"
+  },
+  {
+    "character": "OldClassyFemale",
+    "file": "animated/OldClassyFemale.glb",
+    "sourceUrl": "https://raw.githubusercontent.com/chibifire-stages/quaternius-stage/ed5dc51b1e44006c0fc843e6c7b4a840dfb498ab/models/UltimateAnimatedCharacter/SK_OldClassyFemale.usda",
+    "sourceSha256": "bf278730e03909fdd29a9ceca52464c38938a4e9ea04f0a27517c225ecde8a31",
+    "outputSha256": "1f32ac49c13e4b96c243d5734dfed8811332f55807bba44e6b5d9ae2da585ba6",
+    "playerFile": "players/animated/OldClassyFemale.glb",
+    "playerSha256": "cbf6acd1c474b45235f2d173b159a58e74e401d59ab75403023cc2ce6a95883c"
+  },
+  {
+    "character": "OldClassyMale",
+    "file": "animated/OldClassyMale.glb",
+    "sourceUrl": "https://raw.githubusercontent.com/chibifire-stages/quaternius-stage/ed5dc51b1e44006c0fc843e6c7b4a840dfb498ab/models/UltimateAnimatedCharacter/SK_OldClassyMale.usda",
+    "sourceSha256": "ab65ff70cb0d356bbce3c3aa8339f199714e73dd60c57ca52ecfda39c2baab6d",
+    "outputSha256": "2b7a1035457932a5300c1b844ef65eb9e4881232e6dde1b02fef25f69ad066a9",
+    "playerFile": "players/animated/OldClassyMale.glb",
+    "playerSha256": "dd20d41379cb9975bfc2b623b8bdf3e344c75a2b0b18002c5669215b4959e17e"
+  },
+  {
+    "character": "PirateFemale",
+    "file": "animated/PirateFemale.glb",
+    "sourceUrl": "https://raw.githubusercontent.com/chibifire-stages/quaternius-stage/ed5dc51b1e44006c0fc843e6c7b4a840dfb498ab/models/UltimateAnimatedCharacter/SK_PirateFemale.usda",
+    "sourceSha256": "2e7f90cb290fdd79b326706f39df6cce55dd085906892ecd0817bb20e7f8d56d",
+    "outputSha256": "6e099975cf38c353aa4599aab44c8f70242ca1e689c92c155010e371db69a74b",
+    "playerFile": "players/animated/PirateFemale.glb",
+    "playerSha256": "36d156cb065b2325f8b62cf18ab700ae86143299b32605d387ca438ec92b7dbf"
+  },
+  {
+    "character": "PirateMale",
+    "file": "animated/PirateMale.glb",
+    "sourceUrl": "https://raw.githubusercontent.com/chibifire-stages/quaternius-stage/ed5dc51b1e44006c0fc843e6c7b4a840dfb498ab/models/UltimateAnimatedCharacter/SK_PirateMale.usda",
+    "sourceSha256": "c4cc1e39b0282792cfe25e22c3836d4b303d8db9b215da2ee90bd324e6018f4f",
+    "outputSha256": "4303d6aec14ff7bfdbd42e00b222f1797784becb0bbc4e9342ddc58a1177d6f7",
+    "playerFile": "players/animated/PirateMale.glb",
+    "playerSha256": "8c4135e0dbd67e6507de0a8b25f545aa91e531a246b15a2c37c7490914aece56"
+  },
+  {
+    "character": "Pug",
+    "file": "animated/Pug.glb",
+    "sourceUrl": "https://raw.githubusercontent.com/chibifire-stages/quaternius-stage/ed5dc51b1e44006c0fc843e6c7b4a840dfb498ab/models/UltimateAnimatedCharacter/SK_Pug.usda",
+    "sourceSha256": "b8b5f6c37c3a9d07963b0da2e58475f33553bfa89ce8400e3ca3cf96e71effad",
+    "outputSha256": "ed2eb1ca9f9ea5d5db81560251eb64a7984ec2007394c79becb7633a1d438845",
+    "playerFile": "players/animated/Pug.glb",
+    "playerSha256": "c873088bc78202f22d45209f3342da558ed4a0e0e7d60a3b8f4f2efec23ec2ac"
+  },
+  {
+    "character": "SoldierFemale",
+    "file": "animated/SoldierFemale.glb",
+    "sourceUrl": "https://raw.githubusercontent.com/chibifire-stages/quaternius-stage/ed5dc51b1e44006c0fc843e6c7b4a840dfb498ab/models/UltimateAnimatedCharacter/SK_SoldierFemale.usda",
+    "sourceSha256": "19315af8acc449a6cefc8dc727336d01d20e3fb9ba86169af47d47b10bb7da23",
+    "outputSha256": "19539b1ca480aae03c4ab85c9ff7fa4188ee91fd1dcb9b3a9285f07ad42dc7ca",
+    "playerFile": "players/animated/SoldierFemale.glb",
+    "playerSha256": "415e901e44a99db6fbf86a824a9e343ed89217ac3784c01741f54e484e74f81c"
+  },
+  {
+    "character": "SoldierMale",
+    "file": "animated/SoldierMale.glb",
+    "sourceUrl": "https://raw.githubusercontent.com/chibifire-stages/quaternius-stage/ed5dc51b1e44006c0fc843e6c7b4a840dfb498ab/models/UltimateAnimatedCharacter/SK_SoldierMale.usda",
+    "sourceSha256": "f4bdfc98c7b3c99efb914250d002c377ad004eb14720a85713ad0bf2ee67d2ef",
+    "outputSha256": "cb42ecef51670a40a6ceb64d8ec321d3ee0c3252aedd9e616e4c6ff76f09f855",
+    "playerFile": "players/animated/SoldierMale.glb",
+    "playerSha256": "cd9f8e43098e465794f922e1e028a17d374095aef56afc81414eb215e3773ba4"
+  },
+  {
+    "character": "SuitFemale",
+    "file": "animated/SuitFemale.glb",
+    "sourceUrl": "https://raw.githubusercontent.com/chibifire-stages/quaternius-stage/ed5dc51b1e44006c0fc843e6c7b4a840dfb498ab/models/UltimateAnimatedCharacter/SK_SuitFemale.usda",
+    "sourceSha256": "c227d776fa14cc928ae17c4b7cebd5c03bc38a878fbfcc207558be5c14f8b4c4",
+    "outputSha256": "5689dfe718452278a2a950c9c9e8ef4a5e23b8d6dc2c44bf6345ce0c492de1a4",
+    "playerFile": "players/animated/SuitFemale.glb",
+    "playerSha256": "1c8fb745d22b5da07bfa26743cc04d3a497d0c65e2899b214222a386e30f55b8"
+  },
+  {
+    "character": "SuitMale",
+    "file": "animated/SuitMale.glb",
+    "sourceUrl": "https://raw.githubusercontent.com/chibifire-stages/quaternius-stage/ed5dc51b1e44006c0fc843e6c7b4a840dfb498ab/models/UltimateAnimatedCharacter/SK_SuitMale.usda",
+    "sourceSha256": "97eeade0ccde730485e37fd57e0baf47e43fb15872ab3e0bcf52a97e478eea50",
+    "outputSha256": "4451cb0f9fa1fb0b1d03460bcaa6ad15b09ec6e9746c34d5bec3c28e4000b5fb",
+    "playerFile": "players/animated/SuitMale.glb",
+    "playerSha256": "f87d8daa06dc90d1ae90eb8ca4d77902a957e1ea1c6a576bb0fb619452328313"
+  },
+  {
+    "character": "VikingFemale",
+    "file": "animated/VikingFemale.glb",
+    "sourceUrl": "https://raw.githubusercontent.com/chibifire-stages/quaternius-stage/ed5dc51b1e44006c0fc843e6c7b4a840dfb498ab/models/UltimateAnimatedCharacter/SK_VikingFemale.usda",
+    "sourceSha256": "5d68f5939ec1ef4d160509923e8d2015b9c739c20aa02c4cd0d7829c740b2bbb",
+    "outputSha256": "f146091449ca416fcfdeb6c558041713f245056b682b6948c4288319df687264",
+    "playerFile": "players/animated/VikingFemale.glb",
+    "playerSha256": "baf2a9645691e2f7bb005042acfa91c352c8cf4e9eaf152b7d99a99d625f64ab"
+  },
+  {
+    "character": "VikingHelmet",
+    "file": "animated/VikingHelmet.glb",
+    "sourceUrl": "https://raw.githubusercontent.com/chibifire-stages/quaternius-stage/ed5dc51b1e44006c0fc843e6c7b4a840dfb498ab/models/UltimateAnimatedCharacter/SK_VikingHelmet.usda",
+    "sourceSha256": "538dc2d2850260f4c896f8cedb015b4a1e33625393bf5ef85c93113993ec2a9e",
+    "outputSha256": "f3b48232404b0b553e7429fe53469dc73d7e7bbc8207121d8f4955607446e485",
+    "playerFile": "players/animated/VikingHelmet.glb",
+    "playerSha256": "ef68c85fb0ca6673bce3b11b615441f56fd51c56b75e4e31ed0505ae3c735321"
+  },
+  {
+    "character": "VikingMale",
+    "file": "animated/VikingMale.glb",
+    "sourceUrl": "https://raw.githubusercontent.com/chibifire-stages/quaternius-stage/ed5dc51b1e44006c0fc843e6c7b4a840dfb498ab/models/UltimateAnimatedCharacter/SK_VikingMale.usda",
+    "sourceSha256": "3b04742fae01451e85a2068b4b384792ebef41ba008f23bff9322c63dfb6cb04",
+    "outputSha256": "90b0203e011fd29775bf0a40963b31d364d6c4817384a3daf041ff63bc32eaaf",
+    "playerFile": "players/animated/VikingMale.glb",
+    "playerSha256": "d9c2709ff4a3f470d9de0dfa73e6a4d6525e5d2e6719ca0abac7ea17aeed1b6b"
+  },
+  {
+    "character": "Witch",
+    "file": "animated/Witch.glb",
+    "sourceUrl": "https://raw.githubusercontent.com/chibifire-stages/quaternius-stage/ed5dc51b1e44006c0fc843e6c7b4a840dfb498ab/models/UltimateAnimatedCharacter/SK_Witch.usda",
+    "sourceSha256": "d8fe4769d6149b7ce69bfdeff2e9bbfe63f2abe40fe85c409242d9c7a4db6967",
+    "outputSha256": "7f410c7ec84ac7693686df44d981134f2c4d15aa8a37ae7802128f1f2e3956c1",
+    "playerFile": "players/animated/Witch.glb",
+    "playerSha256": "00c41e3bbc7926f2fc4bade37cc057b63ceec2ddb4aaeac09dd6ed47f618c1da"
+  },
+  {
+    "character": "Wizard",
+    "file": "animated/Wizard.glb",
+    "sourceUrl": "https://raw.githubusercontent.com/chibifire-stages/quaternius-stage/ed5dc51b1e44006c0fc843e6c7b4a840dfb498ab/models/UltimateAnimatedCharacter/SK_Wizard.usda",
+    "sourceSha256": "0bbac079f3dcbe846aa844b6a007d8b4024086341299d9cf077dc83a43d62783",
+    "outputSha256": "5a21b1fc9af7f915475c6826a7c78e153167e28a42d6a9af7c3d4eb3089199d1",
+    "playerFile": "players/animated/Wizard.glb",
+    "playerSha256": "402a262e3d7a129e10ab8eaadcb49590eaf1dd0ff8f3763d239f3fb892b010a9"
+  },
+  {
+    "character": "WorkerFemale",
+    "file": "animated/WorkerFemale.glb",
+    "sourceUrl": "https://raw.githubusercontent.com/chibifire-stages/quaternius-stage/ed5dc51b1e44006c0fc843e6c7b4a840dfb498ab/models/UltimateAnimatedCharacter/SK_WorkerFemale.usda",
+    "sourceSha256": "6ecbcf15a4ff2638af7695ff9e1dfe4bc9eb32bd4c645b347f1acac965782fdc",
+    "outputSha256": "48c924ba48fb1524c9475348727d2ae28f40dc006276da66d427e2a5e44e0f4c",
+    "playerFile": "players/animated/WorkerFemale.glb",
+    "playerSha256": "698e35bf89376c3b04c3685492e9437ae59dbf184d7f7a8a42848ed43e29de26"
+  },
+  {
+    "character": "WorkerMale",
+    "file": "animated/WorkerMale.glb",
+    "sourceUrl": "https://raw.githubusercontent.com/chibifire-stages/quaternius-stage/ed5dc51b1e44006c0fc843e6c7b4a840dfb498ab/models/UltimateAnimatedCharacter/SK_WorkerMale.usda",
+    "sourceSha256": "ff242f2c4ef8a00339f7600fab7f91c6d8f7a06db3562b0826bd29ccf7eb00d6",
+    "outputSha256": "df7932ba6ce6eadce638a59468c627524d3618e072bd6282dc307c3eafde46ce",
+    "playerFile": "players/animated/WorkerMale.glb",
+    "playerSha256": "66d5f52f655a0991bb01cf3ef0a3053aa57f1b86993c555921941a52f2eae5ba"
+  },
+  {
+    "character": "ZombieFemale",
+    "file": "animated/ZombieFemale.glb",
+    "sourceUrl": "https://raw.githubusercontent.com/chibifire-stages/quaternius-stage/ed5dc51b1e44006c0fc843e6c7b4a840dfb498ab/models/UltimateAnimatedCharacter/SK_ZombieFemale.usda",
+    "sourceSha256": "bfdd937bdeeb4fd72f2b196b2f3849ebcbf325795fa1768655030f5c00f20c9e",
+    "outputSha256": "aa9fa989b4363c49b7ad50b3b228450116e76f408023736371bca69e4f873e24",
+    "playerFile": "players/animated/ZombieFemale.glb",
+    "playerSha256": "346e85f9f323b89474d9a3c67873d523707956f34f629bd5672591c9c76b6be5"
+  },
+  {
+    "character": "ZombieMale",
+    "file": "animated/ZombieMale.glb",
+    "sourceUrl": "https://raw.githubusercontent.com/chibifire-stages/quaternius-stage/ed5dc51b1e44006c0fc843e6c7b4a840dfb498ab/models/UltimateAnimatedCharacter/SK_ZombieMale.usda",
+    "sourceSha256": "5baa20d41c91ec2ebb16e2d30ee989b17eee1880f1dfd6ffb32637fc26f5d3b7",
+    "outputSha256": "a7c7b5cdc78a0a8ecee56400892fa8e230766534f4e87528dcd7686861e6db4b",
+    "playerFile": "players/animated/ZombieMale.glb",
+    "playerSha256": "9e380e9fd0f715b97754d45fbbdd868461d161847a7d956a8d9571f2277d59bb"
+  },
+  {
+    "character": "Cleric",
+    "file": "rpg/Cleric.glb",
+    "sourceUrl": "https://raw.githubusercontent.com/euuuuuuan/cairnfall-public/8ee4cfd789282c59632a9339e61564b7d6c1acfe/assets/vendor/quaternius_rpg/Cleric.gltf",
+    "sourceSha256": "6497456a3fa1c151d7a6ab4f7b4c343ee416c23d9454505b950c93ea558e4601",
+    "outputSha256": "3c5ed803ffc0edeb8fb554ed9801ec815b7ce13d55ece471c167ec6931f7e9fd",
+    "playerFile": "players/rpg/Cleric.glb",
+    "playerSha256": "6954234f2c60542de66a422b1856d19972f54fd52ccb683f37076a1fb6038d23"
+  },
+  {
+    "character": "Monk",
+    "file": "rpg/Monk.glb",
+    "sourceUrl": "https://raw.githubusercontent.com/euuuuuuan/cairnfall-public/8ee4cfd789282c59632a9339e61564b7d6c1acfe/assets/vendor/quaternius_rpg/Monk.gltf",
+    "sourceSha256": "085c049ebb593e0edbef9f0dd1f62fce70f668f6be7be99f3a1aa5378c83e8a2",
+    "outputSha256": "2c37710cbab5ae8afd9441402cf65063cc2ec6567cc7f5e29481a15503af856a",
+    "playerFile": "players/rpg/Monk.glb",
+    "playerSha256": "66d7663dfbe3bae7fd81547d9e5e2483ec4c03f7245db9d41292c9907c0fa948"
+  },
+  {
+    "character": "Ranger",
+    "file": "rpg/Ranger.glb",
+    "sourceUrl": "https://raw.githubusercontent.com/euuuuuuan/cairnfall-public/8ee4cfd789282c59632a9339e61564b7d6c1acfe/assets/vendor/quaternius_rpg/Ranger.gltf",
+    "sourceSha256": "2732741d5e21c20760d7f3dd9d71812d4b796f466be1a6cba212f45483dd56ed",
+    "outputSha256": "cf3ff0286e09350a3f43b8df9230319f6403e421bba4bfef13e87d4cb121b2b0",
+    "playerFile": "players/rpg/Ranger.glb",
+    "playerSha256": "5219a7c85a706fbd0323d468eabfd86c0ede3a56bdafac04f38d84295033b6fa"
+  },
+  {
+    "character": "Rogue",
+    "file": "rpg/Rogue.glb",
+    "sourceUrl": "https://raw.githubusercontent.com/euuuuuuan/cairnfall-public/8ee4cfd789282c59632a9339e61564b7d6c1acfe/assets/vendor/quaternius_rpg/Rogue.gltf",
+    "sourceSha256": "5a9eaca0871cd69f554747a1d42870b3bca702ba721d941d909fc530cf18afb8",
+    "outputSha256": "48cbf78a5d632e8b84d6372135bc92e241326e1ac40781a3a00d50f3c32fbe2b",
+    "playerFile": "players/rpg/Rogue.glb",
+    "playerSha256": "76ea2c0f04ceeabe70b638992389eb9978da23854344a1b9fee0014f67fbd469"
+  },
+  {
+    "character": "Warrior",
+    "file": "rpg/Warrior.glb",
+    "sourceUrl": "https://raw.githubusercontent.com/euuuuuuan/cairnfall-public/8ee4cfd789282c59632a9339e61564b7d6c1acfe/assets/vendor/quaternius_rpg/Warrior.gltf",
+    "sourceSha256": "2bab905ce12d279e1d099c2a8de0b1ef31c9f5e8d1959b41d24470b4f4181add",
+    "outputSha256": "39d24c2b4e3a8b4623b3d87d3c427d24c7ce566154e72599ce3ea3db65b71b60",
+    "playerFile": "players/rpg/Warrior.glb",
+    "playerSha256": "a091ec317d9a0b0c9ee4bf7861cbb68d600862a750bee5c5799aa3d0a203b4e5"
+  },
+  {
+    "character": "Wizard",
+    "file": "rpg/Wizard.glb",
+    "sourceUrl": "https://raw.githubusercontent.com/euuuuuuan/cairnfall-public/8ee4cfd789282c59632a9339e61564b7d6c1acfe/assets/vendor/quaternius_rpg/Wizard.gltf",
+    "sourceSha256": "320de17289857db6794e4eef55101ce3427e755319a4384fb6d9d9ca5206b41b",
+    "outputSha256": "9a4f212d17c29b38dc7e2b1f22b5e61a2189a6a0496922a474cc46d367d42bc9",
+    "playerFile": "players/rpg/Wizard.glb",
+    "playerSha256": "c55bd59f4e33484346ba8c3f9b93c22704100dc85c0a469d975915eaa4226ca0"
+  },
+  {
+    "character": "Astronaut_BarbaraTheBee",
+    "file": "players/space/BarbaraTheBee.glb",
+    "sourceUrl": "https://raw.githubusercontent.com/trebeljahr/quaternius-showcase/0128ca510d653bb04d6d1e4885bd8890b5050b4f/public/glb/ultimate_space_pack/Astronaut_BarbaraTheBee-transformed.glb",
+    "sourceSha256": "a1a782f7641e6eb33f0441f575a879dabc9a104c3be5e1aa517b671578eea10d",
+    "outputSha256": "cbe44f27a1b66e4547f24996fed936a82a70aaebd5dbf18eb97afa0de5b31374",
+    "pack": "Ultimate Space Kit",
+    "author": "Quaternius",
+    "license": "CC0-1.0",
+    "packUrl": "https://quaternius.com/packs/ultimatespacekit.html"
+  },
+  {
+    "character": "Astronaut_FernandoTheFlamingo",
+    "file": "players/space/FernandoTheFlamingo.glb",
+    "sourceUrl": "https://raw.githubusercontent.com/trebeljahr/quaternius-showcase/0128ca510d653bb04d6d1e4885bd8890b5050b4f/public/glb/ultimate_space_pack/Astronaut_FernandoTheFlamingo-transformed.glb",
+    "sourceSha256": "22fc9f940e6310a3ad20f4c20318a4c27f1340a855e798ec4347fa3ec58c2492",
+    "outputSha256": "1f4dbc8483a4678d1aab7bb60accd7da816e3a19005c7b9f3dd50baf4b9fee3d",
+    "pack": "Ultimate Space Kit",
+    "author": "Quaternius",
+    "license": "CC0-1.0",
+    "packUrl": "https://quaternius.com/packs/ultimatespacekit.html"
+  },
+  {
+    "character": "Astronaut_FinnTheFrog",
+    "file": "players/space/FinnTheFrog.glb",
+    "sourceUrl": "https://raw.githubusercontent.com/trebeljahr/quaternius-showcase/0128ca510d653bb04d6d1e4885bd8890b5050b4f/public/glb/ultimate_space_pack/Astronaut_FinnTheFrog-transformed.glb",
+    "sourceSha256": "2218ecb9d38b43a4cecd5d886f13b830b28844a044bf4bb416df5378d83a4a0b",
+    "outputSha256": "87095d89f60d4537587761eb0a3d7f2613359897d83f49b475d83e32499aa422",
+    "pack": "Ultimate Space Kit",
+    "author": "Quaternius",
+    "license": "CC0-1.0",
+    "packUrl": "https://quaternius.com/packs/ultimatespacekit.html"
+  },
+  {
+    "character": "Astronaut_RaeTheRedPanda",
+    "file": "players/space/RaeTheRedPanda.glb",
+    "sourceUrl": "https://raw.githubusercontent.com/trebeljahr/quaternius-showcase/0128ca510d653bb04d6d1e4885bd8890b5050b4f/public/glb/ultimate_space_pack/Astronaut_RaeTheRedPanda-transformed.glb",
+    "sourceSha256": "16bbee54bc61ae94c32a9ef786c1c4a38482342ede76748bcdf262f940dee02e",
+    "outputSha256": "172b42559b7c8f793fd8e8b23999a3590fa716fe17c7e3b5230bb28b65e49d24",
+    "pack": "Ultimate Space Kit",
+    "author": "Quaternius",
+    "license": "CC0-1.0",
+    "packUrl": "https://quaternius.com/packs/ultimatespacekit.html"
+  },
+  {
+    "character": "Enemy_ExtraSmall",
+    "file": "ink-star-mote.glb",
+    "sourceUrl": "https://raw.githubusercontent.com/trebeljahr/quaternius-showcase/0128ca510d653bb04d6d1e4885bd8890b5050b4f/public/glb/ultimate_space_pack/Enemy_ExtraSmall-transformed.glb",
+    "sourceSha256": "178d4479b08fe0cbdf953e288f5b21c8f1483c9578db5d726ad4985c7334c414",
+    "outputSha256": "bbc0a27f1412b255dfb34dc104f09bd1c35c2a2046dc039e5087f7cd77857b85",
+    "pack": "Ultimate Space Kit",
+    "author": "Quaternius",
+    "license": "CC0-1.0",
+    "packUrl": "https://quaternius.com/packs/ultimatespacekit.html"
+  },
+  {
+    "character": "Enemy_Small",
+    "file": "ink-star-orb.glb",
+    "sourceUrl": "https://raw.githubusercontent.com/trebeljahr/quaternius-showcase/0128ca510d653bb04d6d1e4885bd8890b5050b4f/public/glb/ultimate_space_pack/Enemy_Small-transformed.glb",
+    "sourceSha256": "f1e40c6d74aaee5bbcdf1ee4628ce70fa54d0b8f8b41d276de7e372fd261a0f0",
+    "outputSha256": "af55c5a4671b6dc58b437b89394ea815a3af3811557f1e8fbd2fed5cfb0ff70f",
+    "pack": "Ultimate Space Kit",
+    "author": "Quaternius",
+    "license": "CC0-1.0",
+    "packUrl": "https://quaternius.com/packs/ultimatespacekit.html"
+  },
+  {
+    "character": "Enemy_Flying",
+    "file": "ink-star-wing.glb",
+    "sourceUrl": "https://raw.githubusercontent.com/trebeljahr/quaternius-showcase/0128ca510d653bb04d6d1e4885bd8890b5050b4f/public/glb/ultimate_space_pack/Enemy_Flying-transformed.glb",
+    "sourceSha256": "d3ebd094f1c571eec7da8d7c67f47c8c24b30abc9a0801ba20cdbaf2e3a371d1",
+    "outputSha256": "9d08ffb6f9cd1ad72db7d77486fa0a0536af7534f78cfd57b62271201978aceb",
+    "pack": "Ultimate Space Kit",
+    "author": "Quaternius",
+    "license": "CC0-1.0",
+    "packUrl": "https://quaternius.com/packs/ultimatespacekit.html"
+  },
+  {
+    "character": "Enemy_Large",
+    "file": "ink-star-brute.glb",
+    "sourceUrl": "https://raw.githubusercontent.com/trebeljahr/quaternius-showcase/0128ca510d653bb04d6d1e4885bd8890b5050b4f/public/glb/ultimate_space_pack/Enemy_Large-transformed.glb",
+    "sourceSha256": "5133749a632d48758e61a8a5218f572215b0723c0ce1fc2b3909340df30b109a",
+    "outputSha256": "af498f45026cb9678a809b8fc27a4c572b7b5e0b65b07e5df6f025fc099b517c",
+    "pack": "Ultimate Space Kit",
+    "author": "Quaternius",
+    "license": "CC0-1.0",
+    "packUrl": "https://quaternius.com/packs/ultimatespacekit.html"
   }
 ]

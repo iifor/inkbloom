@@ -59,6 +59,8 @@ export interface Interactable extends InteractionAction {
   activate(): void;
   /** Optional second action on F, shown under the main prompt (null hides it). */
   alt?: InteractionAction;
+  /** Ask the focused NPC about their travels (T). */
+  talk?: InteractionAction;
 }
 
 export interface PlayerApi {
@@ -256,6 +258,7 @@ export interface ArenaApi {
 
 /** This client's part in a server world. */
 export interface NetApi {
+  requestTravellerPlan(trail: string): void;
   readonly friends: readonly FriendStatus[];
   readonly friendGuide: string;
   trackFriend(id: number): void;

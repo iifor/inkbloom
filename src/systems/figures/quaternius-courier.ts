@@ -176,6 +176,7 @@ export class CourierActor {
   private readonly lastAt = new THREE.Vector3();
   private lastHeld: ReturnType<typeof heldIn> = null;
   private fingerGrip = 0;
+  private readonly brushSocket?: THREE.Object3D;
   private readonly previous = new Map<
     THREE.Object3D,
     {
@@ -187,6 +188,7 @@ export class CourierActor {
 
   constructor(source: THREE.Object3D, material: THREE.ShaderMaterial) {
     this.model = clone(source);
+    this.brushSocket = this.model.getObjectByName('grip_r');
     this.rig = courierRig(this.model);
     this.material = material.clone();
     // Keep the live world uniforms shared; only the per-character ink threshold is private.
@@ -215,7 +217,7 @@ export class CourierActor {
       });
     }
     for (const side of ['l', 'r'])
-      for (const finger of ['index', 'middle', 'ring', 'pinky', 'thumb'])
+      for (const finger of ['index', 'middle', 'ring', 'pinky', 'thumb', 'digits'])
         for (let segment = 1; segment <= 3; segment++) {
           const bone = this.model.getObjectByName(`${finger}_0${segment}_${side}`);
           if (!bone) continue; // The modular character has two thumb joints.
@@ -236,11 +238,22 @@ export class CourierActor {
       const slot = obj.material.name;
       obj.geometry = obj.geometry.clone();
       const n = obj.geometry.getAttribute('position').count;
-      obj.geometry.setAttribute('aColor', new THREE.Float32BufferAttribute(new Float32Array(n), 1));
+      const pigments = slot === 'ResidentPigments' ? obj.geometry.getAttribute('_inkcolor') : undefined;
       obj.geometry.setAttribute(
-        'aCharacterMaterial',
-        new THREE.Float32BufferAttribute(new Float32Array(n).fill(characterMaterial(slot, -1)), 1),
+        'aColor',
+        pigments ?? new THREE.Float32BufferAttribute(new Float32Array(n), 1),
       );
+      const surface = new Float32Array(n);
+      if (pigments) {
+        for (let i = 0; i < n; i++) {
+          const index = pigments.getX(i);
+          surface[i] = characterMaterial(
+            index === color('brown') || index === color('bark') ? 'brown' : '',
+            index,
+          );
+        }
+      } else surface.fill(characterMaterial(slot, -1));
+      obj.geometry.setAttribute('aCharacterMaterial', new THREE.Float32BufferAttribute(surface, 1));
       obj.geometry.setAttribute(
         'aSurface',
         new THREE.Float32BufferAttribute(new Float32Array(n).fill(-2), 1),
@@ -254,7 +267,17 @@ export class CourierActor {
   }
 
   /** Keep first-person triangles by their skin weights without changing the shared model. */
-  retainTriangles(bones: RegExp, keepWeight: (weight: number) => boolean): void {
+  retainTriangles(
+    boneNames: readonly string[],
+    keepWeight: (weight: number) => boolean,
+    descendants = false,
+  ): void {
+    const bones = new Set<THREE.Object3D>();
+    for (const name of boneNames) {
+      const bone = this.model.getObjectByName(name);
+      if (descendants) bone?.traverse((node) => bones.add(node));
+      else if (bone) bones.add(bone);
+    }
     this.model.traverse((object) => {
       if (!(object instanceof THREE.Mesh)) return;
       if (!(object instanceof THREE.SkinnedMesh)) {
@@ -264,7 +287,7 @@ export class CourierActor {
       const geometry = object.geometry;
       const joints = geometry.getAttribute('skinIndex');
       const weights = geometry.getAttribute('skinWeight');
-      const matching = object.skeleton.bones.map((bone) => bones.test(bone.name));
+      const matching = object.skeleton.bones.map((bone) => bones.has(bone));
       const keep = (vertex: number): boolean => {
         let weight = 0;
         for (let component = 0; component < 4; component++)
@@ -372,6 +395,23 @@ export class CourierActor {
       THREE.MathUtils.lerp(relaxed, 1, held ? this.fingerGrip : 0),
       THREE.MathUtils.lerp(relaxed, 1, held && this.rig.props[held].off ? this.fingerGrip : 0),
     );
+    // Breathing scales the torso non-uniformly. Anchor the carried shaft to the
+    // final skinned socket after blending and scaling the arms.
+    if (held === 'brush' && this.brushSocket) {
+      const brush = this.rig.props.brush.node;
+      brush.position.copy(brush.parent!.worldToLocal(this.brushSocket.getWorldPosition(this.position)));
+      if (
+        look.character.startsWith('cube/') ||
+        look.character === 'platformer/Character' ||
+        look.character === 'cyber/Character'
+      ) {
+        // Their closed fists hold the shaft across the palm. Following the forearm's
+        // pitch alone sends the bristles back through the cheek on the upward stroke.
+        const paint = pose.paint ?? 0;
+        brush.rotation.set(0.88 - paint * (0.4 + 0.1 * Math.cos(pose.t * 3.8)) + 0.3 * pose.pitch, -0.12, 0);
+      }
+      brush.updateMatrixWorld(true);
+    }
     this.material.uniforms.uCourierInkTo!.value =
       pose.dying >= 0 ? pose.y + Math.min(1, pose.dying / 0.6) * 1.9 : -1e6;
   }
@@ -408,6 +448,7 @@ export class CourierActor {
     if (key !== this.lookKey) {
       this.lookKey = key;
       for (const { mesh, slot } of this.paints) {
+        if (slot === 'ResidentPigments') continue;
         const pigment =
           slot === 'skin'
             ? color(SKIN_TONES[look.skin] ?? SKIN_TONES[0])
@@ -467,7 +508,7 @@ export class CourierFigures {
     let actor = pool.actors[pool.used++];
     if (!actor) {
       actor = new CourierActor(template, this.material);
-      if (this.hideHead) actor.retainTriangles(/^(Head|neck_01)$/, (weight) => weight < 0.25);
+      if (this.hideHead) actor.retainTriangles(['Head', 'neck_01'], (weight) => weight < 0.25);
       this.parent.add(actor.model);
       pool.actors.push(actor);
     }

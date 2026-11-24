@@ -17,7 +17,7 @@ export class InteractionSystem implements System, InteractionApi {
   private charging: {
     item: Interactable;
     action: InteractionAction;
-    key: 'interact' | 'secondary';
+    key: 'interact' | 'secondary' | 'talk';
     time: number;
   } | null = null;
   private readonly release: () => void;
@@ -75,8 +75,14 @@ export class InteractionSystem implements System, InteractionApi {
       }
       return;
     }
-    const key = input.pressed('interact') ? 'interact' : input.pressed('secondary') ? 'secondary' : null;
-    const action = key === 'interact' ? best : key === 'secondary' ? best?.alt : null;
+    const key = input.pressed('interact')
+      ? 'interact'
+      : input.pressed('secondary')
+        ? 'secondary'
+        : input.pressed('talk')
+          ? 'talk'
+          : null;
+    const action = key === 'interact' ? best : key === 'secondary' ? best?.alt : best?.talk;
     if (!best || !key || !action || action.label() === null || !this.ctx.combat.alive) return;
     if (!action.holdSeconds) action.activate();
     else if (action.canHold?.() !== false) this.charging = { item: best, action, key, time: 0 };

@@ -336,8 +336,8 @@ export class Hud implements System {
     this.el.bar.style.visibility = p === null ? 'hidden' : 'visible';
     if (p !== null) this.el.barFill.style.width = `${Math.round(p * 100)}%`;
     const focused = this.ctx.interactions.focused;
-    const alt = focused?.alt?.label() ?? null;
-    this.set('prompt', this.el.prompt, focused ? focused.label() + (alt ? `\n${alt}` : '') : '');
+    const prompts = focused ? [focused.label(), focused.alt?.label(), focused.talk?.label()] : [];
+    this.set('prompt', this.el.prompt, prompts.filter(Boolean).join('\n'));
   }
 
   dispose(): void {

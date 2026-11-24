@@ -51,7 +51,7 @@ export function appendPaths(chunk: WildChunk, w: Wilderness, g: GeometryBuilder)
       1,
       w.heightAt(x, z - 0.5) - w.heightAt(x, z + 0.5),
     ).normalize();
-  for (const t of net.trailsNear(x0, z0, x0 + size, z0 + size)) {
+  for (const t of chunk.trails) {
     const p = t.pts;
     const half = t.width / 2;
     const count = p.length / 2;

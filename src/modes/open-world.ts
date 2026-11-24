@@ -42,6 +42,7 @@ import { type Patch, applyPatch } from '@/world/patch';
 import { levelOf } from '@/world/progression';
 import type { WorldState } from '@/world/state';
 import type { KeyValue, WorldStore } from '@/world/store';
+import { Homecomings } from '@/world/city/homecoming';
 import { createWilderness } from '@/world/wilderness/generator';
 
 type Mutable<T> = { -readonly [K in keyof T]: T[K] };
@@ -126,11 +127,12 @@ export async function startOpenWorld(opts: {
   ctx.interactions = interactions;
   const player = new PlayerSystem(ctx);
   ctx.player = player;
-  const wild = new WildScene(ctx);
+  const homecomings = new Homecomings(ctx.wilderness, ctx.state);
+  const wild = new WildScene(ctx, homecomings);
   const scenes = new SceneManager(
     ctx,
     wild,
-    (entrance, layout, physics) => new CityScene(ctx, entrance, layout, physics),
+    (entrance, layout, physics) => new CityScene(ctx, entrance, layout, physics, homecomings),
   );
   ctx.scenes = scenes;
   const weapons = new WeaponSlot(ctx);

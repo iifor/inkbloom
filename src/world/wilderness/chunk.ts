@@ -7,7 +7,7 @@ import { type Wilderness, WATER_LEVEL } from './generator';
 import { grovesNear, patchMask, seasNear } from './groves';
 import { inkWellInChunk } from './ink-wells';
 import { type Lookout, lookoutsInChunk, type Spring, springsInChunk } from './landmarks';
-import { type Bridge, pathsOf } from './paths';
+import { type Bridge, type Trail, pathsOf } from './paths';
 import { type PigmentSource, sourcesInChunk } from './sources';
 import { type Ruin, ruinsInChunk } from './ruins';
 import { type Farmstead, farmsteadInChunk } from './farmsteads';
@@ -41,6 +41,7 @@ export interface WildChunk {
   readonly hasWater: boolean;
   readonly sources: readonly PigmentSource[];
   readonly ruins: readonly Ruin[];
+  readonly trails: readonly Trail[];
   /** Footpath bridges whose deck's middle is in this chunk (see paths.ts). */
   readonly bridges: readonly Bridge[];
   /** Hot springs and summit lookouts whose middle is in this chunk (see landmarks.ts). */
@@ -70,6 +71,7 @@ export function* generateWildChunkSteps(
   w: Wilderness,
   cx: number,
   cz: number,
+  isPeaceful?: (cityId: string) => boolean,
 ): Generator<void, WildChunk, void> {
   const size = TUNING.world.chunkSize;
   const cell = TUNING.world.cellSize;
@@ -155,33 +157,14 @@ export function* generateWildChunkSteps(
     yield;
   }
 
-  const sources = sourcesInChunk(w, cx, cz);
-  yield;
-  const ruins = ruinsInChunk(w, cx, cz);
-  yield;
-  // now and then a great old tree stands alone in the open, the others giving it room
+  const { sources, ruins, great, springs, lookouts, marks, farmstead } = yield* ruralSites(
+    w,
+    cx,
+    cz,
+    isPeaceful,
+  );
   const paths = pathsOf(w);
   const offPath = (x: number, z: number): boolean => paths.edgeDistance(x, z) > PATH_ROOM;
-  const great = greatTreeIn(w, cx, cz, sources, ruins);
-  yield;
-  // springs and lookouts here and next door: trees near a chunk's edge give them room too
-  const springs = springsInChunk(w, cx, cz);
-  const lookouts = lookoutsInChunk(w, cx, cz);
-  const marks: { x: number; z: number; room: number }[] = [];
-  for (let dz = -1; dz <= 1; dz++)
-    for (let dx = -1; dx <= 1; dx++) {
-      for (const s of springsInChunk(w, cx + dx, cz + dz)) marks.push({ x: s.x, z: s.z, room: s.r + 5 });
-      for (const l of lookoutsInChunk(w, cx + dx, cz + dz)) marks.push({ x: l.x, z: l.z, room: 7 });
-      const well = inkWellInChunk(w, cx + dx, cz + dz);
-      if (well) marks.push({ x: well.x, z: well.z, room: 6 });
-      yield;
-    }
-  const farmstead = farmsteadInChunk(w, cx, cz, [
-    ...marks,
-    ...sources.map((p) => ({ x: p.x, z: p.z, room: 4 })),
-    ...ruins.map((r) => ({ x: r.x, z: r.z, room: 16 })),
-    ...(great ? [{ x: great.x, z: great.z, room: GREAT.room }] : []),
-  ]);
   // keep trees off sources, ruins, paths and landmarks so they stay visible and reachable
   const clearTrees = trees.filter(
     (t) =>
@@ -198,7 +181,8 @@ export function* generateWildChunkSteps(
   );
   if (great) clearTrees.push(great);
   const bridges: Bridge[] = [];
-  for (const t of paths.trailsNear(x0, z0, x0 + size, z0 + size))
+  const trails = paths.trailsNear(x0, z0, x0 + size, z0 + size);
+  for (const t of trails)
     for (const b of t.bridges) {
       const mx = (b.x0 + b.x1) / 2;
       if (mx < x0 || mx >= x0 + size || b.z < z0 || b.z >= z0 + size) continue;
@@ -220,11 +204,48 @@ export function* generateWildChunkSteps(
     hasWater,
     sources,
     ruins,
+    trails,
     bridges,
     springs,
     lookouts,
     farmstead,
   };
+}
+
+/** Non-terrain features used by both live chunks and the census of actual occupied farms. */
+export function* ruralSites(w: Wilderness, cx: number, cz: number, isPeaceful?: (id: string) => boolean) {
+  const sources = sourcesInChunk(w, cx, cz);
+  yield;
+  const ruins = ruinsInChunk(w, cx, cz);
+  yield;
+  // now and then a great old tree stands alone in the open, the others giving it room
+  const great = greatTreeIn(w, cx, cz, sources, ruins);
+  yield;
+  // springs and lookouts here and next door: trees near a chunk's edge give them room too
+  const springs = springsInChunk(w, cx, cz);
+  const lookouts = lookoutsInChunk(w, cx, cz);
+  const marks: { x: number; z: number; room: number }[] = [];
+  for (let dz = -1; dz <= 1; dz++)
+    for (let dx = -1; dx <= 1; dx++) {
+      for (const s of springsInChunk(w, cx + dx, cz + dz)) marks.push({ x: s.x, z: s.z, room: s.r + 5 });
+      for (const l of lookoutsInChunk(w, cx + dx, cz + dz)) marks.push({ x: l.x, z: l.z, room: 7 });
+      const well = inkWellInChunk(w, cx + dx, cz + dz);
+      if (well) marks.push({ x: well.x, z: well.z, room: 6 });
+      yield;
+    }
+  const farmstead = farmsteadInChunk(
+    w,
+    cx,
+    cz,
+    [
+      ...marks,
+      ...sources.map((p) => ({ x: p.x, z: p.z, room: 4 })),
+      ...ruins.map((r) => ({ x: r.x, z: r.z, room: 16 })),
+      ...(great ? [{ x: great.x, z: great.z, room: GREAT.room }] : []),
+    ],
+    isPeaceful,
+  );
+  return { sources, ruins, great, springs, lookouts, marks, farmstead };
 }
 
 /** Great trees: the chance a chunk has one, their size, and the room they are given. */

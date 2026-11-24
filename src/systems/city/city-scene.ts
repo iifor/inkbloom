@@ -19,7 +19,9 @@ import { Erosion } from './erosion';
 import { InkStains } from './ink-stains';
 import { InkTide } from './ink-tide';
 import { CityMonsters } from './city-monsters';
-import { Residents } from './residents';
+import { villageActivities } from '@/world/city/resident-sites';
+import type { Homecomings } from '@/world/city/homecoming';
+import { Residents, villagePopulation } from './residents';
 import { Studios } from './studios';
 import { buildWaterwheel } from './waterwheel';
 import { TravelAltar } from './travel-altar';
@@ -57,7 +59,7 @@ export class CityScene implements GameScene {
   private altar: TravelAltar | null = null;
   private erosion!: Erosion;
   monsters!: CityMonsters;
-  private residents!: Residents;
+  private residents?: Residents;
   /** The rest of putting the town together, a step at a time; null once it stands. */
   private building: Generator<void, void, void> | null;
 
@@ -67,6 +69,7 @@ export class CityScene implements GameScene {
     readonly layout: CityLayout,
     /** The wilderness's physics: the town's walls and houses go in it while it stands. */
     readonly physics: PhysicsWorld,
+    private readonly homecomings: Homecomings,
   ) {
     this.ref = { kind: 'city', id: layout.id };
     this.name = layout.name;
@@ -118,11 +121,7 @@ export class CityScene implements GameScene {
 
   /** Everything after the town's own state: its districts' geometry one at a time, then each
    * of its systems, so standing a town up never stalls a frame for long. */
-  private *steps(
-    stains: Uint8Array,
-    defeated: Uint8Array,
-    tide: TideSave,
-  ): Generator<void, void, void> {
+  private *steps(stains: Uint8Array, defeated: Uint8Array, tide: TideSave): Generator<void, void, void> {
     const { ctx, layout, states } = this;
     // geometry and colliders worked out ahead of time in the city worker, when they are ready
     const built = ctx.cities.takeBuilt(layout.id);
@@ -177,8 +176,6 @@ export class CityScene implements GameScene {
     yield;
     this.monsters = new CityMonsters(ctx, layout, defeated, this.physics, this.root, this.material);
     yield;
-    this.residents = new Residents(ctx, layout, this.root);
-    yield;
     this.tide = new InkTide(ctx, layout, states, this, tide, this.root);
 
     this.release.push(
@@ -195,6 +192,22 @@ export class CityScene implements GameScene {
       }),
     );
     if (travelAltar(layout)) this.altar = new TravelAltar(ctx, layout, this.physics, this.root);
+  }
+
+  updateResidents(dt: number): void {
+    if (!this.ready) return;
+    if (this.peaceful || this.completed) {
+      this.residents ??= new Residents(
+        this.ctx,
+        villagePopulation(this.ctx, this.layout, this.entrance, this.homecomings),
+        this.root,
+        () => villageActivities(this.layout),
+      );
+      this.residents.update(dt);
+    } else if (this.residents) {
+      this.residents.dispose();
+      this.residents = undefined;
+    }
   }
 
   spawn(): { pos: THREE.Vector3; yaw: number } {
@@ -297,7 +310,6 @@ export class CityScene implements GameScene {
    * tide (everyone else sees their drains arrive as patches), so more players inside do not
    * drain it faster. */
   update(dt: number): void {
-    this.residents.update(dt);
     this.stains.update();
     this.altar?.update(dt);
     const keeper = !this.ctx.net || this.ctx.net.keeps(this.layout.id);
@@ -311,7 +323,6 @@ export class CityScene implements GameScene {
    * tide's timers, erosion) waits for them to come in. */
   updateOutside(dt: number): void {
     if (this.ready) {
-      this.residents.update(dt);
       this.monsters.update(dt);
       this.studios.update(dt);
     }
@@ -325,7 +336,7 @@ export class CityScene implements GameScene {
     this.altar?.dispose();
     this.tide.dispose();
     this.monsters.dispose();
-    this.residents.dispose();
+    this.residents?.dispose();
     for (const r of this.release) r();
     this.physics.removeGroup(cityGroup(this.layout.id));
     this.texture.dispose();

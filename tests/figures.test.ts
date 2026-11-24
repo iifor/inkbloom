@@ -1,9 +1,13 @@
+import { WILD_MODELS } from '@/content/wild-models';
+import { readFile } from 'node:fs/promises';
 import * as THREE from 'three';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { describe, expect, it } from 'vitest';
 import { CHARACTERS, defaultLook } from '@/content/characters';
-import { ENEMIES } from '@/content/enemies';
+import { ENEMIES, type EnemyDef, enemyIndex } from '@/content/enemies';
 import { color } from '@/content/palette';
 import { MonsterFigures, type Pose, monsterRig, posedTop } from '@/systems/combat/monster-figure';
+import { InkAnimal } from '@/systems/combat/ink-animal';
 import { rigTop } from '@/systems/figures/figure';
 import { PlayerFigures, type PlayerPose, characterRig, posePlayer } from '@/systems/figures/player-figure';
 import { HELD_ITEMS } from '@/world/net/protocol';
@@ -134,6 +138,91 @@ describe('player figures: what they hold', () => {
 });
 
 describe('monster figures', () => {
+  it('poses the imported frog at its collision height, jumps, attacks and melts in place', async () => {
+    const bytes = await readFile(new URL('../public/models/quaternius/ink-frog.glb', import.meta.url));
+    const gltf = await new GLTFLoader().parseAsync(
+      bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
+      '',
+    );
+    const material = new THREE.MeshBasicMaterial();
+    const frog = new InkAnimal('frog', gltf, material);
+    const height = ENEMIES[enemyIndex('frog')]!.height;
+    const at = { ...rest, x: 37, y: 2, z: -18 };
+    const bounds = (pose: Pose) => {
+      frog.pose(pose, height);
+      frog.root.updateMatrixWorld(true);
+      return new THREE.Box3().setFromObject(frog.root, true);
+    };
+    const idle = bounds(at);
+    expect(idle.min.y).toBeCloseTo(at.y, 2);
+    expect(idle.max.y).toBeCloseTo(at.y + height, 2);
+    expect(idle.getCenter(new THREE.Vector3()).x).toBeCloseTo(at.x, 1);
+    expect(bounds({ ...at, stride: 1, walk: Math.PI }).max.y).toBeGreaterThan(idle.max.y);
+    expect(bounds({ ...at, attack: 0.75 }).min.z).toBeLessThan(idle.min.z);
+    expect(bounds({ ...at, dying: 1 }).max.y).toBeLessThan(at.y + height * 0.2);
+    expect(bounds(at).max.y).toBeCloseTo(idle.max.y, 4);
+    frog.dispose();
+    material.dispose();
+  });
+
+  it.each([
+    'rat',
+    'snake',
+    'snake-angry',
+    'spider',
+    'wasp',
+    'star-mote',
+    'star-orb',
+    'star-wing',
+    'star-brute',
+    ...WILD_MODELS.map((m) => m.key),
+  ] as const)('fits and animates the imported %s through combat', async (key) => {
+    const file = key.includes('/') ? `wild/${key}` : `quaternius/ink-${key}`;
+    const bytes = await readFile(new URL(`../public/models/${file}.glb`, import.meta.url));
+    const gltf = await new GLTFLoader().parseAsync(
+      bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
+      '',
+    );
+    const material = new THREE.MeshBasicMaterial();
+    const actor = new InkAnimal(key, gltf, material);
+    const height = ENEMIES[enemyIndex(key)]!.height;
+    const bounds = (pose: Pose) => {
+      actor.pose(pose, height);
+      actor.root.updateMatrixWorld(true);
+      return new THREE.Box3().setFromObject(actor.root, true);
+    };
+    const at = { ...rest, x: 64, y: 3, z: -11 };
+    const idle = bounds(at);
+    expect(idle.max.y).toBeCloseTo(at.y + height, 3);
+    expect(idle.min.y).toBeCloseTo(
+      at.y + (gltf.animations.some((c) => /(?:^|_)Flying$/.test(c.name)) ? height * 0.27 : 0),
+      3,
+    );
+    const def: EnemyDef = ENEMIES[enemyIndex(key)]!;
+    if (def.halfLength) {
+      const span = idle.getSize(new THREE.Vector3());
+      expect(span.z).toBeGreaterThan(span.y * 1.6);
+      expect(span.x).toBeLessThan(span.y);
+      expect(span.z / 2).toBeCloseTo(def.halfLength, 0);
+    }
+    for (const pose of [
+      { stride: 1, walk: 1.7 },
+      { air: true },
+      { attack: 0.6 },
+      { hurt: 0.7 },
+      { dying: 0.5 },
+    ]) {
+      const box = bounds({ ...at, ...pose });
+      expect(box.getSize(new THREE.Vector3()).length()).toBeLessThan(
+        def.halfLength ? idle.getSize(new THREE.Vector3()).length() * 1.35 : 5,
+      );
+    }
+    expect(bounds({ ...at, dying: 1 }).max.y).toBeLessThan(at.y + height * 0.2);
+    expect(bounds(at).max.y).toBeCloseTo(idle.max.y, 4);
+    actor.dispose();
+    material.dispose();
+  });
+
   for (const def of ENEMIES)
     it(`${def.name} is drawn at its collision height`, () => {
       // within a few percent: the big ones are drawn at the same proportions as the small

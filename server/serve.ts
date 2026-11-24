@@ -7,6 +7,7 @@
 // check), an optional password keeps strangers out, each connection has a message budget, a
 // few connections per address at most, and connections that stop answering are dropped.
 import { randomBytes, randomInt, timingSafeEqual } from 'node:crypto';
+import { type ChooseStop } from './traveller-model';
 import { isIP } from 'node:net';
 import type { IncomingMessage } from 'node:http';
 import { type WebSocket, WebSocketServer } from 'ws';
@@ -27,6 +28,7 @@ const PER_ADDRESS = 4;
 
 export interface ServeOptions {
   readonly port: number;
+  readonly chooseStop?: ChooseStop;
   readonly bind?: string;
   /** Players must give this to join; empty or absent: no password. */
   readonly password?: string;
@@ -237,6 +239,7 @@ export function serve(defaultHost: WorldHost, opts: ServeOptions): Promise<Serve
         sockets.set(id, ws);
         send(ws, {
           t: 'welcome',
+          travellerAI: !!opts.chooseStop,
           room: roomCode,
           v: PROTOCOL,
           id,
@@ -254,6 +257,15 @@ export function serve(defaultHost: WorldHost, opts: ServeOptions): Promise<Serve
       }
       const { host, sockets, broadcast, deliver } = session;
       switch (m.t) {
+        case 'traveller':
+          if (opts.chooseStop)
+            void host
+              .planTraveller(id, m.trail, opts.chooseStop)
+              .then((leg) => {
+                if (leg) broadcast({ t: 'traveller', trail: m.trail, leg });
+              })
+              .catch(() => {});
+          break;
         case 'visit':
           send(ws, host.visit(id, m.target, m.request));
           break;

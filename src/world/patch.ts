@@ -312,6 +312,7 @@ function applyRules(state: WorldState, patch: Patch, ctx: PatchContext): PatchRe
       if (state.growth.milestones.includes(restored)) return fail('这座城已经恢复了');
       const blocks = blockStates(states, skel.surfaces, skel.chunks);
       if (!blocks.every((b) => b === 'colored' || b === 'thriving')) return fail('还有街区没有颜色');
+      saved.restoredAt ??= state.clock;
       saved.completed = true;
       inv.generic += TUNING.city.completeReward.generic;
       inv.ink += TUNING.city.completeReward.ink;

@@ -162,7 +162,7 @@ export function placeFeatures(c: FeatureInput): Omit<CitySkeleton, 'surfaces' | 
       });
     }
   });
-  // the block with the main gate starts empty, so the first thing a player does is paint
+  // Preserve the original garrison slots outside the entry district.
   const spawnChunk = chunkOfCell(Math.floor(c.spawn.x / cell), Math.floor(c.spawn.z / cell));
   const residentsRng = new Rng(hashInts(c.seed, 0x5e95));
   const studioBuildings = new Set(studios.map((s) => s.building));
@@ -179,7 +179,53 @@ export function placeFeatures(c: FeatureInput): Omit<CitySkeleton, 'surfaces' | 
       residents.push({ building: b.id, chunk, name: residentsRng.pick(RESIDENT_NAMES) });
     }
   }
-  return { stains, studios, homeStudio, monsters: monsters.filter((m) => m.chunk !== spawnChunk), residents };
+  // Saved defeat bits address the original guards by index. Keep that prefix and fill
+  // the remaining population with infected villagers on distinct, dry street cells.
+  const guards = monsters.filter((m) => m.chunk !== spawnChunk);
+  const density = new Rng(hashInts(c.seed, 0x7ede));
+  const houses = c.buildings.length;
+  const targetGuards = density.int(houses, Math.floor(houses * 1.5));
+  const occupied = new Set(guards.map((m) => Math.floor(m.z / cell) * n + Math.floor(m.x / cell)));
+  const streets = roadCells.flatMap((cells, chunk) => {
+    if (side > 1 && chunk === spawnChunk) return [];
+    return cells.filter(
+      (i) =>
+        !occupied.has(i) &&
+        Math.hypot(((i % n) + 0.5) * cell - c.spawn.x, (Math.floor(i / n) + 0.5) * cell - c.spawn.z) > 12,
+    );
+  });
+  guards.length = Math.min(guards.length, targetGuards);
+  while (guards.length < targetGuards && streets.length) {
+    const k = density.int(0, streets.length - 1);
+    const i = streets[k]!;
+    streets[k] = streets[streets.length - 1]!;
+    streets.pop();
+    const ix = i % n,
+      iz = Math.floor(i / n);
+    guards.push({
+      x: (ix + 0.5) * cell,
+      z: (iz + 0.5) * cell,
+      chunk: chunkOfCell(ix, iz),
+      type: density.chance(TUNING.combat.spitterChance) ? SPITTER : BLOT,
+    });
+  }
+
+  // Populate households in rounds so people share houses without crowding a single doorway.
+  const families = new Rng(hashInts(c.seed, 0x721c));
+  const targetResidents = families.int(Math.ceil(houses * 1.2), Math.floor(houses * 2.1));
+  const occupiedHomes = new Set(residents.map((r) => r.building));
+  let homes = c.buildings.filter((b) => !studioBuildings.has(b.id));
+  if (!homes.length) homes = [...c.buildings];
+  let available = homes.filter((b) => !occupiedHomes.has(b.id));
+  while (residents.length < targetResidents) {
+    if (!available.length) available = [...homes];
+    const k = families.int(0, available.length - 1);
+    const b = available[k]!;
+    available[k] = available[available.length - 1]!;
+    available.pop();
+    residents.push({ building: b.id, chunk: c.surfaces[b.roof]!.chunk, name: families.pick(RESIDENT_NAMES) });
+  }
+  return { stains, studios, homeStudio, monsters: guards, residents };
 }
 
 /** A point `out` metres in front of a building's door (the middle of its front, which faces

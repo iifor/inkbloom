@@ -19,5 +19,5 @@
       "@/*": ["src/*"]
     }
   },
-  "include": ["src", "tests", "server", "vite.config.ts"]
+  "include": ["admin", "src", "tests", "server", "internal/multiplayer/rules.ts", "vite.config.ts"]
 }

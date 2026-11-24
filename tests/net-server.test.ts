@@ -69,6 +69,46 @@ async function start(max = 10): Promise<number> {
 }
 
 describe('world server over WebSockets', () => {
+  it('shares one model decision between observers and restores it for a later arrival', async () => {
+    const host = new WorldHost(createWorldState('travellers', 4242));
+    host.state.clock = 25; // The seed's spawn walker has already reached the first bridge.
+    let decisions = 0;
+    server = await serve(host, {
+      port: 0,
+      bind: '127.0.0.1',
+      chooseStop: async (options, memory) => {
+        expect(memory).toEqual(expect.arrayContaining([expect.objectContaining({ kind: 'bridge' })]));
+        decisions++;
+        return options.findIndex((s) => s.kind === 'peaceful');
+      },
+    });
+    const a = await client(server.port, '甲', 'traveller-a'),
+      b = await client(server.port, '乙', 'traveller-b');
+    clients.push(a, b);
+    for (const c of [a, b]) {
+      expect(await c.waitFor('welcome')).toMatchObject({ travellerAI: true });
+      c.send({
+        t: 'move',
+        p: [65, 2, 65],
+        v: [0, 0, 0],
+        yaw: 0,
+        pitch: 0,
+        f: GROUNDED,
+        scene: { kind: 'wild' },
+        town: null,
+      });
+      c.send({ t: 'traveller', trail: 'spawn' });
+    }
+    const changed = await a.waitFor('traveller');
+    expect(await b.waitFor('traveller')).toEqual(changed);
+    expect(decisions).toBe(1);
+    const later = await client(server.port, '丙', 'traveller-c');
+    clients.push(later);
+    const welcome = await later.waitFor('welcome');
+    if (welcome.t !== 'welcome' || changed.t !== 'traveller') throw new Error('missing itinerary');
+    expect(changed.leg.memory).toEqual(expect.arrayContaining([expect.objectContaining({ kind: 'bridge' })]));
+    expect(JSON.parse(welcome.world).travellerLegs.spawn).toEqual(changed.leg);
+  });
   it('streams room occupancy and lock status to an authenticated non-player', async () => {
     const host = new WorldHost(createWorldState('directory', SEED), new Map(), 2);
     server = await serve(host, { port: 0, bind: '127.0.0.1', password: 'service' });

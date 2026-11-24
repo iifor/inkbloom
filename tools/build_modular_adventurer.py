@@ -1,9 +1,10 @@
-"""Normalize Quaternius Ultimate Modular Men's Adventurer for InkBloom.
+"""Normalize a Quaternius modular player outfit for InkBloom.
 
 Usage: blender --background --python tools/build_modular_adventurer.py -- source.glb
 Preserves the authored silhouette, clothing geometry, weights and shading.
 """
 import bpy
+import bmesh
 import math
 import sys
 from pathlib import Path
@@ -14,6 +15,9 @@ ARGS = sys.argv[sys.argv.index('--') + 1:]
 SOURCE = Path(ARGS[0])
 VARIANT = SOURCE.stem
 SLUG = VARIANT.lower()
+PACK = 'Women' if VARIANT == 'Witch' or '--women' in ARGS else 'Men'
+if PACK == 'Women' and VARIANT != 'Witch':
+    SLUG = 'women-' + SLUG
 OUT = ROOT / 'public/models/quaternius'
 ART = ROOT / 'art/models/quaternius'
 OUT.mkdir(parents=True, exist_ok=True)
@@ -22,7 +26,19 @@ bpy.ops.wm.read_factory_settings(use_empty=True)
 bpy.ops.import_scene.gltf(filepath=str(SOURCE))
 rig = next(o for o in bpy.context.scene.objects if o.type == 'ARMATURE')
 meshes = [o for o in bpy.context.scene.objects if o.type == 'MESH' and o.name != 'Icosphere']
-if VARIANT == 'Punk':
+if PACK == 'Women' and VARIANT == 'Adventurer':
+    # This export contains zero-area faces at the origin in its leg mesh.
+    # They have no skin weights and would otherwise acquire a stationary glTF joint.
+    legs = next(o for o in meshes if o.name == 'Adventurer_Legs')
+    missing = {v.index for v in legs.data.vertices if not any(g.weight > 0 for g in v.groups)}
+    assert all(legs.data.vertices[i].co.length < 1e-6 for i in missing)
+    assert all(set(f.vertices) <= missing for f in legs.data.polygons if missing.intersection(f.vertices))
+    bm = bmesh.new()
+    bm.from_mesh(legs.data)
+    bmesh.ops.delete(bm, geom=[v for v in bm.verts if v.index in missing], context='VERTS')
+    bm.to_mesh(legs.data)
+    bm.free()
+if VARIANT == 'Punk' or PACK == 'Women':
     # Some trouser cuffs have a stray weight on the stationary control root.
     # Let their existing leg weights carry the full deformation when moving.
     for mesh in meshes:
@@ -82,8 +98,9 @@ for side in ['L', 'R']:
                      ('UpperLeg','thigh'),('LowerLeg','calf'),('Foot','foot')]:
         names[old + '.' + side] = new + '_' + side.lower()
     for finger in ['Index','Middle','Ring','Pinky','Thumb']:
-        for segment in range(2, 5):
-            names[f'{finger}{segment}.{side}'] = f'{finger.lower()}_0{segment-1}_{side.lower()}'
+        first = 1 if PACK == 'Women' else 2
+        for segment in range(first, first + 3):
+            names[f'{finger}{segment}.{side}'] = f'{finger.lower()}_0{segment-first+1}_{side.lower()}'
 for old, new in names.items():
     if old in rig.data.bones:
         rig.data.bones[old].name = new
@@ -95,9 +112,9 @@ colors = {'accent':(0.2,0.55,0.54,1),'coat':(0.9,0.82,0.66,1),'skin':(0.96,0.82,
           'eye':(0.06,0.06,0.09,1),'trousers':(0.34,0.35,0.39,1),'bag':(0.58,0.39,0.25,1),'button':(0.96,0.84,0.43,1)}
 # Each remaining outfit preserves its authored material regions. Palette names also
 # serve as stable paint slots; skin, hair and accent remain player-editable.
-if VARIANT != 'Adventurer':
+if VARIANT != 'Adventurer' or PACK == 'Women':
     slots = {'Skin':'skin', 'Skin_Darker':'skin', 'Eyebrows':'hair', 'Hair':'hair',
-             'Hair_White':'hair', 'Moustache':'hair', 'Eye':'eye', 'Black':'ink',
+             'Hair_White':'hair', 'Hair_Black':'hair', 'Moustache':'hair', 'Eye':'eye', 'Black':'ink',
              'White':'cream', 'LightBrown':'sand', 'Brown':'brown', 'Brown2':'bark',
              'DarkBrown':'bark', 'Beige':'limewash', 'LightBlue':'blue', 'Blue':'blue',
              'Red':'red', 'Red_Dark':'red', 'Purple':'purple', 'Earrings':'yellow',
@@ -107,7 +124,7 @@ if VARIANT != 'Adventurer':
              'SciFi_Light':'cream', 'SciFi_MainDark':'charcoal', 'SciFi_Main':'teal',
              'SciFi_Light_Accent':'accent'}
     accent = {'Beach':'Red_Dark', 'Casual':'Purple', 'Casual2':'Red_Dark',
-              'Farmer':'LightBlue', 'King':'Blue', 'Punk':'Red_Dark'}.get(VARIANT)
+              'Farmer':'LightBlue', 'King':'Blue', 'Punk':'Red_Dark', 'Witch':'Purple'}.get(VARIANT)
     if accent:
         slots[accent] = 'accent'
     if VARIANT == 'Punk':
@@ -117,8 +134,23 @@ if VARIANT != 'Adventurer':
                    'blue':(.27,.43,.74,1), 'red':(.84,.34,.33,1), 'purple':(.56,.44,.71,1),
                    'yellow':(.96,.84,.43,1), 'stone':(.77,.75,.71,1),
                    'charcoal':(.34,.35,.39,1), 'glass':(.33,.46,.56,1), 'teal':(.2,.55,.54,1)})
+if PACK == 'Women' and VARIANT != 'Witch':
+    slots.update({'Hair_Brown':'hair', 'Hair_Blond':'hair', 'Brown_02':'bark', 'Green':'green',
+                  'LightGreen':'green', 'LimeGreen':'green', 'Pink':'pink', 'Orange':'orange'})
+    colors.update({'green':(.25,.52,.28,1), 'pink':(.94,.58,.66,1), 'orange':(.9,.48,.23,1)})
+    accent = {'Adventurer':'Green','Casual':'Orange','Formal':'LimeGreen','Medieval':'White',
+              'Punk':'Pink','SciFi':'LightBlue','Soldier':'Swat','Suit':'White','Worker':'Worker_Vest'}
+    slots[accent[VARIANT]] = 'accent'
+    if VARIANT == 'Formal':
+        slots['Red'] = 'hair'
 materials = {}
-used_slots = {slots[mat.name.split('.')[0]] for o in meshes for mat in o.data.materials}
+def paint_slot(obj, mat):
+    name = mat.name.split('.')[0]
+    if PACK == 'Women' and VARIANT in {'Worker', 'Medieval'} and obj.name.endswith('_Head') and name == 'DarkBrown':
+        return 'hair'
+    return slots[name]
+
+used_slots = {paint_slot(o, mat) for o in meshes for mat in o.data.materials}
 for name, rgba in colors.items():
     if name not in used_slots:
         continue
@@ -131,7 +163,7 @@ for name, rgba in colors.items():
     materials[name] = mat
 for o in meshes:
     for i, mat in enumerate(list(o.data.materials)):
-        o.data.materials[i] = materials[slots[mat.name.split('.')[0]]]
+        o.data.materials[i] = materials[paint_slot(o, mat)]
 
 # Original looks toward Blender -Y. Turn to +Y, which exports as the game's -Z.
 transform = Matrix.Rotation(math.pi, 4, 'Z')
@@ -143,12 +175,24 @@ lift = Matrix.Translation((0, 0, -floor))
 rig.data.transform(lift)
 for o in meshes:
     o.data.transform(lift)
+if PACK == 'Women':
+    # Place the brush inside the grip at this shorter hand's knuckle height.
+    bpy.context.view_layer.objects.active = rig
+    bpy.ops.object.mode_set(mode='EDIT')
+    bones = rig.data.edit_bones
+    grip = bones.new('grip_r')
+    grip.parent = bones['hand_r']
+    grip.head = bones['hand_r'].head + Vector((-0.032, 0, 0))
+    grip.head.z = bones['index_01_r'].head.z
+    grip.tail = grip.head + Vector((0, 0, -0.02))
+    bpy.ops.object.mode_set(mode='OBJECT')
 rig.name = 'Modular' + VARIANT + 'Rig'
-rig['source'] = 'Quaternius Ultimate Modular Men Pack / ' + VARIANT + ' / CC0-1.0'
+rig['source'] = f'Quaternius Ultimate Modular {PACK} Pack / {VARIANT} / CC0-1.0'
 bpy.data.orphans_purge(do_local_ids=True, do_linked_ids=False, do_recursive=True)
 for name, mat in materials.items():
     mat.name = name
 bpy.context.view_layer.update()
+bpy.context.preferences.filepaths.save_version = 0
 bpy.ops.wm.save_as_mainfile(filepath=str(ART / ('modular-' + SLUG + '.blend')), compress=True)
 bpy.ops.object.select_all(action='DESELECT')
 for o in meshes:

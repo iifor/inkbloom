@@ -26,6 +26,41 @@ const step = (h: Headless, group: MonsterGroup) => (dt: number) => {
 };
 
 describe('monsters', () => {
+  it.each(['star-mote', 'star-orb', 'star-wing'] as const)(
+    '%s can be hit through its body and missed underneath',
+    (key) => {
+      const { group } = arena();
+      const def: EnemyDef = ENEMIES[enemyIndex(key)]!;
+      group.spawn(enemyIndex(key), new THREE.Vector3(2, 3, -5), { tag: 'hover' });
+      const ray = (aboveFeet: number) =>
+        group.raycast(new THREE.Vector3(2, 3 + aboveFeet, -3), new THREE.Vector3(0, 0, -1), 4);
+      expect(ray(0.05)).toBeNull();
+      expect(ray(def.hitBottom! + 0.01)).not.toBeNull();
+      expect(ray(def.height * 0.65)).not.toBeNull();
+      expect(ray(def.height + 0.05)).toBeNull();
+      group.dispose();
+    },
+  );
+
+  it('turns a long dinosaur’s hit area with its head and tail', () => {
+    const { group } = arena();
+    const random = vi.spyOn(Math, 'random').mockReturnValue(0.25);
+    try {
+      group.spawn(enemyIndex('dinosaurs/Apatosaurus'), new THREE.Vector3(), { tag: 'wild' });
+    } finally {
+      random.mockRestore();
+    }
+    const down = new THREE.Vector3(0, -1, 0);
+    const tail = new THREE.Vector3(2.5, 3, 0);
+    const side = new THREE.Vector3(0, 3, 2.5);
+    expect(group.raycast(tail, down, 5)).not.toBeNull();
+    expect(group.raycast(side, down, 5)).toBeNull();
+    expect(group.inArc(tail, down, 3, 0.6)).toHaveLength(1);
+    expect(group.inSphere(tail.setY(0.8), 0.4)).toHaveLength(1);
+    expect(group.inSphere(side.setY(0.8), 0.4)).toHaveLength(0);
+    group.dispose();
+  });
+
   it('a blot that sees the player runs over and bites', () => {
     const { h, group } = arena();
     h.place(0, 0, 0);
@@ -227,31 +262,34 @@ describe('hit feel', () => {
     expect(heavy.h.count('monster:interrupted')).toBe(1);
   });
 
-  it('a 墨鼬 crouches, then springs through where the player stood: stepping aside dodges it', () => {
-    const lunge = (dodge: boolean): number => {
-      const { h, group } = arena();
-      h.place(0, 0, 0);
-      group.spawn(enemyIndex('weasel'), new THREE.Vector3(0, 0, -5), { tag: 'test' });
-      const m = inner(group);
-      for (let i = 0; i < 240 && !m.act; i++) step(h, group)(1 / 60);
-      expect(m.act?.kind).toBe('lunge');
-      // crouched with its aim set, not sprung yet
-      while (m.act!.t < 0.3) step(h, group)(1 / 60);
-      expect(h.count('monster:bite')).toBe(0);
-      // a sidestep across its line
-      const { dx = 0, dz = 0 } = m.act!;
-      if (dodge) h.place(-dz * 3, 0, dx * 3);
-      h.run(1, step(h, group), 1 / 60);
-      return h.count('monster:bite');
-    };
-    // its strafe side and first spring time are random; fix them so the run is the same each time
-    const random = vi.spyOn(Math, 'random').mockReturnValue(0.5);
-    const stood = lunge(false);
-    const dodged = lunge(true);
-    random.mockRestore();
-    expect(stood).toBe(1);
-    expect(dodged).toBe(0);
-  });
+  it.each(['weasel', 'frog'] as const)(
+    '%s springs through where the player stood and can be dodged',
+    (key) => {
+      const lunge = (dodge: boolean): number => {
+        const { h, group } = arena();
+        h.place(0, 0, 0);
+        group.spawn(enemyIndex(key), new THREE.Vector3(0, 0, -5), { tag: 'test' });
+        const m = inner(group);
+        for (let i = 0; i < 240 && !m.act; i++) step(h, group)(1 / 60);
+        expect(m.act?.kind).toBe('lunge');
+        // crouched with its aim set, not sprung yet
+        while (m.act!.t < 0.3) step(h, group)(1 / 60);
+        expect(h.count('monster:bite')).toBe(0);
+        // a sidestep across its line
+        const { dx = 0, dz = 0 } = m.act!;
+        if (dodge) h.place(-dz * 3, 0, dx * 3);
+        h.run(1, step(h, group), 1 / 60);
+        return h.count('monster:bite');
+      };
+      // its strafe side and first spring time are random; fix them so the run is the same each time
+      const random = vi.spyOn(Math, 'random').mockReturnValue(0.5);
+      const stood = lunge(false);
+      const dodged = lunge(true);
+      random.mockRestore();
+      expect(stood).toBe(1);
+      expect(dodged).toBe(0);
+    },
+  );
 
   it('a blade hit shoves the monster back; a shot does not', () => {
     // the blot's bite timer starts at a random point; one ready to bite would shove the player

@@ -78,7 +78,10 @@ export class FirstPersonPreview {
     const { stride, lift, air, glide, swim, held, phase } = motion;
     this.root.position.copy(camera.position);
     this.root.quaternion.copy(camera.quaternion);
-    this.root.fov = camera.fov;
+    // WalkArms uses this camera's FOV to frame the hands. A portrait picker has less
+    // horizontal room than gameplay, so fit the same grip across the narrower canvas.
+    const halfHeight = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
+    this.root.fov = THREE.MathUtils.radToDeg(2 * Math.atan(halfHeight * Math.min(1, camera.aspect / 1.5)));
     const drift = Math.sin(phase * Math.PI);
     this.walk.update(
       dt,

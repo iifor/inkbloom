@@ -1,3 +1,4 @@
+import { WILD_MODELS } from '@/content/wild-models';
 import { describe, expect, it } from 'vitest';
 import { enemyIndex } from '@/content/enemies';
 import { TUNING } from '@/content/tuning';
@@ -52,6 +53,22 @@ describe('wilderness monsters', () => {
         }
     for (const key of ['blot', 'spitter', 'weasel'] as const)
       expect(count.get(enemyIndex(key)) ?? 0, key).toBeGreaterThan(all * 0.1);
+    for (const key of [
+      'frog',
+      'rat',
+      'snake',
+      'snake-angry',
+      'spider',
+      'wasp',
+      'star-mote',
+      'star-orb',
+      'star-wing',
+      'star-brute',
+    ] as const)
+      expect(count.get(enemyIndex(key)) ?? 0, key).toBeGreaterThan(all * 0.006);
+    const newModels = WILD_MODELS.reduce((sum, model) => sum + (count.get(enemyIndex(model.key)) ?? 0), 0);
+    expect(newModels / all).toBeGreaterThan(0.065);
+    expect(newModels / all).toBeLessThan(0.14);
     expect((count.get(enemyIndex('spitter')) ?? 0) / all).toBeCloseTo(TUNING.combat.spitterChance, 1);
   });
 

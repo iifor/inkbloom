@@ -1,6 +1,7 @@
 // Everything about a world that is saved. Generated content (terrain, city skeletons) is not
 // here because it is recomputed from the seed. Change this file only together with a bump of
 // SAVE_VERSION and a note in docs/EXTENDING.md.
+import { validTravelLeg, type TravelLeg } from './wilderness/travellers';
 import { PALETTE, PAINTABLE, color } from '@/content/palette';
 import { TUNING } from '@/content/tuning';
 import { BRUSH_TIERS } from '@/content/brush-tiers';
@@ -12,7 +13,7 @@ import { type CitySkeleton, monsterFingerprint, stainFingerprint } from './city/
 
 import { TERRAIN_VERSION, type TerrainVersion } from './wilderness/terrain-version';
 
-export const SAVE_VERSION = 7;
+export const SAVE_VERSION = 10;
 
 export type SceneRef = { readonly kind: 'wild' } | { readonly kind: 'city'; readonly id: string };
 
@@ -57,6 +58,8 @@ export interface WorldState {
   unlocked: number[];
   /** Per-city surface states, created when a city is first entered. */
   cities: Map<string, CitySave>;
+  travellerMemorySince: number;
+  travellerLegs: Map<string, TravelLeg>;
   /** Pre-v4 towns retain the original 2/5-block footprints across clients and workers. */
   legacyTowns: string[];
   player: PlayerSave | null;
@@ -90,6 +93,8 @@ export interface CitySave {
   stains: Uint8Array;
   /** Every block had colour at once; the city is restored for good. */
   completed: boolean;
+  /** World play time of the first restoration, shared by all returning households. */
+  restoredAt: number | null;
   /** Naturally unpolluted, not a restoration by the player. False for existing v1/v2 towns. */
   peaceful: boolean;
   /** monsterFingerprint of the stronghold list `defeated` belongs to. */
@@ -176,6 +181,8 @@ export function createWorldState(id: string, seed: number, name = '新世界'): 
     },
     unlocked: [...STARTING_COLORS],
     cities: new Map(),
+    travellerMemorySince: 0,
+    travellerLegs: new Map(),
     legacyTowns: [],
     player: null,
     clock: 0,
@@ -222,6 +229,7 @@ export function cityStates(
       saved.fingerprint = fingerprint;
       saved.states = new Uint8Array(skel.surfaces.length).fill(saved.peaceful ? ORIGINAL : 0);
       saved.completed = false;
+      saved.restoredAt = null;
       saved.coloredOnce = new Uint8Array(skel.chunks * skel.chunks).fill(saved.peaceful ? 1 : 0);
       saved.stockFrom = new Array<number>(skel.chunks * skel.chunks).fill(-1);
       // block numbers may mean other blocks now
@@ -236,6 +244,7 @@ export function cityStates(
       stainFingerprint: stainFp,
       stains: new Uint8Array(skel.stains.length).fill(peaceful ? 1 : 0),
       completed: false,
+      restoredAt: null,
       peaceful,
       monsterFingerprint: monsterFp,
       defeated: new Uint8Array(skel.monsters.length).fill(peaceful ? 1 : 0),
@@ -250,8 +259,27 @@ export function cityStates(
     saved.stains = new Uint8Array(skel.stains.length).fill(saved.peaceful ? 1 : 0);
   }
   if (saved.monsterFingerprint !== monsterFp) {
+    const previous = saved.defeated;
+    const defeated = new Uint8Array(skel.monsters.length).fill(saved.peaceful ? 1 : 0);
+    if (
+      previous.length < defeated.length &&
+      saved.monsterFingerprint ===
+        monsterFingerprint(skel.monsters.slice(0, previous.length), skel.ox, skel.oz)
+    ) {
+      defeated.set(previous);
+      const cleared = new Set(skel.monsters.slice(0, previous.length).map((m) => m.chunk));
+      for (let i = 0; i < previous.length; i++) if (!previous[i]) cleared.delete(skel.monsters[i]!.chunk);
+      for (let i = previous.length; i < defeated.length; i++)
+        defeated[i] =
+          saved.peaceful ||
+          saved.completed ||
+          cleared.has(skel.monsters[i]!.chunk) ||
+          saved.coloredOnce[skel.monsters[i]!.chunk] === 1
+            ? 1
+            : 0;
+    }
     saved.monsterFingerprint = monsterFp;
-    saved.defeated = new Uint8Array(skel.monsters.length).fill(saved.peaceful ? 1 : 0);
+    saved.defeated = defeated;
   }
   if (saved.stockFrom.length !== skel.chunks * skel.chunks)
     saved.stockFrom = new Array<number>(skel.chunks * skel.chunks).fill(-1);
@@ -318,6 +346,7 @@ interface WorldJson {
         sf?: number;
         st?: string;
         c?: 1;
+        restoredAt?: number;
         p?: 1;
         mf?: number;
         d?: string;
@@ -331,6 +360,8 @@ interface WorldJson {
   player: PlayerSave | null;
   clock?: number;
   calendarOffset?: number;
+  travellerMemorySince?: number;
+  travellerLegs?: Record<string, TravelLeg>;
   harvested?: Record<string, number>;
   drop?: InkDrop | null;
   hunted?: Record<string, number>;
@@ -372,7 +403,7 @@ export function serializeWorld(state: WorldState): string {
                 f: v.fingerprint,
                 s: toBase64(v.states),
                 ...(v.stainFingerprint === null ? {} : { sf: v.stainFingerprint, st: toBase64(v.stains) }),
-                ...(v.completed ? { c: 1 as const } : {}),
+                ...(v.completed ? { c: 1 as const, restoredAt: v.restoredAt ?? state.clock } : {}),
                 ...(v.peaceful ? { p: 1 as const } : {}),
                 ...(v.monsterFingerprint === null
                   ? {}
@@ -397,6 +428,8 @@ export function serializeWorld(state: WorldState): string {
             ],
       ),
     ),
+    travellerMemorySince: state.travellerMemorySince,
+    travellerLegs: state.travellerLegs.size ? Object.fromEntries(state.travellerLegs) : undefined,
     legacyTowns: state.legacyTowns,
     player: state.player,
     clock: state.clock,
@@ -430,6 +463,9 @@ export function deserializeWorld(text: string): WorldState {
     json.version !== 4 &&
     json.version !== 5 &&
     json.version !== 6 &&
+    json.version !== 7 &&
+    json.version !== 8 &&
+    json.version !== 9 &&
     json.version !== SAVE_VERSION
   )
     throw new SaveError(`不支持的存档版本 ${json.version}`);
@@ -442,6 +478,7 @@ export function deserializeWorld(text: string): WorldState {
     (a, x) => a + (Number.isFinite(x) ? Math.max(0, Math.floor(x)) : 0),
     0,
   );
+  const clock = Number.isFinite(json.clock) ? Math.max(0, json.clock!) : 0;
   return {
     version: SAVE_VERSION,
     terrainVersion: json.version < 6 ? 1 : json.terrainVersion!,
@@ -460,6 +497,11 @@ export function deserializeWorld(text: string): WorldState {
       weapons: (json.inventory?.weapons ?? ['rifle']).filter((k) => WEAPONS.some((w) => w.key === k)),
     },
     unlocked: (json.unlocked ?? []).filter((c) => PAINTABLE.includes(c)),
+    travellerMemorySince:
+      json.version >= 10 && Number.isFinite(json.travellerMemorySince)
+        ? Math.max(0, Math.min(clock, json.travellerMemorySince!))
+        : clock,
+    travellerLegs: new Map(Object.entries(json.travellerLegs ?? {}).filter(([, v]) => validTravelLeg(v))),
     cities: new Map(
       Object.entries(json.cities ?? {}).map(([k, v]): [string, CitySave] =>
         typeof v === 'string'
@@ -471,6 +513,7 @@ export function deserializeWorld(text: string): WorldState {
                 stainFingerprint: null,
                 stains: new Uint8Array(),
                 completed: false,
+                restoredAt: null,
                 peaceful: false,
                 monsterFingerprint: null,
                 defeated: new Uint8Array(),
@@ -487,6 +530,8 @@ export function deserializeWorld(text: string): WorldState {
                 stainFingerprint: Number.isInteger(v.sf) ? v.sf! : null,
                 stains: v.st ? fromBase64(v.st) : new Uint8Array(),
                 completed: v.c === 1,
+                restoredAt:
+                  v.c === 1 ? (Number.isFinite(v.restoredAt) ? Math.max(0, v.restoredAt!) : clock) : null,
                 peaceful: json.version >= 3 && v.p === 1,
                 monsterFingerprint: Number.isInteger(v.mf) ? v.mf! : null,
                 defeated: v.d ? fromBase64(v.d) : new Uint8Array(),
@@ -498,7 +543,7 @@ export function deserializeWorld(text: string): WorldState {
       ),
     ),
     player: json.player ?? null,
-    clock: Number.isFinite(json.clock) ? Math.max(0, json.clock!) : 0,
+    clock,
     calendarOffset: Number.isFinite(json.calendarOffset) ? Math.max(0, json.calendarOffset!) : 0,
     harvested: new Map(
       Object.entries(json.harvested ?? {}).filter((e): e is [string, number] => Number.isFinite(e[1])),

@@ -34,7 +34,9 @@ it.each([1, -1] as const)('walks up to, opens and crosses a raised farm door fac
       front,
       stoneWall: false,
       seed: 12,
-      buildings: [{ x: 0, z: 0, hw: 4, hd: 3, foot: -0.1, base: 0.82, height: 3.5, barn: false }],
+      buildings: [
+        { x: 0, z: 0, hw: 4, hd: 3, foot: -0.1, base: 0.82, height: 3.5, barn: false, residents: 2 },
+      ],
     },
     (min, max, data) => physics.addBox('farm', min, max, data),
     (door) => unload.push(mountFarmDoor(ctx, root, mat, physics, 'door', door)),
