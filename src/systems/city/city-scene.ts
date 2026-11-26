@@ -50,6 +50,7 @@ export class CityScene implements GameScene {
   private readonly colored: number[];
   private readonly totals: number[];
   private coloredAll = 0;
+  private celebrated = false;
   /** True when the saved states belonged to an older layout and were discarded. */
   readonly wasReset: boolean;
   // set while the town is put together over a few frames (see build); used once it is ready
@@ -76,6 +77,7 @@ export class CityScene implements GameScene {
     this.root.name = `city:${layout.id}`;
     const { states, stains, defeated, tide, reset } = cityStates(ctx.state, layout.id, layout);
     this.states = states;
+    this.celebrated = ctx.state.cities.get(layout.id)?.completed ?? false;
     this.wasReset = reset;
     if (reset) ctx.events.emit('toast', { text: `${layout.name}的布局已更新，颜色进度已重置`, seconds: 6 });
     const chunks = layout.chunks * layout.chunks;
@@ -181,13 +183,22 @@ export class CityScene implements GameScene {
     this.release.push(
       ctx.events.on('patch:applied', ({ patch }) => {
         if (!('city' in patch) || patch.city !== layout.id) return;
+        if (patch.kind === 'restoreAltar') {
+          const origin = travelAltar(layout) ?? layout.square;
+          for (let i = 0; i < this.states.length; i++) this.sync(i, origin, i % 12 === 0, 6);
+          this.tide.clear();
+          this.checkComplete();
+          this.celebrate();
+          return;
+        }
+        if (patch.kind === 'complete') { this.celebrate(); return; }
         let gained = false;
         if (patch.kind === 'restore' || patch.kind === 'paint' || patch.kind === 'drain')
-          gained = this.sync(patch.surface, false);
-        else if (patch.kind === 'defeat')
-          // a fallen monster frees the colour around it; bloom each surface
-          for (let i = 0; i < this.states.length; i++) gained = this.sync(i, true) || gained;
-        else return;
+          gained = this.sync(patch.surface);
+        else if (patch.kind === 'defeat') {
+          const origin = layout.monsters[patch.monster];
+          for (let i = 0; i < this.states.length; i++) gained = this.sync(i, origin) || gained;
+        } else return;
         if (gained) this.checkComplete();
       }),
     );
@@ -239,8 +250,9 @@ export class CityScene implements GameScene {
 
   /** Once every block has colour, the city is restored for good. */
   /** Bring one surface's counts and texture up to its saved state. Returns whether it gained
-   * colour; `bloom` bursts its colour where it stands (for colour freed without the brush). */
-  private sync(i: number, bloom: boolean): boolean {
+   * colour. A defeated guard starts a wash that reaches nearby surfaces first. */
+  private sync(i: number, origin?: { x: number; z: number }, bloom = true, maxDelay = Infinity): boolean {
+    if (this.texture.get(i) === this.states[i]) return false;
     const before = isColored(this.texture.get(i));
     const after = isColored(this.states[i]!);
     const s = this.layout.surfaces[i]!;
@@ -251,9 +263,10 @@ export class CityScene implements GameScene {
     }
     const y = groundAt(this.layout, s.x, s.z) + 2;
     if (before && !after) this.ctx.events.emit('paint:drained', { at: { x: s.x, y, z: s.z } });
-    if (bloom && !before && after)
+    const delay = origin && !before && after ? Math.min(maxDelay, Math.hypot(s.x - origin.x, s.z - origin.z) / 20) : undefined;
+    if (delay !== undefined && bloom)
       this.ctx.events.emit('paint:bloom', { at: { x: s.x, y, z: s.z }, color: s.color });
-    if (this.texture.get(i) !== this.states[i]) this.texture.set(i, this.states[i]!);
+    this.texture.set(i, this.states[i]!, delay);
     return !before && after;
   }
 
@@ -261,11 +274,17 @@ export class CityScene implements GameScene {
     if (this.peaceful) return;
     // this player's own restore: in a server world someone else may have finished the town
     if (this.ctx.state.growth.milestones.includes(`city:${this.layout.id}:restored`)) return;
-    if (!this.blocks().every((b) => b === 'colored' || b === 'thriving')) return;
+    if (!this.completed && !this.blocks().every((b) => b === 'colored' || b === 'thriving')) return;
     const hadGlider = this.ctx.state.inventory.glider;
     if (!this.ctx.apply({ kind: 'complete', city: this.layout.id }).ok) return;
-    this.ctx.events.emit('title', { text: `${this.layout.name}恢复了颜色`, sub: '周围的野外也亮了起来' });
     if (!hadGlider) this.ctx.events.emit('toast', { text: '得到纸飞机：在空中按住空格滑翔', seconds: 6 });
+    this.celebrate();
+  }
+
+  private celebrate(): void {
+    if (this.celebrated || !this.completed) return;
+    this.celebrated = true;
+    this.ctx.events.emit('title', { text: `${this.layout.name}恢复了颜色`, sub: '墨怪退散，祭坛苏醒 · 周围的野外也亮了起来' });
     this.ctx.events.emit('city:completed', { city: this.layout.id, name: this.layout.name });
   }
 
@@ -301,7 +320,8 @@ export class CityScene implements GameScene {
   }
 
   /** Pick each district's level of detail by its distance from the camera. */
-  updateDetail(camera: THREE.Camera): void {
+  updateDetail(camera: THREE.Camera, dt: number): void {
+    this.texture.update(dt);
     for (const lod of this.detail) lod.update(camera);
     // the river turns the mill's wheel, downstream (the rivers run along z)
     if (this.wheel) this.wheel.rotation.x = this.ctx.state.clock * WHEEL_TURN;
@@ -314,7 +334,7 @@ export class CityScene implements GameScene {
     this.stains.update();
     this.altar?.update(dt);
     const keeper = !this.ctx.net || this.ctx.net.keeps(this.layout.id);
-    if (keeper && !this.peaceful) this.erosion.update(dt);
+    if (keeper && !this.peaceful && !this.completed) this.erosion.update(dt);
     this.monsters.update(dt);
     this.studios.update(dt);
     if (keeper && !this.peaceful) this.tide.update(dt);

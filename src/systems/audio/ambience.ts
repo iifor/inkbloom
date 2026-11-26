@@ -4,7 +4,7 @@
 // running water in channels, leaves rustling in the wind. Life comes back with colour:
 // drained grey land is nearly silent, and birds return as the colour does. Habitat emitters
 // stay at the same world coordinates as the listener moves.
-// Under it all lie recorded beds (CC0 field recordings, see content/sounds.ts): birdsong in the
+// Under it all lie recorded beds (source licences in sounds/CREDITS.md): birdsong in the
 // woods and in open country, and running water; the synthesised calls then become occasional
 // accents. Until a bed has loaded, or if it cannot, the synthesised version plays alone.
 import { BEDS } from '@/content/sounds';

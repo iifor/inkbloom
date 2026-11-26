@@ -1,12 +1,33 @@
 import { describe, expect, it } from 'vitest';
 import { color } from '@/content/palette';
 import { XP } from '@/content/progression';
+import { SurfaceStateTexture } from '@/engine/render/ink-material';
 import { TUNING } from '@/content/tuning';
 import type { CitySkeleton } from '@/world/city/features';
 import { applyPatch, type PatchContext } from '@/world/patch';
 import { releaseAround } from '@/world/paint/release';
 import { DRAINED, ORIGINAL, graffiti, type SurfaceInfo } from '@/world/paint/surfaces';
 import { createWorldState } from '@/world/state';
+
+it('fades newly released surfaces by distance and cancels the wash when ink drains them again', () => {
+  const texture = new SurfaceStateTexture(Uint8Array.of(DRAINED, DRAINED, ORIGINAL));
+  const pixels = texture.texture.image.data;
+  texture.set(0, ORIGINAL, 0);
+  texture.set(1, ORIGINAL, 0.6);
+  expect(texture.get(1)).toBe(ORIGINAL);
+  expect(Array.from(pixels.slice(0, 6))).toEqual([1, 0, 1, 0, 1, 255]);
+  texture.update(0.5);
+  expect(pixels[1]).toBeGreaterThan(0);
+  expect(pixels[1]).toBeLessThan(255);
+  expect(pixels[3]).toBe(0);
+  texture.update(0.5);
+  expect(pixels[3]).toBeGreaterThan(0);
+  expect(pixels[3]).toBeLessThan(pixels[1]!);
+  texture.set(0, DRAINED);
+  texture.update(3);
+  expect(Array.from(pixels.slice(0, 6))).toEqual([0, 0, 1, 255, 1, 255]);
+  texture.dispose();
+});
 
 /** A row of walls along x, one per metre-step `gap`, all in block 0. */
 function row(n: number, gap: number): SurfaceInfo[] {

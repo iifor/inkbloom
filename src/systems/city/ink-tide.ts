@@ -115,6 +115,7 @@ export class InkTide {
   }
 
   update(dt: number): void {
+    if (this.ctx.state.cities.get(this.layout.id)?.completed) { this.clear(); return; }
     const now = this.ctx.state.clock;
     if (!this.wave) {
       if (now >= this.nextAt && !this.schedule()) this.nextAt = now + T.retry;
@@ -343,6 +344,16 @@ export class InkTide {
       this.ctx.apply({ kind: 'tideHeld', city: this.layout.id });
       this.ctx.events.emit('toast', { text: repelled ? '墨潮被推回去了' : '守住了街区', seconds: 4 });
     } else this.ctx.events.emit('toast', { text: '街区失守', seconds: 4 });
+  }
+
+  /** Liberation ends the current wave without paying another tide reward. */
+  clear(): void {
+    const hadWave = this.wave !== null;
+    this.wave = null;
+    this.saved.wave = null;
+    this.curtain.visible = false;
+    this.host.clearTideMonsters();
+    if (hadWave) this.ctx.events.emit('tide:end', { held: true });
   }
 
   dispose(): void {

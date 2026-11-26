@@ -384,6 +384,12 @@ export class WorldHost {
     }
     if (!this.near(m.motion, patch)) return fail('离那里太远了');
     if ('city' in patch && !this.townAllowed(m, patch.city)) return fail('一下子去了太多城');
+    if (patch.kind === 'restoreAltar') {
+      const altar = this.patchContext.altarOf?.(patch.city);
+      if (!altar || !m.motion || this.arena.has(id) || m.slice.infectedAt ||
+          Math.hypot(m.motion.p[0] - altar.x, m.motion.p[1] - (altar.y + 0.21), m.motion.p[2] - altar.z) > 3.5)
+        return fail('请站到祭坛上修复');
+    }
     if (patch.kind === 'drain' || patch.kind === 'tideHeld') {
       // the town's tide and erosion are its keeper's to run
       if (this.keepers().get(patch.city) !== id) return fail('只有这座城的看守能这样做');

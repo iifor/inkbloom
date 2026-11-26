@@ -20,6 +20,8 @@ import type { Ruin } from './wilderness/ruins';
 import { type InkWell, wellOfGuard } from './wilderness/ink-wells';
 
 import { areaKey, sameScene, type InkSite } from './infection';
+import { ALTAR_GUARDS, liberation } from './city/liberation';
+import type { AltarSite } from './city/travel-altar';
 
 export type Patch =
   | { readonly kind: 'infectNpc' | 'overrun'; readonly person: string; readonly site: InkSite }
@@ -34,6 +36,8 @@ export type Patch =
   | { readonly kind: 'harvest'; readonly source: string }
   /** A stronghold monster was defeated: mark it and pay its ink. */
   | { readonly kind: 'defeat'; readonly city: string; readonly monster: number; readonly npc?: true }
+  | { readonly kind: 'defeatAltarGuard'; readonly city: string; readonly guard: number; readonly npc?: true }
+  | { readonly kind: 'restoreAltar'; readonly city: string }
   /** A wilderness monster was defeated: pay its ink; it comes back after a while. */
   | { readonly kind: 'hunt'; readonly monster: string; readonly npc?: true }
   /** Cleanse an ink well whose guards are down: it runs clear for good. */
@@ -79,6 +83,8 @@ export type PatchResult = { readonly ok: true } | { readonly ok: false; readonly
 export interface PatchContext {
   /** A city's skeleton, or null when the city is unknown. */
   cityOf(city: string): CitySkeleton | null;
+  /** A real, reachable altar; absent in rule fixtures that have no altar. */
+  altarOf?(city: string): AltarSite | null;
   /** A wilderness pigment source by id, or null. */
   sourceOf(id: string): PigmentSource | null;
   /** A wilderness monster by id as the land is now, or null. */
@@ -317,19 +323,52 @@ function applyRules(state: WorldState, patch: Patch, ctx: PatchContext): PatchRe
   const { states, stains, defeated, coloredOnce } = cityStates(state, patch.city, skel);
   if (
     state.cities.get(patch.city)!.peaceful &&
-    (patch.kind === 'complete' || patch.kind === 'drain' || patch.kind === 'tideHeld')
+    (patch.kind === 'complete' || patch.kind === 'drain' || patch.kind === 'tideHeld' || patch.kind === 'restoreAltar' || patch.kind === 'defeatAltarGuard')
   )
     return fail('这座村庄未受污染，无需修复或抵御墨潮');
 
   switch (patch.kind) {
+    case 'defeatAltarGuard': {
+      const saved = state.cities.get(patch.city)!;
+      if (saved.completed) return fail('村庄已经恢复');
+      if (!ctx.altarOf?.(patch.city)) return fail('这里没有祭坛大本营');
+      const type = ALTAR_GUARDS[patch.guard];
+      if (!Number.isInteger(patch.guard) || type === undefined) return fail('没有这名驻守墨怪');
+      if (!liberation(skel, saved).unlocked) return fail('先清除至少 50% 的村庄墨怪');
+      const bit = 1 << patch.guard;
+      if ((saved.altarGuards ?? 0) & bit) return fail('已经打败了');
+      saved.altarGuards = (saved.altarGuards ?? 0) | bit;
+      if (!patch.npc) {
+        inv.ink += ENEMIES[type]!.ink;
+        state.growth.xp += XP.monster;
+      }
+      return OK;
+    }
+    case 'restoreAltar':
     case 'complete': {
       // the town is restored once, for everyone; the reward is each player's own (in a server
       // world everyone who was there when it happened gets theirs)
       const saved = state.cities.get(patch.city)!;
       const restored = `city:${patch.city}:restored`;
       if (state.growth.milestones.includes(restored)) return fail('这座城已经恢复了');
-      const blocks = blockStates(states, skel.surfaces, skel.chunks);
-      if (!blocks.every((b) => b === 'colored' || b === 'thriving')) return fail('还有街区没有颜色');
+      if (patch.kind === 'restoreAltar') {
+        if (saved.completed) return fail('祭坛已经恢复');
+        if (!ctx.altarOf?.(patch.city)) return fail('这里没有祭坛大本营');
+        const progress = liberation(skel, saved);
+        if (!progress.unlocked) return fail('先清除至少 50% 的村庄墨怪');
+        if (!progress.captured) return fail('先击败祭坛大本营的全部驻守墨怪');
+        // The seal releases the whole village. Keep the player's graffiti, and do not
+        // pay hundreds of individual surface/monster rewards for this single action.
+        for (let i = 0; i < states.length; i++) if (states[i] === DRAINED) states[i] = ORIGINAL;
+        defeated.fill(1);
+        stains.fill(1);
+        coloredOnce.fill(1);
+        for (let i = 0; i < saved.stockFrom.length; i++) if (saved.stockFrom[i]! < 0) saved.stockFrom[i] = state.clock;
+        saved.tide.wave = null;
+      } else if (!saved.completed) {
+        const blocks = blockStates(states, skel.surfaces, skel.chunks);
+        if (!blocks.every((b) => b === 'colored' || b === 'thriving')) return fail('还有街区没有颜色');
+      }
       saved.restoredAt ??= state.clock;
       saved.completed = true;
       inv.generic += TUNING.city.completeReward.generic;
@@ -396,6 +435,7 @@ function applyRules(state: WorldState, patch: Patch, ctx: PatchContext): PatchRe
   const current = states[patch.surface]!;
   switch (patch.kind) {
     case 'drain':
+      if (state.cities.get(patch.city)!.completed) return fail('村庄已经恢复，不再失色');
       states[patch.surface] = DRAINED;
       return OK;
     case 'restore': {

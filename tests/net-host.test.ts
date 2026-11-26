@@ -12,6 +12,7 @@ import { layoutCache } from '@/world/net/patch-context';
 import { type Entrance, createWilderness } from '@/world/wilderness/generator';
 import { type PigmentSource, sourcesInChunk } from '@/world/wilderness/sources';
 import { inkWellsNear, wellGuards } from '@/world/wilderness/ink-wells';
+import { travelAltar } from '@/world/city/travel-altar';
 
 const SEED = 7;
 const land = createWilderness(SEED);
@@ -101,6 +102,38 @@ function colour(h: WorldHost, town: Entrance, who: number, surface: number): voi
     h.state.cities.get(town.cityId)!.states[surface] = 1;
   }
 }
+
+it('shares altar conquest, requires nearby repair, and awards each rescuer once', () => {
+  const h = host();
+  const town = aTown();
+  const a = keeper(h, 101, town), b = keeper(h, 102, town);
+  const layout = layoutOf(town.cityId)!;
+  const altar = travelAltar(layout)!;
+  cityStates(h.state, town.cityId, layout);
+  const guard = { kind: 'defeatAltarGuard', city: town.cityId, guard: 0 } as const;
+  const repair = { kind: 'restoreAltar', city: town.cityId } as const;
+  expect(h.patch(a, guard).ok).toBe(false);
+  h.state.cities.get(town.cityId)!.defeated.fill(1, 0, Math.ceil(layout.monsters.length / 2));
+  for (let i = 0; i < 3; i++) {
+    expect(h.patch(a, { ...guard, guard: i })).toMatchObject({
+      ok: true, shared: true, fix: { city: { altarGuards: (1 << (i + 1)) - 1 } },
+    });
+  }
+  expect(h.patch(a, guard).ok).toBe(false);
+  expect(h.patch(a, repair).ok).toBe(false);
+  const motion = { ...at(altar.x, altar.z), p: [altar.x, altar.y + 0.21, altar.z] as const };
+  h.move(a, motion, { kind: 'city', id: town.cityId }, town.cityId);
+  expect(h.patch(a, repair)).toMatchObject({ ok: true, shared: true, fix: { city: { completed: true } } });
+  expect(h.patch(a, repair).ok).toBe(false);
+  const complete = { kind: 'complete', city: town.cityId } as const;
+  expect(h.patch(a, complete).ok).toBe(false);
+  expect(h.patch(b, complete).ok).toBe(true);
+  expect(h.patch(b, complete).ok).toBe(false);
+  const restored = WorldHost.load(h.save()).state.cities.get(town.cityId)!;
+  expect(restored.completed).toBe(true);
+  expect(restored.altarGuards).toBe(7);
+  expect([...restored.states].every(s => s > 0)).toBe(true);
+});
 
 describe('world host: who is in', () => {
   it('updates appearance in place and keeps the saved profile current', () => {

@@ -28,6 +28,10 @@ export class AudioSystem implements System {
   private rumble: Loop | null = null;
   private rain: Loop | null = null;
   private rainBed: Stream | null = null;
+  private windBed: Stream | null = null;
+  private glideBed: Stream | null = null;
+  private tideBed: Stream | null = null;
+  private tideActive = false;
   private stepT = 0;
   private coverT = 0;
   private weatherExposure = 1;
@@ -185,11 +189,14 @@ export class AudioSystem implements System {
             s.tone({ freq: f, dur: 0.8, gain: 0.16, type: 'triangle', delay: d, pos: at });
       }),
       on('tide:start', () => {
-        this.loops().rumble?.set(1);
+        this.tideActive = true;
+        this.loops().rumble?.set(this.tideBed?.playing ? 0 : 1);
         this.music.setTide(true);
       }),
       on('tide:end', ({ held }) => {
+        this.tideActive = false;
         this.loops().rumble?.set(0);
+        this.tideBed?.set(0, 1);
         this.music.setTide(false);
         this.arpeggio(held ? [0, 2, 4, 7] : [4, 2, 1, -1], held ? 72 : 60, 0.12);
       }),
@@ -306,12 +313,18 @@ export class AudioSystem implements System {
     this.voices ??= new NpcVoices(this.ctx, this.synth);
     void this.synth.resume();
     this.loops();
-    if (first)
+    if (first) {
       this.rainBed = this.synth.stream(import.meta.env.BASE_URL + BEDS.rain, {
         loop: true,
         gain: 0.6,
         bus: 'ambience',
       });
+      const bed = (url: string, gain: number, spatial = false): Stream =>
+        this.synth.stream(import.meta.env.BASE_URL + url, { loop: true, gain, bus: 'ambience', spatial });
+      this.windBed = bed(BEDS.wind, 0.42, true);
+      this.glideBed = bed(BEDS.glideWind, 0.5, true);
+      this.tideBed = bed(BEDS.inkRumble, 0.4);
+    }
     if (first && this.synth.ctx) void this.loadEffects(this.synth.ctx);
   }
 
@@ -438,7 +451,13 @@ export class AudioSystem implements System {
     const blow = Math.max(0, speed - 3) / 9;
     const upwind = (0.35 * (w.windZ * Math.sin(yaw) - w.windX * Math.cos(yaw))) / Math.max(1, speed);
     const loops = this.loops();
-    loops.wind?.set(Math.max(player.gliding ? 1 : 0, Math.min(0.8, blow)) * this.weatherExposure, upwind);
+    const wind = Math.min(0.8, blow) * this.weatherExposure;
+    const glide = (player.gliding ? 1 : 0) * this.weatherExposure;
+    this.windBed?.set(wind * (player.gliding ? 0.35 : 1), 0.6, upwind);
+    this.glideBed?.set(glide, 0.3, upwind);
+    loops.wind?.set(Math.max(this.windBed?.playing ? 0 : wind, this.glideBed?.playing ? 0 : glide), upwind);
+    this.tideBed?.set(this.tideActive ? 1 : 0, 1);
+    loops.rumble?.set(this.tideActive && !this.tideBed?.playing ? 1 : 0);
     // the recorded rain once it has loaded, the synthesised hiss until then (or if it cannot)
     const rain = w.rain * this.weatherExposure;
     this.rainBed?.set(rain, 1);

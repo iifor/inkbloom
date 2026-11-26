@@ -1,0 +1,26 @@
+<!doctype html><html lang="zh"><meta charset="utf-8"><title>AiSHA 音频技术检查</title>
+<button id="run">运行静音音频检查</button><pre id="result">等待开始</pre>
+<script type="module">
+import { Synth } from '/src/engine/audio/synth.ts';
+import { BEDS } from '/src/content/sounds.ts';
+document.querySelector('#run').onclick=async()=>{
+ const output=document.querySelector('#result'); const s=new Synth();
+ s.setVolumes({master:0,sfx:1,music:0});s.init();await s.resume();
+ const rows=[];const streams=[];
+ try{
+  for(const key of ['birds','wind','glideWind','inkRumble']){
+   const response=await fetch('/'+BEDS[key]);if(!response.ok)throw Error(response.status+' '+key);
+   const buffer=await s.ctx.decodeAudioData(await response.arrayBuffer());
+   const stream=s.stream('/'+BEDS[key],{loop:true,gain:.4,bus:'ambience',spatial:true});
+   stream.set(1,.1,-.4);streams.push(stream);
+   rows.push({key,duration:buffer.duration,channels:buffer.numberOfChannels,rate:buffer.sampleRate});
+  }
+  const deadline=Date.now()+10000;
+  while(!streams.every(x=>x.playing)){if(Date.now()>deadline)throw Error('Playback timeout');await new Promise(r=>setTimeout(r,100));}
+  const before=streams.map(x=>x.remaining);await new Promise(r=>setTimeout(r,800));
+  streams.forEach((stream,i)=>{rows[i].playing=stream.playing;rows[i].advanced=stream.remaining<before[i]-.3;stream.set(.2,.1,.4);});
+  await s.dispose();rows.forEach((row,i)=>row.released=streams[i].over&&!streams[i].playing);
+  output.textContent=JSON.stringify({pass:rows.every(r=>r.playing&&r.advanced&&r.released),rows},null,2);
+ }catch(error){await s.dispose();output.textContent=JSON.stringify({pass:false,error:String(error),rows},null,2);}
+};
+</script></html>

@@ -31,6 +31,30 @@ describe('water current', () => {
     expect(ratedChannel(0.02).at(RIVER_ORIGIN + 35, 0)).toEqual({ x: 0, z: 0 });
   });
 
+  it('shows a current through broad slow reaches while protecting quiet water off the channel', () => {
+    const flat = ratedChannel(0);
+    const pool = ratedChannel(0.001, 1);
+    const rapid = ratedChannel(0.04);
+    expect(flat.at(RIVER_ORIGIN, 0).z).toBe(0);
+    expect(flat.surfaceAt(RIVER_ORIGIN, 0).z).toBeGreaterThan(0.4);
+    expect(pool.surfaceAt(RIVER_ORIGIN, 0).z).toBeGreaterThan(0.3);
+    expect(pool.surfaceAt(RIVER_ORIGIN, 0).z).toBeLessThan(rapid.surfaceAt(RIVER_ORIGIN, 0).z);
+    expect(pool.surfaceAt(RIVER_ORIGIN + 35, 0)).toEqual({ x: 0, z: 0 });
+  });
+
+  it('keeps the flow parallel to an angled reach, even on the shallow side', () => {
+    const field = new WaterCurrents({
+      ...createWilderness(7),
+      riverAt: (_lane, z) => ({ x: RIVER_ORIGIN + z * 0.45, half: 16 }),
+      rawHeightAt: (_x, z) => z * 0.0002,
+      terrainHeightAt: () => WATER_LEVEL - 0.16,
+      waterGuidesAt: () => ({ basin: 0, branch: null }),
+    });
+    const shore = field.surfaceAt(RIVER_ORIGIN + 12, 0);
+    expect(shore.z).toBeLessThan(-0.05);
+    expect(shore.x / shore.z).toBeCloseTo(0.45);
+  });
+
   it('varies river width and bed depth together and keeps pools quieter than riffles', () => {
     const shaped = createDrainage(7, () => 8, true, true);
     const old = createDrainage(7, () => 8, true);
@@ -65,6 +89,7 @@ describe('water current', () => {
     });
     expect(field.at(RIVER_ORIGIN, 0).z).toBeGreaterThan(1);
     expect(field.at(RIVER_ORIGIN + 10, 0)).toEqual({ x: 0, z: 0 });
+    expect(field.surfaceAt(RIVER_ORIGIN + 10, 0)).toEqual({ x: 0, z: 0 });
   });
 
   it('follows a cross creek downhill between the main channels', () => {

@@ -386,7 +386,7 @@ export class SceneManager implements SceneApi, System {
         break;
       }
     for (const town of this.towns.values()) {
-      town.updateDetail(this.ctx.renderer.camera);
+      town.updateDetail(this.ctx.renderer.camera, dt);
       town.updateResidents(dt);
     }
     for (const town of this.towns.values())

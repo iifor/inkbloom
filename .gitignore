@@ -12,3 +12,5 @@ art/models/quaternius/*.blend1
 .claude/worktrees/
 .claude/launch.json
 __pycache__/
+# AiSHA originals are licensed source material, not a redistributable sound library.
+art/audio/aisha/source/

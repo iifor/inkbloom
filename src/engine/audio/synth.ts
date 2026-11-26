@@ -60,6 +60,8 @@ export interface Stream {
   readonly playing: boolean;
   /** True once it can never play: it failed to load, finished (not looping) or was stopped. */
   readonly over: boolean;
+  /** Seconds to the end; Infinity until duration is known or if loading failed. */
+  readonly remaining: number;
 }
 
 export interface Loop {
@@ -80,6 +82,7 @@ export class Synth {
   private volumes = { master: 0.8, sfx: 1, music: 0.6 };
   /** Decoded recordings by name, each a few takes. */
   private readonly samples = new Map<string, AudioBuffer[]>();
+  private readonly streamStops = new Set<() => void>();
 
   /** Must run from a user gesture (browsers block audio until then). Safe to call again. */
   init(): void {
@@ -205,7 +208,7 @@ export class Synth {
   ): Stream {
     const ctx = this.ctx;
     const state = { playing: false, over: false };
-    if (!ctx) return { set: () => {}, stop: () => {}, playing: false, over: true };
+    if (!ctx) return { set: () => {}, stop: () => {}, playing: false, over: true, remaining: Infinity };
     const el = new Audio(url);
     el.loop = o.loop;
     el.preload = 'auto';
@@ -221,31 +224,70 @@ export class Synth {
       filter.connect(g);
     } else source.connect(g);
     const pan = this.connectBed(g, o.bus, o.spatial);
-    el.addEventListener('playing', () => (state.playing = !state.over));
-    const end = (): void => {
+    let released = false;
+    let timer: number | undefined;
+    let remaining = Infinity;
+    const release = (): void => {
+      if (released) return;
+      released = true;
+      if (timer !== undefined) window.clearTimeout(timer);
+      remaining = Number.isFinite(el.duration) ? Math.max(0, el.duration - el.currentTime) : Infinity;
       state.playing = false;
       state.over = true;
+      el.pause();
+      el.removeEventListener('playing', playing);
+      el.removeEventListener('waiting', waiting);
+      el.removeEventListener('error', release);
+      el.removeEventListener('ended', release);
+      el.removeAttribute('src');
+      el.load();
+      source.disconnect();
+      filter?.disconnect();
+      g.disconnect();
+      pan?.disconnect();
+      this.streamStops.delete(release);
     };
-    el.addEventListener('error', end);
-    el.addEventListener('ended', end);
-    el.play().catch(end);
+    const playing = (): void => {
+      state.playing = !state.over;
+    };
+    const waiting = (): void => {
+      state.playing = false;
+    };
+    this.streamStops.add(release);
+    el.addEventListener('playing', playing);
+    el.addEventListener('waiting', waiting);
+    el.addEventListener('error', release);
+    el.addEventListener('ended', release);
+    el.play().catch(release);
     return {
       set: (level, seconds = 1, stereo = 0, cutoff?: number) => {
+        if (state.over) return;
         g.gain.cancelScheduledValues(ctx.currentTime);
         g.gain.setTargetAtTime(Math.max(0, level) * o.gain, ctx.currentTime, Math.max(0.01, seconds / 3));
         pan?.pan.setTargetAtTime(stereo, ctx.currentTime, 0.12);
         if (cutoff !== undefined) filter?.frequency.setTargetAtTime(cutoff, ctx.currentTime, 0.16);
       },
       stop: (seconds = 1) => {
+        if (released) return;
+        if (seconds <= 0) {
+          release();
+          return;
+        }
+        if (state.over) return;
         g.gain.setTargetAtTime(0, ctx.currentTime, Math.max(0.01, seconds / 3));
-        window.setTimeout(() => el.pause(), seconds * 1000 + 200);
-        end();
+        timer = window.setTimeout(release, seconds * 1000 + 200);
+        state.playing = false;
+        state.over = true;
       },
       get playing() {
         return state.playing;
       },
       get over() {
         return state.over;
+      },
+      get remaining() {
+        if (released) return remaining;
+        return Number.isFinite(el.duration) ? Math.max(0, el.duration - el.currentTime) : Infinity;
       },
     };
   }
@@ -406,6 +448,7 @@ export class Synth {
   }
 
   async dispose(): Promise<void> {
+    for (const stop of this.streamStops) stop();
     const ctx = this.ctx;
     this.ctx = null;
     if (ctx) await ctx.close();

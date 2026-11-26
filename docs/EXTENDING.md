@@ -1,5 +1,11 @@
 # 怎么改
 
+## 村庄祭坛解救（存档 v12 / 联机协议 v12）
+
+村庄新增祭坛路线：清除原有驻街墨怪的至少一半（向上取整），击败祭坛的墨巨与两名护卫，再在祭坛长按 E 三秒修复。修复后补回所有失色表面、保留涂鸦、驱散剩余墨怪及墨潮，沿用原有村庄完成奖励与传送功能。每个有安全干燥位置的村庄都放置祭坛；手动将每个街区补色到 70% 的旧路线仍可使用。
+
+规则在 `world/city/liberation.ts` 和 `world/patch.ts`，表现与交互在 `systems/city/travel-altar.ts`，驻军在 `city-monsters.ts`。新增 `CitySave.altarGuards` 三位掩码（JSON 的 `ag`），旧档默认 0；原有表面、街区墨怪编号不变，已恢复村庄不会重新被占领。改共享规则后执行 `go run ./cmd/build-rules` 更新 Go 服务的嵌入规则包，并让联机客户端与服务端一同更新。升级协议时同时检查 `internal/multiplayer/server.go` 的握手版本；升级存档时同时检查 `internal/save/import.go` 的世界与个人存档验证（现支持 v10–v12），并使用独立测试数据库执行 `TestLivePostgres`，验证真实连接、保存及重启读档。
+
 按常见需求列出要动的文件。每一步之后跑 `npm run check`。
 
 ## 调数值

@@ -1,5 +1,5 @@
 // Recorded sounds the game uses, by name, each a few interchangeable takes picked at random.
-// All are public domain (CC0) and live in public/sounds/ (credits in public/sounds/CREDITS.md).
+// Files live in public/sounds/; each source's licence is recorded in CREDITS.md.
 // Every recorded sound has a synthesised fallback in systems/audio: a missing file, a browser
 // that cannot decode Ogg, or the first moments before loading finishes just play the synth.
 // To add one: drop the file under public/sounds/, list it here, and play it by name.
@@ -32,20 +32,35 @@ export const SOUNDS = {
 
 export type SoundKey = keyof typeof SOUNDS;
 
-/** Long ambience beds, streamed and looped (OpenGameArt, CC0; cut into seamless loops). */
+/** Long ambience beds, streamed and looped; source-specific licences in CREDITS.md. */
 export const BEDS = {
   /** Woodland birdsong (TinyWorlds, "Forest Ambience"). */
   forest: 'sounds/ambience/forest.ogg',
-  /** Birdsong in open parkland ("Park ambiences", birds). */
-  birds: 'sounds/ambience/birds.ogg',
+  /** Open-country birds and insects (SoundBits, SOME OF MANY, via AiSHA). */
+  birds: 'sounds/ambience/aisha-meadow-birds.ogg',
   /** A small river over a low step ("Park ambiences", river). */
   river: 'sounds/ambience/river.ogg',
   /** Steady rain (kindland, "Rain and thunders"; a stretch without thunder). */
   rain: 'sounds/ambience/rain.ogg',
+  /** SoundBits, SOME OF MANY (free), via AiSHA; edited in-game excerpts. */
+  wind: 'sounds/ambience/aisha-wind.ogg',
+  glideWind: 'sounds/ambience/aisha-glide-wind.ogg',
+  inkRumble: 'sounds/ambience/aisha-ink-rumble.ogg',
 } as const;
 
-/** Recorded music (Komiku, CC0), played now and then between stretches of generated music. */
+/** M01–M02: occasional complete pieces on calm, colourful days in the wild. */
 export const TRACKS: readonly string[] = [
-  'sounds/music/komiku-champ-de-tournesol.ogg',
-  'sounds/music/komiku-bleu.ogg',
+  'sounds/music/inkbloom-colour-fields.mp3',
+  'sounds/music/inkbloom-blue-distance.mp3',
 ];
+
+/** M03–M07: repeat with a short overlap rather than a hard file-end restart. */
+export const MUSIC_BEDS = {
+  grey: 'sounds/music/inkbloom-grey-world.mp3',
+  colour: 'sounds/music/inkbloom-colour-world.mp3',
+  night: 'sounds/music/inkbloom-night.mp3',
+  winter: 'sounds/music/inkbloom-winter.mp3',
+  tide: 'sounds/music/inkbloom-ink-tide.mp3',
+} as const;
+
+export type MusicMood = keyof typeof MUSIC_BEDS;

@@ -2,6 +2,7 @@
 // To add a tool (weapon, glider, marker...), implement Tool and add it to the belt in the mode.
 import type { GameContext, System } from '@/game/types';
 import type { HeldItem } from '@/world/net/protocol';
+import type { Vec3Like } from '@/engine/physics/world';
 
 export interface ToolHud {
   /** Short lines shown under the slot bar. */
@@ -19,6 +20,9 @@ export interface InHand {
   readonly aiming: boolean;
   /** Working a surface with the brush. */
   readonly painting: boolean;
+  /** Local brush feedback: actual surface colour and the reachable point being painted. */
+  readonly paintColor?: number;
+  readonly paintTarget?: Vec3Like;
 }
 
 const EMPTY: InHand = { item: null, aiming: false, painting: false };

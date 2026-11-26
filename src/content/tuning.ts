@@ -136,7 +136,7 @@ export const TUNING = {
     glideFall: 2.6,
     glideSpeed: 11,
     mouseSensitivity: 0.0022,
-    flySpeed: 36,
+    flySpeed: 18,
     /** Free flight (F2) goes no higher than this, metres: the land seen as a map, still within
      * the camera's reach. */
     flyCeiling: 300,

@@ -112,7 +112,7 @@ func (s *Server) handshake(p *peer, text string) (*room, int, bool) {
 		Room                             struct{ Action, Code string }
 	}
 	raw, err := s.parser.call("validate", text)
-	if err != nil || json.Unmarshal([]byte(raw), &m) != nil || (m.T != "listRooms" && m.T != "hello") || m.V != 11 || s.closing {
+	if err != nil || json.Unmarshal([]byte(raw), &m) != nil || (m.T != "listRooms" && m.T != "hello") || m.V != 12 || s.closing {
 		p.refuse("协议不兼容或服务暂不可用")
 		return nil, 0, false
 	}

@@ -130,8 +130,12 @@ it('F2 keeps the first-person view clear while flying and restores the camera wh
   expect(player.gliding).toBe(false);
   expect(scene.getObjectByName('paper-plane-vehicles')).toBeUndefined();
   expect(scene.getObjectByName('paper-plane-pilot')).toBeUndefined();
-  expect(player.position.z).toBeLessThan(-2);
-  expect(player.position.y).toBeGreaterThan(22);
+  expect(player.position.z).toBeCloseTo(-18 * 0.6);
+  expect(player.position.y).toBeCloseTo(20 + 18 * 0.6);
+  h.held.add('sprint');
+  h.run(0.2, (dt) => player.update(dt), 1 / 60);
+  expect(player.position.z).toBeCloseTo(-18 * 0.6 - 54 * 0.2);
+  expect(player.position.y).toBeCloseTo(20 + 18 * 0.6 + 54 * 0.2);
   h.held.clear();
   h.run(1, (dt) => player.update(dt), 1 / 60);
   expect(h.ctx.renderer.camera.position.y - player.eye.y).toBeCloseTo(-0.04);

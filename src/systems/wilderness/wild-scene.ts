@@ -29,6 +29,7 @@ import { RiverSpray } from './river-spray';
 import { GrassField } from './grass';
 import { WildDeer } from './deer';
 import { WildAmbientLife } from './ambient-life';
+import { habitatAnimals, type LifeSite } from '@/world/wilderness/ambient-life';
 import { WildTravellers } from './travellers';
 import { WildInkWells } from './ink-wells';
 import { WindFlags } from '@/engine/render/wind-flags';
@@ -42,6 +43,7 @@ import { peacefulVillage } from '@/world/state';
 import { mountFarmDoor } from './farm-door';
 
 interface Loaded {
+  readonly fauna: readonly LifeSite[];
   readonly trails: readonly Trail[];
   readonly mesh: THREE.Mesh;
   readonly release: (() => void)[];
@@ -286,7 +288,7 @@ export class WildScene implements GameScene {
     this.riverX = x0;
     this.riverZ = z0;
     const currents = waterCurrentsOf(this.ctx.wilderness);
-    this.ctx.renderer.setRivers(x0, z0, (x, z) => currents.at(x, z));
+    this.ctx.renderer.setRivers(x0, z0, (x, z) => currents.surfaceAt(x, z), (x, z) => currents.at(x, z));
   }
 
   /** Push nearby cities' progress into the shader so the wilderness greys around them. */
@@ -368,7 +370,7 @@ export class WildScene implements GameScene {
     release.push(this.ctx.renderer.lamps.add(mesh.geometry));
     mesh.name = group;
     this.root.add(mesh);
-    this.loaded.set(key, { mesh, release, trails: chunk.trails });
+    this.loaded.set(key, { mesh, release, trails: chunk.trails, fauna: habitatAnimals(this.ctx.wilderness, chunk) });
   }
 
   private unload(key: string, item: Loaded): void {

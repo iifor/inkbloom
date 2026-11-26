@@ -6,10 +6,10 @@ import * as THREE from 'three';
 import { MAX_COLORS } from '@/content/palette';
 import { CURRENT_STEP } from '@/world/wilderness/water-current';
 import { WATER_LEVEL } from '@/world/wilderness/water-level';
-import { BANK_LAP_RATE } from '@/world/wilderness/water-waves';
+import { BANK_CREST_PHASE, BANK_LAP_RATE } from '@/world/wilderness/water-waves';
 
 export const RIVER_SAMPLES = 129;
-const FLOW_CYCLE = 2;
+const FLOW_CYCLE = 3.2;
 
 /** The current's functions: riverFlow and currentRipple. */
 export const riverGLSL = /* glsl */ `
@@ -20,18 +20,33 @@ vec3 riverFlow(vec2 p) {
   float margin = min(edge.x, edge.y);
   if (!uWildWater || margin <= 0.0) return vec3(0.0);
   vec2 velocity = texture2D(uRivers, (cell + 0.5) / uRiverGrid.w).rg * smoothstep(0.0, 8.0, margin);
-  return vec3(velocity, smoothstep(0.025, 0.8, length(velocity)));
+  return vec3(velocity, smoothstep(0.018, 0.46, length(velocity)));
 }
 /** Short crests cross the channel and advect along it. Foam breaks into separate patches. */
 vec2 currentRipple(vec2 q) {
   float bend = vnoise(q * vec2(0.45, 0.31));
   float ripple = vnoise(vec2(q.x * 0.46, q.y * 1.4 + bend * 0.7));
   float detail = vnoise(q * vec2(1.45, 2.5) + 15.7);
-  float whitecap = smoothstep(0.53, 0.77, ripple) * smoothstep(0.32, 0.68, bend * 0.55 + detail * 0.45);
+  float whitecap = smoothstep(0.56, 0.76, ripple) * smoothstep(0.27, 0.62, bend * 0.55 + detail * 0.45);
   return vec2(mix(ripple, detail, 0.28), whitecap);
 }
+// Foam stretches into wider, slower wisps as it drifts downstream.
+float capTrail(vec2 q) {
+  float curl = vnoise(q * vec2(0.64, 0.33)) - 0.5;
+  vec2 samplePos = vec2(q.x * 0.86 + curl, q.y * 1.5 - 0.55);
+  float wisps = vnoise(samplePos);
+  float gaps = vnoise(samplePos * 2.2 + 18.4);
+  return smoothstep(0.56, 0.79, wisps) * smoothstep(0.30, 0.66, gaps);
+}
+// Short detached surface streaks, spaced apart so the eye can track their movement.
+float currentStreak(vec2 q) {
+  float lane = vnoise(q * vec2(1.22, 0.19));
+  float gap = vnoise(q * vec2(0.46, 0.82) + 23.7);
+  return smoothstep(0.55, 0.78, lane) * smoothstep(0.38, 0.69, gap);
+}
 float bankPhase(vec2 p) {
-  return fract(uTime * ${BANK_LAP_RATE} + 0.22 * sin(dot(p, vec2(0.48, 0.31))) + 0.15 * sin(dot(p, vec2(-0.27, 0.64))));
+  return fract(uTime * ${BANK_LAP_RATE} + 0.22 * sin(dot(p, vec2(0.48, 0.31))) +
+    0.15 * sin(dot(p, vec2(-0.27, 0.64))) + 0.12 * sin(dot(p, vec2(0.93, -0.76))));
 }
 // A narrow boundary between the two nearest Voronoi cells becomes the last foam threads.
 float foamThreads(vec2 p, float age) {
@@ -130,14 +145,48 @@ vec3 rainRings(vec2 p, vec2 current, float density) {
 }`;
 
 export const waterGLSL = /* glsl */ `
-    float waterDepth = ${WATER_LEVEL} - wpos.y;
+    vec3 eye = uInvView[3].xyz;
+    float meanDepth = ${WATER_LEVEL} - wpos.y;
+    float bankRange = 0.0;
+    float bankStrength = 0.0;
+    float lapPhase = 0.0;
+    float runup = 0.0;
+    if (uWildWater && (ground || boulder) && !figure && !fish && abs(meanDepth) < 0.58 &&
+        d < 110.0 && eye.y > ${WATER_LEVEL}) {
+      float bankSpeed = length(riverFlow(wpos.xz).xy);
+      // The last shallow pixels can fall between current samples. Look just downslope.
+      float bankSlope = length(wn.xz);
+      if (bankSpeed < 0.24 && bankSlope > 0.04) {
+        vec2 downslope = wn.xz / bankSlope;
+        float nearbySpeed = length(riverFlow(wpos.xz + downslope * 2.3).xy);
+        bankSpeed = max(bankSpeed, nearbySpeed * smoothstep(0.04, 0.18, bankSlope) * 0.64);
+      }
+      bankStrength = smoothstep(0.025, 0.24, bankSpeed);
+      bankRange = (1.0 - smoothstep(72.0, 110.0, d)) * smoothstep(0.0, 0.5, eye.y - ${WATER_LEVEL});
+      float bankNoise = vnoise(wpos.xz * 0.46);
+      float shortWave = sin(dot(wpos.xz, vec2(1.37, -1.04)) + uTime * 5.5 + bankNoise * 3.0);
+      lapPhase = bankPhase(wpos.xz);
+      float angle = (lapPhase - ${BANK_CREST_PHASE}) * 6.2831853;
+      float crest = (cos(angle) + 0.25 * cos(2.0 * angle) + 0.20 * shortWave * bankStrength) / 1.45;
+      float reach = 0.03 + 0.17 * bankStrength + 0.13 * smoothstep(0.24, 0.95, bankSpeed);
+      runup = reach * mix(0.65, 1.0, bankNoise) * bankRange;
+      // Wetness follows the reach and timing of the last crest, on both sides of the mean level.
+      float wetReach = 1.0 - smoothstep(runup * 0.42, runup + 0.001, -meanDepth);
+      float age = fract(lapPhase - 0.61);
+      float wetness = wetReach * smoothstep(0.0, 0.14, age) * (1.0 - smoothstep(0.28, 0.98, age));
+      wetness *= bankStrength * bankRange * (1.0 - smoothstep(0.06, 0.35, meanDepth));
+      float sheen = pow(max(0.0, dot(reflect(rd, vec3(0.0, 1.0, 0.0)), uSun)), 36.0);
+      col = col * (1.0 - wetness * 0.23) + uSunColor * sheen * wetness * 0.17 * (1.0 - uNight);
+      runup *= crest * (1.0 - smoothstep(0.26, 0.58, abs(meanDepth)));
+    }
+    // The rendered waterline moves where this wave height intersects the terrain.
+    float waterDepth = meanDepth + runup;
     bool submerged = uWildWater && waterDepth > 0.0;
     if (indexOf(s.g) == uWater || submerged) {
       // water mirrors the painted sky, more so at a glancing angle; slow ripple bands drift
       // across it and the sun glints off their crests
-      vec3 eye = uInvView[3].xyz;
-      float surfaceY = submerged ? ${WATER_LEVEL} : wpos.y;
-      float t = clamp((eye.y - ${WATER_LEVEL}) / max(0.001, eye.y - wpos.y), 0.0, 1.0);
+      float surfaceY = submerged ? ${WATER_LEVEL} + runup : wpos.y;
+      float t = clamp((eye.y - surfaceY) / max(0.001, eye.y - wpos.y), 0.0, 1.0);
       vec2 rp = submerged ? mix(eye.xz, wpos.xz, t) : wpos.xz;
       // still water ripples in place; in a river the ripples stretch along the current and are
       // carried downstream: two copies drifting half a cycle apart, each faded out as it
@@ -145,7 +194,7 @@ export const waterGLSL = /* glsl */ `
       float still = vnoise(rp * 0.65 + vec2(uTime * 0.06, 0.0)) * 0.6 + vnoise(rp * 2.3 - uTime * 0.09) * 0.4;
       vec3 flow = riverFlow(rp);
       float speed = length(flow.xy);
-      float rapids = smoothstep(0.95, 2.55, speed);
+      float rapids = smoothstep(0.68, 2.3, speed);
       vec2 along = speed > 0.001 ? flow.xy / speed : vec2(0.0, 1.0);
       vec2 across = vec2(along.y, -along.x);
       float ph0 = fract(uTime / ${FLOW_CYCLE.toFixed(1)} + vnoise(rp * 0.075) * 0.45);
@@ -157,6 +206,8 @@ export const waterGLSL = /* glsl */ `
       vec2 p0 = rp - drift0;
       vec2 p1 = rp - drift1 + 19.2;
       vec2 flowing = vec2(still, 0.0);
+      float streak = 0.0;
+      float foamTrail = 0.0;
       if (flow.z > 0.0) {
         // Both phases share the distortion, so rolling over cannot jump the foam.
         vec2 warp = (vec2(vnoise(rp * 0.91 - flow.xy * sin(uTime * 0.5) * 0.4),
@@ -164,8 +215,21 @@ export const waterGLSL = /* glsl */ `
         p0 += warp;
         p1 += warp;
         float orientation = smoothstep(0.35, 0.88, abs(along.x));
-        if (orientation < 1.0) flowing = mix(currentRipple(p0), currentRipple(p1), swap);
-        if (orientation > 0.0) flowing = mix(flowing, mix(currentRipple(p0.yx), currentRipple(p1.yx), swap), orientation);
+        if (orientation < 1.0) {
+          flowing = mix(currentRipple(p0), currentRipple(p1), swap);
+          streak = mix(currentStreak(p0), currentStreak(p1), swap);
+        }
+        if (orientation > 0.0) {
+          flowing = mix(flowing, mix(currentRipple(p0.yx), currentRipple(p1.yx), swap), orientation);
+          streak = mix(streak, mix(currentStreak(p0.yx), currentStreak(p1.yx), swap), orientation);
+        }
+        if (rapids > 0.0 && waterDepth > 0.01 && eye.y > surfaceY && !fish && !figure && d < 130.0) {
+          vec2 trail0 = p0 + drift0 * 0.22;
+          vec2 trail1 = p1 + drift1 * 0.22;
+          if (orientation < 1.0) foamTrail = mix(capTrail(trail0), capTrail(trail1), swap);
+          if (orientation > 0.0)
+            foamTrail = mix(foamTrail, mix(capTrail(trail0.yx), capTrail(trail1.yx), swap), orientation);
+        }
         // A finer layer slips downstream faster with a little cross-stream shear.
         vec2 shear = across * 0.31;
         float lace = mix(vnoise((p0 - (drift0 * 0.35 + shear * ph0)) * 4.7),
@@ -233,14 +297,6 @@ export const waterGLSL = /* glsl */ `
         vec3 tint = paletteColor(float(uWater)) * light * mix(vec3(0.47, 0.74, 0.84), vec3(1.0), clear);
         water = mix(tint, reflected, fres * mix(0.68, 1.0, clear));
         water += vec3(0.92, 0.96, 1.0) * smoothstep(0.76, 0.85, rip) * 0.09 * lit * (1.0 - uNight);
-        // The same downstream displacement carries short, broken patches of white water.
-        vec3 whiteWater = vec3(0.92, 0.97, 0.99) * mix(light, vec3(1.0), 0.28);
-        float movingFoam = flowing.y * rapids;
-        if (movingFoam > 0.018 && d < 48.0) {
-          float tear = mix(foamThreads(p0 * 7.0, ph0), foamThreads(p1 * 7.0, ph1), swap);
-          movingFoam *= mix(0.25, 1.0, tear);
-        }
-        water = mix(water, whiteWater, movingFoam * 0.82);
         float glint = pow(max(0.0, dot(rdir, uSun)), 120.0) * smoothstep(0.52, 0.75, rip);
         water += uSunColor * glint * mix(0.42, 0.86, rapids) * (1.0 - uNight);
         float rippleShade = clamp(dot(rainRipples.xy, vec2(0.09, -0.07)), -0.1, 0.1);
@@ -252,6 +308,9 @@ export const waterGLSL = /* glsl */ `
         // (only partly: a river seen from its bank is nearly all at a glancing angle, and a
         // full mirror there shows the pale horizon and nothing of the water's own colour)
         if (submerged) opacity = max(opacity, smoothstep(0.0, 0.12, waterDepth) * pow(grazing, 5.0) * 0.5);
+        // A thin sheet still reads as water when seen from above, even over sand.
+        float wash = bankRange * (1.0 - smoothstep(0.18, 0.45, abs(meanDepth)));
+        opacity = max(opacity, wash * smoothstep(0.0, 0.055, waterDepth) * mix(0.20, 0.55, bankStrength));
         // the swimmer's own arms lie only just under the surface, yet should read as under it
         if (figure && d < ${OWN_ARMS.toFixed(1)}) opacity = max(opacity, 0.4 * smoothstep(0.0, 0.015, waterDepth));
       }
@@ -265,35 +324,39 @@ export const waterGLSL = /* glsl */ `
       if (!fish || eye.y > ${WATER_LEVEL})
         water += (vec3(0.45, 0.58, 0.5) * wakes.x - vec3(0.12, 0.16, 0.15) * wakes.y) * mix(0.4, 1.0, lit);
       col = mix(col, mix(drainedAt(water), water, sat), opacity);
-      // broken lines of foam along the shore, where the water thins out over the bank
-      if (submerged && !fish && waterDepth < 0.56 && speed > 0.012) {
-        // A crest moves to decreasing depth, dissipates at the bank and retreats.
-        float shore = 1.0 - smoothstep(0.22, 0.56, waterDepth);
-        float bankGroup = vnoise(rp * 0.47);
-        float laced = mix(vnoise(p0 * 1.36), vnoise(p1 * 1.36), swap);
-        float phase = bankPhase(rp);
-        float wash = smoothstep(0.0, 0.16, phase) * (1.0 - smoothstep(0.67, 1.0, phase));
-        float crestDepth = mix(0.36, 0.015, smoothstep(0.0, 0.72, phase)) +
-          smoothstep(0.72, 1.0, phase) * 0.09;
-        float crest = 1.0 - smoothstep(0.026, 0.10, abs(waterDepth - crestDepth));
-        float lace = smoothstep(0.38, 0.74, laced * 0.55 + bankGroup * 0.45);
-        if (crest * wash * lace > 0.035 && d < 32.0)
-          lace *= foamThreads(rp * 8.0 + vec2(laced), smoothstep(0.48, 0.97, phase));
-        float bankFlow = smoothstep(0.012, 0.25, speed);
-        float washStrength = bankFlow * mix(0.35, 0.90, rapids);
-        vec3 foam = vec3(0.95, 0.97, 0.98) * mix(light, vec3(1.0), 0.4);
-        col = mix(col, mix(drainedAt(foam), foam, sat), shore * crest * lace * wash * washStrength * (1.0 - 0.6 * uNight));
+      // Composite the moving surface detail over the bed, where transparency would hide it.
+      if (!fish && !figure && eye.y > surfaceY && flow.z > 0.0) {
+        float detail = flow.z * smoothstep(0.01, 0.18, waterDepth) * (1.0 - smoothstep(58.0, 130.0, d));
+        vec3 crest = mix(vec3(0.60, 0.77, 0.79), vec3(0.89, 0.97, 0.99), rapids);
+        crest *= mix(light, vec3(1.0), 0.38) * (1.0 - 0.47 * uNight);
+        col *= 1.0 - detail * (1.0 - smoothstep(0.2, 0.46, flowing.x)) * 0.13;
+        col = mix(col, mix(drainedAt(crest), crest, sat), detail * streak * mix(0.37, 0.55, rapids));
+        float breaker = flowing.y * rapids;
+        float foam = foamTrail * rapids;
+        if (foam > 0.025 && detail > 0.0 && d < 38.0) {
+          float threads = mix(foamThreads(p0 * 5.0, ph0), foamThreads(p1 * 5.0, ph1), swap);
+          foam *= mix(0.45, 1.0, threads);
+        }
+        vec3 whiteWater = vec3(0.92, 0.98, 1.0) * mix(light, vec3(1.0), 0.53) * (1.0 - 0.42 * uNight);
+        col = mix(col, mix(drainedAt(whiteWater), whiteWater, sat), detail * min(0.96, breaker * 0.95 + foam * 0.63));
       }
-    }
-    // Exposed sand and rock retain a damp, smoother band after each lap.
-    if (uWildWater && !figure && (indexOf(s.g) == uSand || indexOf(s.g) == uRock) &&
-        waterDepth < 0.0 && waterDepth > -0.17 && d < 45.0) {
-      float bankSpeed = length(riverFlow(wpos.xz).xy);
-      float age = fract(bankPhase(wpos.xz) - 0.72) / ${BANK_LAP_RATE};
-      float wetness = (1.0 - smoothstep(0.01, 0.17, -waterDepth)) * exp(-age * 1.25) *
-        smoothstep(0.015, 0.30, bankSpeed);
-      float sheen = pow(max(0.0, dot(reflect(rd, vec3(0.0, 1.0, 0.0)), uSun)), 36.0);
-      col = col * (1.0 - wetness * 0.30) + uSunColor * sheen * wetness * 0.21 * (1.0 - uNight);
+      // Broken foam rides the advancing edge and frays as the water retreats.
+      if (submerged && bankRange > 0.0 && bankStrength > 0.0 && eye.y > surfaceY && waterDepth < 0.34) {
+        float crest = smoothstep(0.0, 0.026, waterDepth) * (1.0 - smoothstep(0.05, 0.16, waterDepth));
+        float wash = smoothstep(0.26, 0.57, lapPhase) * (1.0 - smoothstep(0.76, 0.98, lapPhase));
+        float laced = mix(vnoise(p0 * 1.36), vnoise(p1 * 1.36), swap);
+        float groups = vnoise(wpos.xz * 0.54);
+        float lace = smoothstep(0.23, 0.63, laced * 0.52 + groups * 0.48);
+        float retreat = smoothstep(0.67, 0.98, lapPhase);
+        float foamDepth = mix(0.065, 0.23, retreat) + (laced - 0.5) * 0.1;
+        float backwash = (1.0 - smoothstep(0.02, 0.095, abs(waterDepth - foamDepth))) *
+          smoothstep(0.60, 0.77, lapPhase) * (1.0 - smoothstep(0.82, 1.0, lapPhase));
+        if (backwash * lace * bankRange * bankStrength > 0.035 && d < 32.0)
+          backwash *= foamThreads(wpos.xz * 6.0 + vec2(laced), retreat);
+        float foamAmount = min(0.98, crest * wash + backwash * 0.58) * lace * bankRange * bankStrength;
+        vec3 foam = vec3(0.95, 0.97, 0.98) * mix(light, vec3(1.0), 0.47);
+        col = mix(col, mix(drainedAt(foam), foam, sat), foamAmount * (1.0 - 0.44 * uNight));
+      }
     }
     // a thin bright line where each of the swimmer's arms breaks the surface
     if (uWildWater && figure && d < ${OWN_ARMS.toFixed(1)}) {

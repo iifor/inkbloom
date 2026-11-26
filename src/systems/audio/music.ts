@@ -1,19 +1,14 @@
-// Generative music that follows the colour around the player. Grey land plays sparse, minor
-// and low; colourful land plays brighter, major and busier. During an ink tide a low pulse
-// and a faster beat take over. The time of day, the season and the weather colour it too:
-// nights are slower and quieter, rain draws the music back so the rain is heard, winter
-// melodies ring higher and longer like bells. Notes are scheduled half a second ahead on the
-// audio clock. Now and then, on a calm, fair day out in coloured land, a recorded piece (CC0,
-// see content/sounds.ts) takes a turn while the generated music fades away; it comes back when
-// the piece ends, or at once if an ink tide rolls in or the weather turns.
-import { TRACKS } from '@/content/sounds';
+// M03–M07 follow the world; M01–M02 take occasional turns on calm, colourful days.
+// The original generative music remains a fallback while recordings load or cannot play.
+import { MUSIC_BEDS, TRACKS, type MusicMood } from '@/content/sounds';
 import { type Stream, type Synth, midi } from '@/engine/audio/synth';
 import { dayHours } from '@/engine/render/daylight';
-import type { GameContext } from '@/game/types';
+import { sceneKey, type GameContext } from '@/game/types';
 import { seasonBlend } from '@/world/climate/calendar';
 import { smoothstep } from '@/world/math/noise';
 import { influenceOf, saturationAt } from '@/world/wilderness/drain';
 import { cleansedNear } from '@/world/wilderness/ink-wells';
+import { MusicBed } from './music-bed';
 
 /** Slow and unhurried: the music is a bed under the world, not a tune to follow. */
 const BPM = 64;
@@ -40,6 +35,8 @@ export class Music {
   private step = 0;
   private brightness = 0.5;
   private tide = false;
+  private occupied = false;
+  private scene = '';
   private walk = 2;
   private sampleT = 0;
   /** The hour, season and weather's hold on the music: speed, how many notes, how loud. */
@@ -56,14 +53,28 @@ export class Music {
   private trackIndex = 0;
   /** How much of the generated music is heard, 0..1: it steps aside for a recorded piece. */
   private share = 1;
+  private readonly bed: MusicBed;
+  private bedMood: MusicMood = 'colour';
+  private isNight = false;
+  private isWinter = false;
+  private isBright = true;
+  private trackStarted = 0;
 
   constructor(
     private readonly synth: Synth,
     private readonly ctx: GameContext,
-  ) {}
+  ) {
+    this.bed = new MusicBed(synth);
+  }
 
   setTide(on: boolean): void {
     this.tide = on;
+    this.sampleT = 0;
+  }
+
+  /** An occupied village stays tense even between ink tides. */
+  private get tense(): boolean {
+    return this.tide || this.occupied;
   }
 
   /** How much colour is around the player, 0..1. */
@@ -79,6 +90,11 @@ export class Music {
   update(dt: number): void {
     const s = this.synth;
     if (!s.ctx || !s.running) return;
+    const scene = sceneKey(this.ctx.scenes.active.ref);
+    if (scene !== this.scene) {
+      this.scene = scene;
+      this.sampleT = 0;
+    }
     this.sampleT -= dt;
     if (this.sampleT <= 0) {
       this.sampleT = 1;
@@ -87,17 +103,27 @@ export class Music {
       this.mood();
       this.takeTurns(s.now);
     }
+    const featured = this.track?.playing ?? false;
+    const recorded = this.bed.update(MUSIC_BEDS[this.bedMood], featured ? 0 : this.level);
+    if (featured) this.track!.set(this.level, 4);
+    const target = featured || recorded ? 0 : 1;
+    this.share += (target - this.share) * (1 - Math.exp(-dt / 1.5));
     const now = s.now;
     if (this.next < now - 0.5) this.next = now + 0.05;
     while (this.next < now + 0.5) {
       this.play(this.next, this.step);
       this.step++;
-      this.next += this.tide ? EIGHTH * 0.75 : EIGHTH / this.tempo;
+      this.next += this.tense ? EIGHTH * 0.75 : EIGHTH / this.tempo;
     }
   }
 
-  /** Ease towards how the hour, season and weather want the music (the tide overrides it). */
+  /** Village occupation and ink tides take priority over the hour, season and colour. */
   private mood(): void {
+    const ref = this.ctx.scenes.active.ref;
+    const village = ref.kind === 'city' ? this.ctx.state.cities.get(ref.id) : undefined;
+    // The altar remains occupied after the streets are cleared, until the village is restored.
+    this.occupied =
+      !!village && !village.peaceful && !village.completed;
     const a = this.ctx.renderer.atmosphere;
     const len = dayHours(a.declination);
     const day =
@@ -113,33 +139,53 @@ export class Music {
     this.density = ease(this.density, (1 - 0.5 * night) * (1 - 0.6 * wet) * (1 + 0.15 * summer));
     this.level = ease(this.level, (1 - 0.35 * night) * (1 - 0.5 * wet));
     this.bells = ease(this.bells, winter);
+    // Hysteresis avoids switching tracks repeatedly around dusk, season and colour boundaries.
+    if (night > 0.65) this.isNight = true;
+    else if (night < 0.35) this.isNight = false;
+    if (winter > 0.65) this.isWinter = true;
+    else if (winter < 0.35) this.isWinter = false;
+    if (this.brightness > 0.55) this.isBright = true;
+    else if (this.brightness < 0.45) this.isBright = false;
+    this.bedMood = this.tense
+      ? 'tide'
+      : this.isNight
+        ? 'night'
+        : this.isWinter
+          ? 'winter'
+          : this.isBright
+            ? 'colour'
+            : 'grey';
     this.calm =
-      day > 0.5 && wet < 0.3 && this.brightness > 0.45 && this.ctx.scenes.active.ref.kind === 'wild';
+      this.bedMood === 'colour' &&
+      day > 0.5 &&
+      wet < 0.3 &&
+      this.brightness > 0.55 &&
+      this.ctx.scenes.active.ref.kind === 'wild';
   }
 
   /** Once a second: start, end or interrupt a recorded piece, and fade the generated music round it. */
   private takeTurns(now: number): void {
-    // the first piece a little while after the game starts, so it opens on the generated music
+    // The first piece follows a minute of the scene's background music.
     if (this.nextTrackAt < 0) this.nextTrackAt = now + 60;
     const t = this.track;
-    if (t && (this.tide || !this.calm)) {
+    if (t && (this.tense || !this.calm)) {
       t.stop(4);
       this.track = null;
       this.nextTrackAt = now + 90;
-    } else if (t?.over) {
+    } else if (t?.over || (t && !t.playing && now - this.trackStarted > 15)) {
+      t.stop(0);
       this.track = null;
       this.nextTrackAt = now + 150 + Math.random() * 150;
-    } else if (!t && !this.tide && this.calm && now >= this.nextTrackAt && TRACKS.length) {
+    } else if (!t && !this.tense && this.calm && now >= this.nextTrackAt && TRACKS.length) {
       const url = TRACKS[this.trackIndex++ % TRACKS.length]!;
+      this.trackStarted = now;
       this.track = this.synth.stream(import.meta.env.BASE_URL + url, {
         loop: false,
         gain: 0.55,
         bus: 'music',
       });
-      this.track.set(1, 6);
+      this.track.set(this.level, 6);
     }
-    const target = this.track?.playing && !this.tide ? 0 : 1;
-    this.share += (target - this.share) * 0.3;
   }
 
   /** How loud the generated music is now: the hour and weather's level, less any recorded piece. */
@@ -149,8 +195,8 @@ export class Music {
 
   private play(t: number, step: number): void {
     const s = this.synth;
-    if (!this.tide && this.share < 0.02) return;
-    const bright = this.brightness > 0.5;
+    if (this.share < 0.02) return;
+    const bright = !this.tense && this.brightness > 0.5;
     const prog = bright ? BRIGHT : DARK;
     const scale = bright ? MAJOR_PENTA : MINOR_PENTA;
     const bar = Math.floor(step / 8) % prog.length;
@@ -183,7 +229,7 @@ export class Music {
       });
     }
     // melody: a gentle random walk on the scale, mostly by step; busier when the land has colour
-    const density = this.tide ? 0.3 + 0.35 * b : (0.1 + 0.32 * b) * this.density;
+    const density = this.tense ? 0.3 + 0.35 * b : (0.1 + 0.32 * b) * this.density;
     if (Math.random() < density && e % (b > 0.3 ? 1 : 2) === 0) {
       this.walk = Math.max(
         0,
@@ -191,34 +237,38 @@ export class Music {
       );
       const deg = this.walk;
       // winter: an octave up, a pure tone left to ring like a bell
-      const bell = !this.tide && Math.random() < this.bells;
+      const bell = !this.tense && Math.random() < this.bells;
       const pitch = KEY + 12 + scale[deg % 5]! + 12 * Math.floor(deg / 5) + (bell ? 12 : 0);
       s.tone({
         freq: midi(pitch),
         // long, overlapping notes with a soft start, so the line flows instead of plinking
         dur: EIGHTH * (bell ? 4.5 : 2.6),
-        gain: (0.04 + 0.025 * b) * (this.tide ? 1 : this.voice) * (bell ? 0.8 : 1),
+        gain: (0.04 + 0.025 * b) * this.voice * (bell ? 0.8 : 1),
         type: bell || !bright ? 'sine' : 'triangle',
         at: t,
         attack: 0.05,
         bus: 'music',
       });
     }
-    if (this.tide) {
+    if (this.tense) {
       // tension, but no harshness: a low heartbeat pulse and a soft tick
       if (e % 2 === 0)
         s.tone({
           freq: midi(KEY - 24),
           dur: EIGHTH * 0.9,
-          gain: 0.09,
+          gain: 0.09 * this.voice,
           type: 'triangle',
           at: t,
           attack: 0.02,
           bus: 'music',
         });
-      s.tone({ freq: 1800, dur: 0.04, gain: 0.01, type: 'sine', at: t, bus: 'music' });
+      s.tone({ freq: 1800, dur: 0.04, gain: 0.01 * this.voice, type: 'sine', at: t, bus: 'music' });
     }
   }
 
-  dispose(): void {}
+  dispose(): void {
+    this.track?.stop(0);
+    this.track = null;
+    this.bed.dispose();
+  }
 }

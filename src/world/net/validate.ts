@@ -107,6 +107,11 @@ export function validPatch(raw: unknown): Patch | null {
             ...(p.npc === true ? { npc: true as const } : {}),
           }
         : null;
+    case 'defeatAltarGuard':
+      return validCity(p.city) && isIndex(p.guard, 3)
+        ? { kind: 'defeatAltarGuard', city: p.city, guard: p.guard, ...(p.npc === true ? { npc: true as const } : {}) }
+        : null;
+    case 'restoreAltar':
     case 'complete':
     case 'tideHeld':
       return validCity(p.city) ? { kind: p.kind, city: p.city } : null;

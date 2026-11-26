@@ -11,6 +11,8 @@ import { standingMonsters } from '@/world/city/features';
 import { ROAD_NONE, type CityLayout, groundAt } from '@/world/city/layout';
 import { cityNav } from '@/world/nav/grids';
 import { stolenColors } from '@/world/paint/stolen';
+import { ALTAR_GUARDS, liberation } from '@/world/city/liberation';
+import { travelAltar } from '@/world/city/travel-altar';
 
 export class CityMonsters {
   readonly group: MonsterGroup;
@@ -31,6 +33,8 @@ export class CityMonsters {
     this.release = ctx.events.on('patch:applied', ({ patch }) => {
       if (patch.kind === 'defeat' && patch.city === layout.id)
         this.group.dismiss(`stronghold:${patch.monster}`);
+      if (patch.kind === 'defeatAltarGuard' && patch.city === layout.id)
+        this.group.dismiss(`altar:${patch.guard}`);
     });
     layout.monsters.forEach((m, i) => {
       if (defeated[i]) return;
@@ -114,6 +118,44 @@ export class CityMonsters {
   }
 
   update(dt: number): void {
+    const saved = this.ctx.state.cities.get(this.layout.id);
+    if (saved?.completed || saved?.peaceful) {
+      this.group.clear('stronghold');
+      this.group.clear('altar');
+      this.group.clear('tide');
+      this.group.update(dt);
+      return;
+    }
+    const altar = travelAltar(this.layout);
+    if (saved && altar && liberation(this.layout, saved).unlocked) {
+      ALTAR_GUARDS.forEach((type, i) => {
+        const bit = 1 << i;
+        if ((saved.altarGuards ?? 0) & bit) {
+          this.group.dismiss(`altar:${i}`);
+          return;
+        }
+        if (this.group.has(`altar:${i}`)) return;
+        const dx = i === 0 ? 0 : i === 1 ? -1.4 : 1.4;
+        this.group.spawn(type, new THREE.Vector3(altar.x + dx, altar.y + 0.24, altar.z + (i ? -1 : 0)), {
+          tag: 'altar',
+          key: `altar:${i}`,
+          colors: [0, 1, 3, 4, 7],
+          onDefeat: (npc) => {
+            const result = this.ctx.apply({
+              kind: 'defeatAltarGuard',
+              city: this.layout.id,
+              guard: i,
+              ...(npc ? { npc: true } : {}),
+            });
+            if (result.ok && liberation(this.layout, saved).captured)
+              this.ctx.events.emit('toast', {
+                text: '大本营已攻下！回到祭坛，长按 E 修复，全村就能恢复颜色',
+                seconds: 6,
+              });
+          },
+        });
+      });
+    }
     this.group.update(dt);
   }
 

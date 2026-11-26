@@ -34,6 +34,9 @@ export class Brush implements Tool {
   /** Seconds to the next fleck of paint off the brush. */
   private dabT = 0;
   private readonly hitPoint = { x: 0, y: 0, z: 0 };
+  private paintColor = 0;
+  private hasPaintTarget = false;
+  private strokeKey = '';
   /** A stroke the save rejected; not retried until the target, mode or colour changes. */
   private blocked: { key: string; reason: string } | null = null;
 
@@ -47,6 +50,7 @@ export class Brush implements Tool {
 
   update(dt: number): void {
     const { input, scenes, player } = this.ctx;
+    this.hasPaintTarget = false;
     // on its first frame in hand (the brush is held from the start, before the HUD listens)
     if (!this.toldUse) {
       this.toldUse = true;
@@ -107,6 +111,7 @@ export class Brush implements Tool {
       return;
     }
     const info = layout.surfaces[surface]!;
+    this.paintColor = this.mode === 'restore' ? info.color : this.color;
     const current = this.ctx.state.cities.get(cityId)?.states[surface] ?? 0;
     const want = this.mode === 'restore' ? ORIGINAL : graffiti(this.color);
     const cost = surfaceCost(info);
@@ -115,6 +120,7 @@ export class Brush implements Tool {
       this.hint = `${KIND_NAMES[info.kind]} · 已完成`;
       this.target = null;
       this.progress = 0;
+      this.setStroking(false);
       return;
     }
     // Check what applyPatch would check before the player spends a second on the stroke.
@@ -124,6 +130,7 @@ export class Brush implements Tool {
       this.hint = `这个街区还有 ${guards} 只墨怪，先赶走它们（按 2 换武器）`;
       this.target = null;
       this.progress = 0;
+      this.setStroking(false);
       return;
     }
     const inv = this.ctx.state.inventory;
@@ -139,10 +146,12 @@ export class Brush implements Tool {
       this.hint = `${KIND_NAMES[info.kind]} · ${reason}`;
       this.target = null;
       this.progress = 0;
+      this.setStroking(false);
       return;
     }
-    if (surface !== this.target) {
+    if (surface !== this.target || key !== this.strokeKey) {
       this.target = surface;
+      this.strokeKey = key;
       this.progress = 0;
     }
     if (!input.held('use')) {
@@ -152,6 +161,7 @@ export class Brush implements Tool {
     }
     this.setStroking(true);
     if (hit) Object.assign(this.hitPoint, { x: hit.point.x, y: hit.point.y, z: hit.point.z });
+    this.hasPaintTarget = hit !== null;
     // flecks of the colour going on, so the stroke is seen where it lands, not only in the HUD
     this.dabT -= dt;
     if (hit && this.dabT <= 0) {
@@ -168,14 +178,17 @@ export class Brush implements Tool {
         : this.ctx.apply({ kind: 'paint', city: cityId, surface, color: this.color });
     if (!r.ok) {
       this.blocked = { key, reason: r.reason };
+      this.setStroking(false);
       this.ctx.events.emit('toast', { text: r.reason });
       return;
     }
     const shown = this.mode === 'restore' ? info.color : this.color;
     this.ctx.events.emit('paint:bloom', { at: { ...this.hitPoint }, color: shown });
+    this.setStroking(false);
   }
 
   private setStroking(on: boolean): void {
+    if (!on) this.hasPaintTarget = false;
     if (on === this.stroking) return;
     this.stroking = on;
     this.ctx.events.emit('brush:stroke', { stroking: on });
@@ -199,7 +212,13 @@ export class Brush implements Tool {
   }
 
   inHand(): InHand {
-    return { item: 'brush', aiming: false, painting: this.stroking };
+    return {
+      item: 'brush',
+      aiming: false,
+      painting: this.stroking,
+      paintColor: this.mode === 'graffiti' ? this.color : this.paintColor,
+      paintTarget: this.stroking && this.hasPaintTarget ? this.hitPoint : undefined,
+    };
   }
 
   onUnequip(): void {

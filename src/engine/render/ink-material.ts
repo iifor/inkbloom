@@ -321,10 +321,10 @@ void main() {
   float sat;
   if (aSurface >= 0.0) {
     int s = int(aSurface + 0.5);
-    float state = texelFetch(uState, ivec2(s % uStateWidth, s / uStateWidth), 0).r * 255.0;
-    int st = int(state + 0.5);
-    if (st == 0) sat = 0.0;
-    else { sat = 1.0; if (st >= 2) idx = float(st - 2); }
+    vec2 state = texelFetch(uState, ivec2(s % uStateWidth, s / uStateWidth), 0).rg;
+    int st = int(state.r * 255.0 + 0.5);
+    sat = state.g;
+    if (st >= 2) idx = float(st - 2);
   } else if (aSurface < -1.5 || idx >= ${MAX_COLORS}.0) {
     sat = 1.0;
   } else {
@@ -693,19 +693,24 @@ export function makeInkMaterial(opts: InkMaterialOptions = {}): THREE.ShaderMate
  */
 export class SurfaceStateTexture {
   static readonly WIDTH = 256;
+  private static readonly FADE_SECONDS = 1.8;
   readonly width = SurfaceStateTexture.WIDTH;
   readonly texture: THREE.DataTexture;
   private readonly data: Uint8Array;
+  private readonly fading = new Map<number, number>();
 
   constructor(states: Uint8Array) {
     const rows = Math.max(1, Math.ceil(states.length / this.width));
-    this.data = new Uint8Array(this.width * rows);
-    this.data.set(states);
+    this.data = new Uint8Array(this.width * rows * 2);
+    states.forEach((state, i) => {
+      this.data[2 * i] = state;
+      this.data[2 * i + 1] = state ? 255 : 0;
+    });
     this.texture = new THREE.DataTexture(
       this.data,
       this.width,
       rows,
-      THREE.RedFormat,
+      THREE.RGFormat,
       THREE.UnsignedByteType,
     );
     this.texture.needsUpdate = true;
@@ -713,12 +718,33 @@ export class SurfaceStateTexture {
 
   /** The state last uploaded for a surface (lags the save until set() is called). */
   get(surface: number): number {
-    return this.data[surface] ?? 0;
+    return this.data[2 * surface] ?? 0;
   }
 
-  set(surface: number, state: number): void {
-    this.data[surface] = state;
+  set(surface: number, state: number, fadeDelay?: number): void {
+    this.data[2 * surface] = state;
+    if (fadeDelay !== undefined && state !== 0) {
+      this.fading.set(surface, -fadeDelay);
+      this.data[2 * surface + 1] = 0;
+    } else {
+      this.fading.delete(surface);
+      this.data[2 * surface + 1] = state ? 255 : 0;
+    }
     this.texture.needsUpdate = true;
+  }
+
+  update(dt: number): void {
+    for (const [surface, elapsed] of this.fading) {
+      const age = elapsed + dt;
+      const t = THREE.MathUtils.smoothstep(age, 0, SurfaceStateTexture.FADE_SECONDS);
+      const value = Math.round(t * 255);
+      if (value !== this.data[2 * surface + 1]) {
+        this.data[2 * surface + 1] = value;
+        this.texture.needsUpdate = true;
+      }
+      if (t === 1) this.fading.delete(surface);
+      else this.fading.set(surface, age);
+    }
   }
 
   dispose(): void {

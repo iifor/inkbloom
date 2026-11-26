@@ -56,6 +56,11 @@ export class InkStains {
     this.mesh.frustumCulled = false;
     root.add(this.mesh);
     this.release = ctx.events.on('patch:applied', ({ patch }) => {
+      if (patch.kind === 'restoreAltar' && patch.city === layout.id) {
+        for (let i = 0; i < collected.length; i++) if (collected[i]) this.mesh.setMatrixAt(i, HIDDEN);
+        this.mesh.instanceMatrix.needsUpdate = true;
+        return;
+      }
       if (patch.kind !== 'collect' || patch.city !== layout.id) return;
       this.mesh.setMatrixAt(patch.stain, HIDDEN);
       this.mesh.instanceMatrix.needsUpdate = true;

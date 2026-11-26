@@ -62,6 +62,7 @@ export class InkAnimal {
     private readonly key: InkAnimalKey,
     gltf: Pick<GLTF, 'scene' | 'animations'>,
     material: THREE.Material,
+    appearance?: { slots?: Readonly<Record<string, number>>; tint?: { from: number; to: number } },
   ) {
     const model = clone(gltf.scene);
     this.root.name = `ink-${key}`;
@@ -108,7 +109,16 @@ export class InkAnimal {
             ? 'eye'
             : 'ink';
       const baked = mesh.geometry.getAttribute('_inkcolor');
-      const original = baked ? Float32Array.from({ length: count }, (_, i) => baked.getX(i)) : undefined;
+      const tint = appearance?.tint,
+        solid = appearance?.slots?.[slot];
+      const original = baked
+        ? Float32Array.from({ length: count }, (_, i) => {
+            const value = baked.getX(i);
+            return tint && value === tint.from ? tint.to : value;
+          })
+        : solid !== undefined
+          ? new Float32Array(count).fill(solid)
+          : undefined;
       if (original) pigment.array.set(original);
       this.surfaces.push({ mesh, paint, pigment, original });
     });

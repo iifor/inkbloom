@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="zh-CN"><meta charset="UTF-8"><title>InkBloom 音乐验证</title>
+<body><h1>InkBloom 音乐验证</h1><p>静音检查实际音频流、场景切换和循环。</p><button id="start">开始静音验证</button><pre id="log">等待开始</pre>
+<script type="module">
+import { Synth } from '/src/engine/audio/synth.ts';
+import { Music } from '/src/systems/audio/music.ts';
+import { TRACKS } from '/src/content/sounds.ts';
+const qa = window.qa = { elements: [], synth: new Synth(), colour: 1, tracks: TRACKS };
+const NativeAudio = window.Audio;
+window.Audio = function(url) { const a = new NativeAudio(url); qa.elements.push(a); return a; };
+qa.atmosphere = { hour: 12, declination: 0, year: .125, weather: { rain: 0, snowfall: 0 } };
+qa.context = { renderer: { atmosphere: qa.atmosphere }, scenes: { active: { ref: { kind: 'city', id: 'qa' } } }, cities: { progress: () => qa.colour } };
+qa.music = new Music(qa.synth, qa.context);
+qa.scene = mode => {
+  qa.colour = mode === 'grey' ? 0 : 1;
+  qa.atmosphere.hour = mode === 'night' ? 0 : 12;
+  qa.atmosphere.year = mode === 'winter' ? .875 : .125;
+  qa.music.setTide(mode === 'tide');
+};
+qa.status = () => qa.elements.filter(a => a.currentSrc || a.getAttribute('src')).map(a => ({
+  file: (a.currentSrc || a.src).split('/').pop(), ready: a.readyState, time: a.currentTime, duration: a.duration, paused: a.paused, error: a.error?.code ?? null,
+}));
+document.querySelector('#start').onclick = async () => {
+  qa.synth.init(); qa.synth.setVolumes({ master: 0, sfx: 1, music: 1 }); await qa.synth.resume();
+  qa.timer = setInterval(() => { qa.music.update(.05); document.querySelector('#log').textContent = JSON.stringify(qa.status(), null, 2); }, 50);
+};
+</script></body></html>

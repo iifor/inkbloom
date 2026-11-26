@@ -348,18 +348,23 @@ function relaxedHand(p: Parts, h: Hands, side: 1 | -1): void {
 }
 
 /** Four fingers curl around the shaft; the thumb closes diagonally from the palm. */
+const HELD_BRUSH_TRANSFORM = new THREE.Matrix4().compose(
+  new THREE.Vector3(-0.017, 0, -0.01),
+  new THREE.Quaternion().setFromUnitVectors(
+    new THREE.Vector3(0, 0, -1),
+    new THREE.Vector3(-0.2, 1, -0.15).normalize(),
+  ),
+  new THREE.Vector3(0.55, 0.55, 0.43),
+);
+
+/** Same transform as the merged brush, so the mist starts at the bristles. */
+export function walkingBrushTip(out: THREE.Vector3): THREE.Vector3 {
+  return out.set(0, 0, -0.505).applyMatrix4(HELD_BRUSH_TRANSFORM);
+}
+
 function heldBrush(p: Parts, h: Hands, accent: number): void {
   walkingForearm(p, h, 1, true);
-  const direction = new THREE.Vector3(-0.2, 1, -0.15).normalize();
-  appendBrush(
-    p.g,
-    accent,
-    new THREE.Matrix4().compose(
-      new THREE.Vector3(-0.017, 0, -0.01),
-      new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, -1), direction),
-      new THREE.Vector3(0.55, 0.55, 0.43),
-    ),
-  );
+  appendBrush(p.g, accent, HELD_BRUSH_TRANSFORM);
   for (let i = 0; i < 4; i++) {
     const y = 0.026 - i * 0.021;
     const shaft = -0.017 - y * 0.2;

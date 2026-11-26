@@ -188,6 +188,7 @@ export class CourierViewArms {
     right: THREE.Object3D,
     brush: boolean,
     open: boolean,
+    paintColor = look.accent,
   ): void {
     this.grip = THREE.MathUtils.damp(this.grip, brush && !open ? 1 : 0, 18, dt);
     const r = this.actor.rig;
@@ -223,12 +224,16 @@ export class CourierViewArms {
       }
     }
     this.brush.visible = brush && !open;
-    if (this.brush.visible && this.brushAccent !== look.accent) {
+    if (this.brush.visible && this.brushAccent !== paintColor) {
       this.brush.geometry.dispose();
-      this.brushAccent = look.accent;
+      this.brushAccent = paintColor;
       this.brush.geometry = modelBrush(this.brushAccent);
     }
     this.actor.applyRig(look, open ? 0.04 : THREE.MathUtils.lerp(0.2, 1, this.grip), open ? 0.04 : 0.2);
+  }
+
+  brushTip(out: THREE.Vector3): THREE.Vector3 {
+    return this.brush.localToWorld(out.set(0, 0, -0.505));
   }
 
   dispose(): void {

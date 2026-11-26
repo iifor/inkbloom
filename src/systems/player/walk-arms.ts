@@ -2,7 +2,8 @@ import * as THREE from 'three';
 import { characterModel, defaultLook, type Look } from '@/content/characters';
 import { makeInkMaterial } from '@/engine/render/ink-material';
 import type { InHand } from '@/systems/tools/tool';
-import { bracingHand, handsOf, walkingHand } from '@/systems/tools/viewmodels';
+import { bracingHand, handsOf, walkingBrushTip, walkingHand } from '@/systems/tools/viewmodels';
+import type { BrushSpray } from '@/engine/render/brush-spray';
 import { HandGait, type GaitPlayer } from './hand-gait';
 import { CharacterModelSelection } from '@/systems/figures/character-model-selection';
 import { CourierViewArms } from './courier-view-arms';
@@ -17,6 +18,8 @@ export class WalkArms {
   private relaxed!: readonly [THREE.BufferGeometry, THREE.BufferGeometry];
   private braced!: readonly [THREE.BufferGeometry, THREE.BufferGeometry];
   private brush!: THREE.BufferGeometry;
+  private brushColor = 0;
+  private readonly tip = new THREE.Vector3();
   private painting = 0;
   private paintTime = 0;
   private brace = 0;
@@ -26,7 +29,10 @@ export class WalkArms {
   private disposed = false;
   private readonly selection = new CharacterModelSelection();
 
-  constructor(private readonly camera: THREE.Camera) {
+  constructor(
+    private readonly camera: THREE.Camera,
+    private readonly spray?: BrushSpray,
+  ) {
     this.root.name = 'walking-hands';
     this.root.visible = false;
     this.left.frustumCulled = this.right.frustumCulled = false;
@@ -54,6 +60,7 @@ export class WalkArms {
     this.relaxed = [walkingHand(hands, -1), walkingHand(hands, 1)];
     this.braced = [bracingHand(hands, -1), bracingHand(hands, 1)];
     this.brush = walkingHand(hands, 1, look.accent);
+    this.brushColor = look.accent;
     [this.left.geometry, this.right.geometry] = this.relaxed;
   }
 
@@ -61,12 +68,13 @@ export class WalkArms {
     this.brace = 0;
     this.fallTime = 0;
     this.root.visible = false;
+    this.spray?.clear();
   }
 
   update(dt: number, player: GaitPlayer, held: InHand, alive: boolean, brace = 0): void {
     this.gait.update(dt, player, held.painting);
     this.painting = THREE.MathUtils.damp(this.painting, held.painting ? 1 : 0, 12, dt);
-    this.paintTime += dt * (held.painting ? 8 : 0);
+    this.paintTime += dt * (held.painting ? Math.PI * 2 * 7 : 0);
     this.brace = THREE.MathUtils.damp(this.brace, brace, brace > this.brace ? 13 : 18, dt);
     this.fallTime = brace > 0 ? this.fallTime + dt : 0;
     this.root.visible =
@@ -75,8 +83,17 @@ export class WalkArms {
       !player.gliding &&
       player.waterMode !== 'swimming' &&
       (held.item === null || held.item === 'brush');
-    if (!this.root.visible) return;
+    if (!this.root.visible) {
+      this.spray?.clear();
+      return;
+    }
     const open = brace > 0 || (held.item === null && this.brace > 0.08);
+    const paintColor = held.paintColor ?? this.look.accent;
+    if (held.item === 'brush' && this.brushColor !== paintColor) {
+      this.brush.dispose();
+      this.brushColor = paintColor;
+      this.brush = walkingHand(handsOf(this.look), 1, paintColor);
+    }
     this.left.geometry = open ? this.braced[0] : this.relaxed[0];
     this.right.geometry = open ? this.braced[1] : held.item === 'brush' ? this.brush : this.relaxed[1];
     const { amount, run, phase } = this.gait;
@@ -112,21 +129,36 @@ export class WalkArms {
       hand.rotation.z -= side * reach * 0.39 + sway * 0.13;
     }
     // The working hand reaches towards the surface while the other remains low.
-    this.right.position.y += this.painting * (0.07 + Math.sin(this.paintTime) * 0.018);
-    this.right.position.z -= this.painting * 0.06;
-    this.right.rotation.z += this.painting * Math.sin(this.paintTime) * 0.12;
+    const pulse = Math.sin(this.paintTime);
+    this.right.position.y += this.painting * (0.055 + pulse * 0.003);
+    this.right.position.z -= this.painting * (0.07 + pulse * 0.014);
+    this.right.rotation.x -= this.painting * (0.08 + pulse * 0.012);
+    this.right.rotation.z += this.painting * pulse * 0.012;
     const useModel = !!characterModel(this.look.character) && this.model !== null;
     this.left.visible = this.right.visible = !useModel;
     if (this.model) {
       this.model.root.visible = useModel;
-      if (useModel) this.model.update(dt, this.look, this.left, this.right, held.item === 'brush', open);
+      if (useModel)
+        this.model.update(dt, this.look, this.left, this.right, held.item === 'brush', open, paintColor);
     }
+    if (this.spray && held.item === 'brush' && held.painting && held.paintTarget && !open) {
+      if (useModel) this.model!.brushTip(this.tip);
+      else this.right.localToWorld(walkingBrushTip(this.tip));
+      // The hand shader fixes its FOV in clip space. Match that projection before
+      // interpolating through world space to the actual wall hit.
+      this.camera.worldToLocal(this.tip);
+      this.tip.x *= viewScale;
+      this.tip.y *= viewScale;
+      this.camera.localToWorld(this.tip);
+      this.spray.update(dt, this.tip, held.paintTarget, paintColor);
+    } else this.spray?.clear();
   }
 
   dispose(): void {
     this.selection.dispose();
     this.disposed = true;
     this.model?.dispose();
+    this.spray?.clear();
     this.root.removeFromParent();
     this.disposeHands();
     this.material.dispose();

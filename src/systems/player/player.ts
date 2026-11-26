@@ -88,7 +88,7 @@ export class PlayerSystem implements System, PlayerApi {
   constructor(private readonly ctx: GameContext) {
     this.body = makeBody(new THREE.Vector3(0, 10, 0), P.halfWidth, P.height, P.stepHeight);
     this.arms = new SwimArms(ctx.renderer.camera);
-    this.walkArms = new WalkArms(ctx.renderer.camera);
+    this.walkArms = new WalkArms(ctx.renderer.camera, ctx.renderer.brushSpray);
   }
 
   get position(): THREE.Vector3 {

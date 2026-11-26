@@ -523,9 +523,6 @@ void main() {
       float bare = ground ? 1.0 - meadow : (seasonKindOf(s.g) < 0.5 ? 1.0 : 0.0);
       if (!petal) puddle = bare * soaked * smoothstep(0.96, 0.99, wn.y) * smoothstep(0.55, 0.65, big + (leaf - 0.5) * 0.15) * near;
     }
-    // the bank is dark and wet for a hand's breadth above the water
-    if (uWildWater && !fish && !grassBlade && !petal)
-      base *= 1.0 - 0.22 * (1.0 - smoothstep(0.0, 0.16, wpos.y - (${WATER_LEVEL}))) * step(${WATER_LEVEL}, wpos.y);
     float mott = ((big - 0.5) * 0.3 + (leaf - 0.5) * 0.35) * tex + (stroke - 0.5) * 0.06;
     // and the dry brush over everything: strongest in leaves and grass, faint on cloth
     mott += brush * (figure ? 0.04 : mix(0.22, 0.5, tex));

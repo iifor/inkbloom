@@ -1,7 +1,6 @@
 import { hashAt, unit } from '../math/hash';
 import { WATER_LEVEL } from '../wilderness/water-level';
 import { type CityLayout, groundAt } from './layout';
-import { settlementSize } from './settlement';
 
 export const ALTAR_RADIUS = 2.3;
 export interface AltarSite {
@@ -12,10 +11,9 @@ export interface AltarSite {
 }
 const cache = new WeakMap<CityLayout, AltarSite | null>();
 
-/** A separate hash stream: adding travel never changes houses or saved paint surfaces. */
-export function hasTravelAltar(seed: number, chunks: number): boolean {
-  const chance = { small: 0.05, medium: 0.8, town: 0.9 }[settlementSize(chunks)];
-  return unit(hashAt(seed, 'travel-altar')) < chance;
+/** Every village can have a liberation altar; placement still requires safe, dry land. */
+export function hasTravelAltar(_seed: number, chunks: number): boolean {
+  return chunks > 0;
 }
 
 /** A clear, dry corner of the square, away from the well and front doors. */
@@ -25,10 +23,14 @@ export function travelAltar(l: CityLayout): AltarSite | null {
   let score = Infinity;
   if (hasTravelAltar(l.seed, l.chunks)) {
     const phase = unit(hashAt(l.seed, 'travel-altar-side')) * Math.PI * 2;
-    for (let i = 0; i < 16; i++) {
+    for (let i = 0; i < 64; i++) {
+      // Keep existing altar positions first. Extra rings serve villages whose
+      // original square corner was crowded, without moving any saved house/monster.
+      if (i % 16 === 0 && best) break;
       const a = phase + (i * Math.PI) / 8;
-      const x = l.square.x + Math.cos(a) * 6.1;
-      const z = l.square.z + Math.sin(a) * 6.1;
+      const radius = 6.1 + Math.floor(i / 16) * 4;
+      const x = l.square.x + Math.cos(a) * radius;
+      const z = l.square.z + Math.sin(a) * radius;
       const clear = ALTAR_RADIUS + 0.8;
       if (
         l.buildings.some((b) => {

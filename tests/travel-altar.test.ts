@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { expect, it, vi } from 'vitest';
-import { generateCity, placeCity } from '@/world/city/layout';
+import { generateCity, placeCity, townLayout } from '@/world/city/layout';
+import { createWilderness } from '@/world/wilderness/generator';
 import { hasTravelAltar, travelAltar } from '@/world/city/travel-altar';
 import { InteractionSystem } from '@/systems/interaction/interaction';
 import { SceneManager } from '@/systems/scenes/scene-manager';
@@ -12,16 +13,13 @@ import { headless } from './support/headless';
 const seed = Array.from({ length: 100 }, (_, i) => i).find((i) => hasTravelAltar(i, 3))!;
 const city = generateCity('altar-city', seed, 3, 'nz', () => 3);
 
-it('gives small villages rare altars and most larger settlements one, deterministically', () => {
-  for (const [chunks, probability] of [
-    [2, 0.05],
-    [3, 0.8],
-    [4, 0.9],
-  ] as const) {
-    let count = 0;
-    for (let seed = 0; seed < 10000; seed++) if (hasTravelAltar(seed, chunks)) count++;
-    expect(count / 10000).toBeCloseTo(probability, 1);
-  }
+it('gives dry villages of every size a liberation altar without changing their layout', () => {
+  for (const chunks of [2, 3, 4])
+    for (let seed = 0; seed < 12; seed++) {
+      const layout = generateCity('x', seed, chunks, 'nz', () => 3);
+      expect(hasTravelAltar(seed, chunks)).toBe(true);
+      expect(travelAltar(layout)).not.toBeNull();
+    }
 });
 
 it('places the altar beside the well without mutating saved layout and follows world offsets', () => {
@@ -35,6 +33,19 @@ it('places the altar beside the well without mutating saved layout and follows w
   expect(b.z - a.z).toBeCloseTo(-2200);
   expect(travelAltar({ ...city, water: new Uint8Array(city.water.length).fill(1) })).toBeNull();
   expect(travelAltar({ ...city, heights: new Float32Array(city.heights.length).fill(-2) })).toBeNull();
+});
+
+it('gives villages on generated terrain a reachable liberation altar', () => {
+  let count = 0;
+  for (const seed of [7, 42, 4242]) {
+    const land = createWilderness(seed);
+    for (const e of land.entrancesNear(0, 0, 3)) {
+      const layout = townLayout(e, land);
+      expect(travelAltar(layout), `seed ${seed}, village ${e.cityId}`).not.toBeNull();
+      count++;
+    }
+  }
+  expect(count).toBeGreaterThan(10);
 });
 
 function interactionHarness() {
@@ -175,11 +186,8 @@ it('builds a walkable altar and releases its interaction and effects', () => {
 
 it('filters villages without altars and arrives on the altar after the dissolve', () => {
   const h = headless();
-  const noAltar = generateCity(
-    'small',
-    Array.from({ length: 100 }, (_, i) => i).find((i) => !hasTravelAltar(i, 2))!,
-    2,
-  );
+  const wet = generateCity('small', 1, 2);
+  const noAltar = { ...wet, water: new Uint8Array(wet.water.length).fill(1) };
   const layouts = new Map([
     [city.id, city],
     [noAltar.id, noAltar],

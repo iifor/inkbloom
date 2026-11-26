@@ -35,6 +35,7 @@ import { CURRENT_STEP } from '@/world/wilderness/water-current';
 import { RIVER_SAMPLES, RiverTable } from './water-paint';
 import { WakeField } from './wake-field';
 import { WaterSpray } from './water-spray';
+import { BrushSpray } from './brush-spray';
 
 /** Most pixels drawn a frame at each quality, to start with: about 2300 x 1400, and 1900 x 1100.
  * When frames keep up, automatic resolution raises it along with the pixel ratio. */
@@ -90,6 +91,7 @@ export class InkRenderer {
   private readonly wakes = new WakeField();
   private riverVelocity: ((x: number, z: number) => { x: number; z: number }) | null = null;
   private readonly spray: WaterSpray;
+  readonly brushSpray: BrushSpray;
   /** The player's field of view; tools zoom relative to it and return to it. */
   baseFov = 78;
   /** Mood of the whole view, set by gameplay each frame. `colour` 0..1 is how much colour
@@ -245,6 +247,7 @@ export class InkRenderer {
     this.critters = new Critters(depthTexture);
     this.steam = new Steam(depthTexture);
     this.spray = new WaterSpray(depthTexture);
+    this.brushSpray = new BrushSpray(depthTexture);
     this.smoke = new Steam(depthTexture);
     this.birds = new Birds(depthTexture);
     // the eye sees grass; the sun's shadow camera (default layer only) does not
@@ -379,9 +382,14 @@ export class InkRenderer {
     return this.governor.scale;
   }
 
-  setRivers(x0: number, z0: number, at: (x: number, z: number) => { x: number; z: number }): void {
-    this.riverVelocity = at;
-    this.rivers.set(x0, z0, at);
+  setRivers(
+    x0: number,
+    z0: number,
+    surfaceAt: (x: number, z: number) => { x: number; z: number },
+    currentAt: (x: number, z: number) => { x: number; z: number },
+  ): void {
+    this.riverVelocity = currentAt;
+    this.rivers.set(x0, z0, surfaceAt);
     this.post.uniforms.uRiverGrid!.value.set(x0, z0, CURRENT_STEP, RIVER_SAMPLES);
   }
 
@@ -394,8 +402,8 @@ export class InkRenderer {
     this.wakes.add(x, z, performance.now() / 1000, fromPlayer, strength, v?.x, v?.z);
   }
 
-  waterSplash(x: number, z: number, strength: number, flowX: number, flowZ: number): void {
-    this.spray.add(x, z, performance.now() / 1000, strength, flowX, flowZ);
+  waterSplash(x: number, z: number, strength: number, flowX: number, flowZ: number, bankNormal?: { x: number; z: number }): void {
+    this.spray.add(x, z, performance.now() / 1000, strength, flowX, flowZ, bankNormal);
   }
 
   /** While profiling (dev tools): GPU milliseconds per pass, summed over the frames measured
@@ -556,6 +564,7 @@ export class InkRenderer {
     if (u.uWildWater!.value) this.spray.render(r, this.camera, now / 1000, this.day.night, this.day.dir);
     this.smoke.render(r, this.camera, u.uTime!.value, this.day.night);
     this.birds.render(r, this.camera, this.day.night);
+    this.brushSpray.render(r, this.camera, this.day.night);
     this.pass('fxaa');
     r.setRenderTarget(null);
     r.render(this.fxaaScene, this.postCam);
@@ -581,6 +590,7 @@ export class InkRenderer {
     this.critters.dispose();
     this.steam.dispose();
     this.spray.dispose();
+    this.brushSpray.dispose();
     this.smoke.dispose();
     this.birds.dispose();
     this.rt.dispose();

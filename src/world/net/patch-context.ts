@@ -10,6 +10,7 @@ import { ruinById } from '../wilderness/ruins';
 import { sourceById } from '../wilderness/sources';
 import { inkWellById, wellGuards, wellSeeping } from '../wilderness/ink-wells';
 import { chunkSaturation, wildMonsterById } from '../wilderness/wild-monsters';
+import { travelAltar } from '../city/travel-altar';
 
 /** A town's entrance from its id ("c<cx>_<cz>", the chunk its tower stands in). */
 export function entranceById(wilderness: Wilderness, id: string): Entrance | null {
@@ -30,6 +31,10 @@ export function worldPatchContext(
 ): PatchContext {
   return {
     cityOf: layoutOf,
+    altarOf: (id) => {
+      const layout = layoutOf(id);
+      return layout ? travelAltar(layout) : null;
+    },
     sourceOf: (id) => sourceById(wilderness, id),
     ruinOf: (id) => ruinById(wilderness, id),
     wildMonsterOf: (id) => {

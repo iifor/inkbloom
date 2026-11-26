@@ -19,6 +19,7 @@ export interface CityFix {
   readonly completed?: boolean;
   readonly restoredAt?: number | null;
   readonly peaceful?: boolean;
+  readonly altarGuards?: number;
 }
 
 import type { InkSite } from '../infection';
@@ -56,6 +57,7 @@ export function cityFix(id: string, before: CitySave | undefined, after: CitySav
   if (!before || before.completed !== after.completed) fix.completed = after.completed;
   if (!before || before.restoredAt !== after.restoredAt) fix.restoredAt = after.restoredAt;
   if (!before || before.peaceful !== after.peaceful) fix.peaceful = after.peaceful;
+  if (!before || (before.altarGuards ?? 0) !== (after.altarGuards ?? 0)) fix.altarGuards = after.altarGuards ?? 0;
   return Object.keys(fix).length > 1 ? (fix as unknown as CityFix) : undefined;
 }
 
@@ -118,6 +120,7 @@ export function applyFix(state: WorldState, fix: Fix | null | undefined): Change
     )
       saved.restoredAt = c.restoredAt;
     if (typeof c.peaceful === 'boolean') saved.peaceful = c.peaceful;
+    if (Number.isInteger(c.altarGuards) && c.altarGuards! >= 0 && c.altarGuards! <= 7) saved.altarGuards = c.altarGuards;
   }
   for (const [k, t] of fix.harvested ?? [])
     if (typeof k === 'string' && Number.isFinite(t)) state.harvested.set(k, t);

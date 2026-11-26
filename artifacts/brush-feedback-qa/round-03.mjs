@@ -1,0 +1,20 @@
+const task=await taskSpace(16);const page=task.page('p1');
+await page.click('#blue');
+await page.selectOption('#character',{value:'mason'});
+await page.waitForFunction(()=>window.qa.arms.model?.root.visible && window.qa.arms.model.brushAccent===0,undefined,{timeout:15000});
+console.log(await page.screenshot({path:'C:/Users/Administrator/Desktop/inkbloom/artifacts/brush-feedback-qa/mason-blue.png'}));
+const modelResult=await page.evaluate(()=>{
+const q=window.qa;const p=q.arms.model.brushTip(q.arms.tip.clone()).project(q.renderer.camera);
+const from=q.renderer.brushSpray.uniforms.uFrom.value.clone().project(q.renderer.camera);
+const scale=q.arms.material.uniforms.uViewScale.value;
+return {color:q.arms.model.brushAccent,tipError:Math.hypot(p.x*scale-from.x,p.y*scale-from.y)};
+});
+await page.click('#stop');
+await page.waitForFunction(()=>!window.qa.renderer.brushSpray.active);
+console.log(await page.screenshot({path:'C:/Users/Administrator/Desktop/inkbloom/artifacts/brush-feedback-qa/stopped.png'}));
+console.log({modelResult,stopped:await page.evaluate(()=>({sprayActive:window.qa.renderer.brushSpray.active,errors:window.qa.errors}))});
+await page.selectOption('#character',{value:'courier'});
+await page.click('#cream');
+await page.waitForFunction(()=>window.qa.arms.model?.root.visible && window.qa.arms.model.brushAccent===window.qa.held.paintColor,undefined,{timeout:15000});
+console.log(await page.screenshot({path:'C:/Users/Administrator/Desktop/inkbloom/artifacts/brush-feedback-qa/restore.png'}));
+console.log(await page.snapshot());

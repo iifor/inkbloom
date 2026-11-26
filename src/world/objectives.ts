@@ -34,6 +34,7 @@ export interface Situation {
     readonly guards: number;
     readonly nearestGuard: Point | null;
     readonly holdsWeapon: boolean;
+    readonly liberation?: { readonly altar: Point; readonly defeated: number; readonly required: number; readonly total: number; readonly unlocked: boolean; readonly remaining: number; readonly captured: boolean };
   };
 }
 
@@ -50,6 +51,19 @@ export function objective(s: Situation): Objective {
   if (s.scene === 'city' && s.city) {
     const c = s.city;
     if (c.completed) return { text: `${c.name}恢复了 · 去找下一座城`, target: c.gate };
+    if (!c.peaceful && c.liberation) {
+      const p = c.liberation;
+      if (!p.unlocked) return {
+        text: `清剿墨怪 ${p.defeated}/${p.required} · 达到全村 50% 后进攻祭坛`,
+        target: c.nearestGuard,
+        teach: { id: 'altar-unlock', text: c.holdsWeapon ? '按住左键攻击' : '按 2 拿武器' },
+      };
+      if (!p.captured) return {
+        text: `攻下祭坛大本营 · 驻守墨怪剩 ${p.remaining} 只`, target: p.altar,
+        teach: { id: 'altar-assault', text: '击败墨巨和两名护卫' },
+      };
+      return { text: '修复祭坛，让全村恢复颜色', target: p.altar, teach: { id: 'altar-repair', text: '站上祭坛，长按 E 3 秒' } };
+    }
     if (c.guards > 0)
       return {
         text: `赶走这个街区的 ${c.guards} 只墨怪`,

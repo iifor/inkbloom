@@ -30,27 +30,37 @@ export function waterCurrentsOf(world: Wilderness): WaterCurrents {
 
 export class WaterCurrents {
   private readonly samples = new Map<string, Velocity>();
+  private readonly surfaceSamples = new Map<string, Velocity>();
 
   constructor(private readonly world: Wilderness) {}
 
-  /** World-aligned samples shared by the shader and the spatial audio survey. */
+  /** Physical current used by ambience, river debris and splashes. */
   at(x: number, z: number): Velocity {
+    return this.sample(this.samples, x, z, false);
+  }
+
+  /** Readable surface motion, including low-gradient reaches and channels through pools. */
+  surfaceAt(x: number, z: number): Velocity {
+    return this.sample(this.surfaceSamples, x, z, true);
+  }
+
+  private sample(cache: Map<string, Velocity>, x: number, z: number, surface: boolean): Velocity {
     const key = `${x},${z}`;
-    let result = this.samples.get(key);
+    let result = cache.get(key);
     if (!result) {
-      result = this.compute(x, z);
-      if (this.samples.size >= CACHE_LIMIT) this.samples.delete(this.samples.keys().next().value!);
-      this.samples.set(key, result);
+      result = this.compute(x, z, surface);
+      if (cache.size >= CACHE_LIMIT) cache.delete(cache.keys().next().value!);
+      cache.set(key, result);
     }
     return result;
   }
 
-  private compute(x: number, z: number): Velocity {
+  private compute(x: number, z: number, surface: boolean): Velocity {
     const { world } = this;
     const lane = Math.round((x - RIVER_ORIGIN) / RIVER_LANE);
     const river = world.riverAt(lane, z);
     const { basin, branch } = world.waterGuidesAt(x, z);
-    if (basin >= 1 || (!branch && Math.abs(x - river.x) > river.half * 2.5 + 6)) return STILL;
+    if ((!surface && basin >= 1) || (!branch && Math.abs(x - river.x) > river.half * 2.5 + 6)) return STILL;
     const tangent = (at: number) => {
       const dx = world.riverAt(lane, at + 8).x - world.riverAt(lane, at - 8).x;
       const length = Math.hypot(dx, 16);
@@ -67,7 +77,10 @@ export class WaterCurrents {
     const depth = WATER_LEVEL - world.terrainHeightAt(x, z);
     if (depth <= 0.025) return STILL;
 
-    const mainWeight = 1 - smoothstep(0.32, 1, distance / (half + 3));
+    const channelWidth = half + 3;
+    // Maintain a slow through-channel in a widened pool and leave its side pockets quiet.
+    const mainWidth = surface ? channelWidth * (1 - 0.24 * basin) : channelWidth;
+    const mainWeight = 1 - smoothstep(0.32, 1, distance / mainWidth);
     const branchWeight = branch ? 1 - smoothstep(0.38, 1, branch.distance / branch.half) : 0;
     const main: ChannelGuide = { x: center.x, z: centerZ, ...tangent(centerZ), distance, half };
     const velocity = (
@@ -90,11 +103,21 @@ export class WaterCurrents {
         const span = 210;
         const head = (height(world.riverAt(lane, centerZ - span).x, centerZ - span) -
           height(world.riverAt(lane, centerZ + span).x, centerZ + span)) / (span * 2);
-        const direction = Math.sign(head);
+        // Use a wider survey to choose a direction on nearly level sections.
+        const reachFall = surface && Math.abs(head) < 0.001
+          ? height(world.riverAt(lane, centerZ - 540).x, centerZ - 540) -
+            height(world.riverAt(lane, centerZ + 540).x, centerZ + 540)
+          : 0;
+        const direction = Math.sign(surface && reachFall !== 0 ? reachFall : head) || (surface ? 1 : 0);
         const grade = 0.7 * Math.abs(head) + 0.3 * Math.max(0, direction * slope);
-        const reachSpeed = channelSpeed(depth, grade);
-        speed = direction * Math.min(3.6, reachSpeed * (1.38 - 0.99 * riverPool(lane, centerZ))) * weight;
-      } else speed = Math.sign(slope) * channelSpeed(depth, Math.abs(slope)) * weight;
+        const reachSpeed = channelSpeed(depth, grade) * (1.38 - 0.99 * riverPool(lane, centerZ)) *
+          (surface ? 1 - basin * 0.8 : 1);
+        const minimum = surface ? (0.48 - basin * 0.12) * smoothstep(0.035, 0.38, depth) : 0;
+        speed = direction * Math.min(3.6, Math.max(minimum, reachSpeed)) * weight;
+      } else {
+        const minimum = surface ? 0.37 * smoothstep(0.035, 0.22, depth) : 0;
+        speed = (Math.sign(slope) || (surface ? 1 : 0)) * Math.max(minimum, channelSpeed(depth, Math.abs(slope))) * weight;
+      }
       if (!speed) return STILL;
       // A low spot beside a channel can be wet without belonging to it. Require
       // a wet path to the channel and a wet reach in both directions.
@@ -124,9 +147,9 @@ export class WaterCurrents {
           branch.x + branch.dx * 24, branch.z + branch.dz * 24,
         )
       : STILL;
-    return {
-      x: (riverVelocity.x + branchVelocity.x) * (1 - basin),
-      z: (riverVelocity.z + branchVelocity.z) * (1 - basin),
-    };
+    const mainFade = surface ? 1 : 1 - basin;
+    const branchFade = 1 - basin;
+    return { x: riverVelocity.x * mainFade + branchVelocity.x * branchFade,
+      z: riverVelocity.z * mainFade + branchVelocity.z * branchFade };
   }
 }

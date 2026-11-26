@@ -11,6 +11,8 @@ import { peacefulVillage } from '@/world/state';
 import { bearing, objective, type Point, type Situation } from '@/world/objectives';
 import { type Entrance, townDistance } from '@/world/wilderness/generator';
 import { lesson } from './hints';
+import { liberation } from '@/world/city/liberation';
+import { travelAltar } from '@/world/city/travel-altar';
 
 /** How many times each lesson is added to the objective before the player is trusted with it. */
 const LESSON_TIMES = 2;
@@ -81,6 +83,8 @@ export class ObjectiveSystem implements System {
       const blocks = scene.blocks();
       const gate = l.gates[0]!;
       const states = scene.states;
+      const altar = travelAltar(l);
+      const saved = state.cities.get(l.id)!;
       return {
         ...base,
         scene: 'city',
@@ -97,6 +101,7 @@ export class ObjectiveSystem implements System {
           guards: scene.monsters.standing(scene.chunkAt(p)),
           nearestGuard: near(scene.monsters.group.living('stronghold').map((v) => ({ x: v.x, z: v.z }))),
           holdsWeapon: this.belt.active?.id === 'weapons',
+          liberation: altar ? { altar, ...liberation(l, saved) } : undefined,
         },
       };
     }

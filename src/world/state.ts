@@ -15,7 +15,7 @@ import { TERRAIN_VERSION, type TerrainVersion } from './wilderness/terrain-versi
 
 import { type InkSite, validInkSite } from './infection';
 
-export const SAVE_VERSION = 11;
+export const SAVE_VERSION = 12;
 
 export type SceneRef = { readonly kind: 'wild' } | { readonly kind: 'city'; readonly id: string };
 
@@ -96,7 +96,7 @@ export interface CitySave {
   stainFingerprint: number | null;
   /** 1 per ink stain already soaked up. */
   stains: Uint8Array;
-  /** Every block had colour at once; the city is restored for good. */
+  /** Liberated through its altar or through colouring every block; restored for good. */
   completed: boolean;
   /** World play time of the first restoration, shared by all returning households. */
   restoredAt: number | null;
@@ -106,6 +106,8 @@ export interface CitySave {
   monsterFingerprint: number | null;
   /** 1 per stronghold monster already defeated. */
   defeated: Uint8Array;
+  /** Bit per defeated altar garrison guard; separate from the unchanged street-guard list. */
+  altarGuards?: number;
   /** 1 per block that has ever been coloured (pays its experience and milestones once). */
   coloredOnce: Uint8Array;
   /** Per block: clock time its studio stock counts from once 繁荣, or -1. */
@@ -237,6 +239,7 @@ export function cityStates(
       saved.fingerprint = fingerprint;
       saved.states = new Uint8Array(skel.surfaces.length).fill(saved.peaceful ? ORIGINAL : 0);
       saved.completed = false;
+      saved.altarGuards = 0;
       saved.restoredAt = null;
       saved.coloredOnce = new Uint8Array(skel.chunks * skel.chunks).fill(saved.peaceful ? 1 : 0);
       saved.stockFrom = new Array<number>(skel.chunks * skel.chunks).fill(-1);
@@ -256,6 +259,7 @@ export function cityStates(
       peaceful,
       monsterFingerprint: monsterFp,
       defeated: new Uint8Array(skel.monsters.length).fill(peaceful ? 1 : 0),
+      altarGuards: 0,
       coloredOnce: new Uint8Array(skel.chunks * skel.chunks).fill(peaceful ? 1 : 0),
       stockFrom: new Array<number>(skel.chunks * skel.chunks).fill(-1),
       tide: newTide(),
@@ -358,6 +362,7 @@ interface WorldJson {
         p?: 1;
         mf?: number;
         d?: string;
+        ag?: number;
         co?: string;
         sk?: number[];
         /** Tide: n = nextIn, w = [chunk, from, startsIn, endsIn, front]. */
@@ -420,6 +425,7 @@ export function serializeWorld(state: WorldState): string {
                   ? {}
                   : { mf: v.monsterFingerprint, d: toBase64(v.defeated) }),
                 co: toBase64(v.coloredOnce),
+                ...(v.altarGuards ? { ag: v.altarGuards } : {}),
                 sk: v.stockFrom,
                 td: {
                   n: Math.round(v.tide.nextIn * 10) / 10,
@@ -481,6 +487,7 @@ export function deserializeWorld(text: string): WorldState {
     json.version !== 8 &&
     json.version !== 9 &&
     json.version !== 10 &&
+    json.version !== 11 &&
     json.version !== SAVE_VERSION
   )
     throw new SaveError(`不支持的存档版本 ${json.version}`);
@@ -550,6 +557,7 @@ export function deserializeWorld(text: string): WorldState {
                 peaceful: json.version >= 3 && v.p === 1,
                 monsterFingerprint: Number.isInteger(v.mf) ? v.mf! : null,
                 defeated: v.d ? fromBase64(v.d) : new Uint8Array(),
+                altarGuards: Number.isInteger(v.ag) && v.ag! >= 0 && v.ag! <= 7 ? v.ag : 0,
                 coloredOnce: v.co ? fromBase64(v.co) : new Uint8Array(),
                 stockFrom: Array.isArray(v.sk) ? v.sk.map((t) => (Number.isFinite(t) ? t : -1)) : [],
                 tide: validTide(v.td),

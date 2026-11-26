@@ -39,14 +39,14 @@ func decode(data []byte) (legacySave, header, error) {
 	if err := json.Unmarshal([]byte(s.World), &h); err != nil {
 		return s, h, err
 	}
-	if h.Version != 10 || h.ID == "" {
-		return s, h, errors.New("import requires a v10 world with an ID")
+	if h.Version < 10 || h.Version > 12 || h.ID == "" {
+		return s, h, errors.New("import requires a v10-v12 world with an ID")
 	}
 	for _, p := range s.Players {
 		var personal header
 		var look map[string]any
-		if json.Unmarshal([]byte(p.Slice), &personal) != nil || personal.Version != 10 || json.Unmarshal(p.Look, &look) != nil || look == nil {
-			return s, h, errors.New("invalid player appearance or v10 personal save")
+		if json.Unmarshal([]byte(p.Slice), &personal) != nil || personal.Version < 10 || personal.Version > 12 || json.Unmarshal(p.Look, &look) != nil || look == nil {
+			return s, h, errors.New("invalid player appearance or v10-v12 personal save")
 		}
 	}
 	return s, h, nil
