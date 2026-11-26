@@ -93,7 +93,7 @@ describe('ambience', () => {
   it('pans a running-water recording and fades it out when the listener leaves', () => {
     const world = createWilderness(7);
     const sites = new AmbienceSites(world);
-    const source = sites.near(126, 430).find((s) => s.kind === 'current' && s.strength > 0.6);
+    const source = sites.near(131, 646).find((s) => s.kind === 'current' && s.strength > 0.8);
     expect(source).toBeDefined();
     const position = new THREE.Vector3(source!.pos.x - 8, source!.pos.y + 1.4, source!.pos.z);
     const player = { position, eye: position, yaw: 0 };

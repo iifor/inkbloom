@@ -2,6 +2,7 @@
 // and depth and paints the frame (see renderer.ts for the look). The sky and the water come in
 // as chunks from sky-paint.ts and water-paint.ts.
 import { MAX_COLORS, PALETTE, color } from '@/content/palette';
+import { INFECTION_RADIUS } from '@/world/infection';
 import { TUNING } from '@/content/tuning';
 import { BANK_HEIGHT, WATER_LEVEL } from '@/world/wilderness/generator';
 import { wildernessDrainGLSL } from './ink-material';
@@ -10,7 +11,6 @@ import { surfaceLayer } from './painted-textures';
 import { skyGLSL } from './sky-paint';
 import {
   OWN_ARMS,
-  WAKE_COUNT,
   mirrorGLSL,
   rainRingsGLSL,
   riverGLSL,
@@ -60,7 +60,9 @@ uniform float uNight;
 uniform int uGlass;
 uniform int uWater;
 uniform bool uWildWater;
-uniform vec4 uWakes[${WAKE_COUNT}];
+uniform sampler2D uWakeField;
+uniform vec3 uWakeBounds;
+uniform bool uHasWakes;
 uniform int uGrass;
 uniform int uSand;
 uniform int uRock;
@@ -103,10 +105,13 @@ uniform vec4 uSeaLobes[${SEA_SLOTS}];
 uniform vec4 uWarm;
 uniform float uSkySat;
 uniform float uGloom;
+uniform vec2 uInkAreas[12];
+uniform int uInkAreaCount;
 uniform float uTime;
 ${wildernessDrainGLSL}
 
 float hash21(vec2 p) { p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }
+vec2 hash22(vec2 p) { return vec2(hash21(p), hash21(p + 17.31)); }
 /** Value noise: random values on a unit lattice, blended with smoothstep weights. The lattice
  * is a small texture of random values, so the GPU's own bilinear filter does the four-corner
  * blend in one read (the smoothed fraction picks where between the texel centres it reads). */
@@ -163,7 +168,6 @@ vec3 seasonal(vec3 c, float kind, vec2 xz) {
   }
   return mix(ca, cb, t);
 }
-vec2 hash22(vec2 p) { return vec2(hash21(p), hash21(p + 17.31)); }
 /**
  * Brush dabs: a cellular pattern where each cell is one stroke of paint with its own random
  * value (-0.5..0.5). Neighbouring strokes blend softly where they meet, like wet paint.
@@ -751,6 +755,16 @@ void main() {
     }
 
 ${waterGLSL}
+    if (!figure && !fish && pigment != ${color('ink')} && uInkAreaCount > 0) {
+      float nearest = 1e6;
+      for (int i=0;i<12;i++) {
+        if (i>=uInkAreaCount) break;
+        nearest=min(nearest,length(wpos.xz-uInkAreas[i]));
+      }
+      float edge=nearest+(vnoise(wpos.xz*0.27)-0.5)*3.0;
+      float ink=1.0-smoothstep(${INFECTION_RADIUS-5}.0,${INFECTION_RADIUS+3}.0,edge);
+      col=mix(col,greyOf(col)*vec3(0.58,0.56,0.70),ink*0.93);
+    }
     // aerial perspective: far things melt into blue-white haze
     vec3 haze = horizonOf(rd);
     haze = mix(drainedAt(haze), haze, skySat);

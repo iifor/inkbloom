@@ -12,6 +12,22 @@ function rgbOf(index: number): string {
 }
 
 const MAX_DIST = 40;
+// Bright pigments stay readable at night; a player's room id keeps the colour consistent
+// for every observer, including players who happen to share the same nickname.
+const NAME_COLORS = [
+  '#ffd27d', // honey
+  '#9ee9d1', // mint
+  '#ffaaa2', // coral
+  '#9ddcff', // sky
+  '#dac0ff', // lilac
+  '#f7b8df', // rose
+  '#c9e98c', // lime
+  '#ffbd87', // apricot
+  '#9ee9ef', // turquoise
+  '#b8c9ff', // periwinkle
+  '#f4e89b', // primrose
+  '#e8c9ae', // sand
+] as const;
 
 export class NameTags {
   private readonly root: HTMLElement;
@@ -34,6 +50,7 @@ export class NameTags {
     if (!el) {
       el = document.createElement('div');
       el.className = 'name-tag';
+      el.style.setProperty('--name-color', NAME_COLORS[Math.abs(id) % NAME_COLORS.length]!);
       this.root.append(el);
       this.tags.set(id, el);
     }

@@ -37,7 +37,7 @@ export class CityMonsters {
       this.group.spawn(m.type, new THREE.Vector3(m.x, groundAt(layout, m.x, m.z) + 0.05, m.z), {
         tag: 'stronghold',
         key: `stronghold:${i}`,
-        onDefeat: () => this.defeat(i),
+        onDefeat: (byNpc) => this.defeat(i, byNpc),
         colors: this.colorsOf(m.chunk),
       });
     });
@@ -56,9 +56,13 @@ export class CityMonsters {
     return c;
   }
 
-  private defeat(i: number): void {
+  private defeat(i: number, byNpc = false): void {
     const m = this.layout.monsters[i]!;
-    if (!this.ctx.apply({ kind: 'defeat', city: this.layout.id, monster: i }).ok) return;
+    if (
+      !this.ctx.apply({ kind: 'defeat', city: this.layout.id, monster: i, ...(byNpc ? { npc: true } : {}) })
+        .ok
+    )
+      return;
     // the kill shows itself (colour bursts back, the ink count ticks up): no message
     if (standingMonsters(this.layout, this.defeated, m.chunk).length === 0)
       this.ctx.events.emit('toast', { text: '墨怪赶走了，可以上色了', seconds: 3 });

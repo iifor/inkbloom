@@ -10,7 +10,7 @@ import type { Daylight } from './daylight';
 import { shared } from './ink-material';
 import { LAMP_COUNT } from './lamps';
 import { NOISE_SIZE, postFrag, postVert } from './paint-shader';
-import { RIVER_SAMPLES, WAKE_COUNT } from './water-paint';
+import { RIVER_SAMPLES } from './water-paint';
 
 /** The value-noise lattice: a random value per cell, read with bilinear filtering and wrapped,
  * so one texture read is one octave of smooth noise. Seeded, so every run paints alike. */
@@ -38,6 +38,8 @@ export interface PaintInputs {
   readonly depth: THREE.DepthTexture;
   readonly noise: THREE.Texture;
   readonly rivers: THREE.Texture;
+  readonly wakes: THREE.Texture;
+  readonly wakeBounds: THREE.Vector3;
   readonly canopyBrush: THREE.Texture;
   /** The painted surface tiles and the cumulus atlas (painted-textures.ts). */
   readonly surfaces: THREE.Texture;
@@ -93,7 +95,9 @@ export function makePaintMaterial(o: PaintInputs): THREE.ShaderMaterial {
       uGlass: { value: color('glass') },
       uWater: { value: color('water') },
       uWildWater: { value: false },
-      uWakes: { value: Array.from({ length: WAKE_COUNT }, () => new THREE.Vector4()) },
+      uWakeField: { value: o.wakes },
+      uWakeBounds: { value: o.wakeBounds },
+      uHasWakes: { value: false },
       uGrass: { value: color('grass') },
       uSand: { value: color('sand') },
       uCities: shared.uCities,
@@ -104,6 +108,8 @@ export function makePaintMaterial(o: PaintInputs): THREE.ShaderMaterial {
       uDrainOuter: shared.uDrainOuter,
       uSceneSat: shared.uSceneSat,
       uArena: shared.uArena,
+      uInkAreas: shared.uInkAreas,
+      uInkAreaCount: shared.uInkAreaCount,
       uRock: { value: color('rock') },
       uSnow: { value: color('snow') },
       uCedar: { value: color('cedar') },

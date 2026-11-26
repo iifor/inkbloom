@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createWilderness, WATER_LEVEL } from '@/world/wilderness/generator';
 import { RIVER_ORIGIN } from '@/world/wilderness/river-corridors';
+import { createDrainage, riverPool } from '@/world/wilderness/drainage';
 import { currentSound, WaterCurrents } from '@/world/wilderness/water-current';
 
 describe('water current', () => {
@@ -28,6 +29,25 @@ describe('water current', () => {
   it('keeps a lake centre and disconnected water out of the current', () => {
     expect(ratedChannel(0.02, 1).at(RIVER_ORIGIN, 0)).toEqual({ x: 0, z: 0 });
     expect(ratedChannel(0.02).at(RIVER_ORIGIN + 35, 0)).toEqual({ x: 0, z: 0 });
+  });
+
+  it('varies river width and bed depth together and keeps pools quieter than riffles', () => {
+    const shaped = createDrainage(7, () => 8, true, true);
+    const old = createDrainage(7, () => 8, true);
+    const course = () => ({ x: RIVER_ORIGIN, half: 16 });
+    const pool = 50, riffle = -50;
+    expect(riverPool(0, pool)).toBeGreaterThan(0.8);
+    expect(riverPool(0, riffle)).toBeLessThan(0.2);
+    const height = (x: number, z: number) => shaped.riverGround(8, RIVER_ORIGIN + x, z, course);
+    expect(height(0, pool)).toBeLessThan(height(0, riffle) - 2);
+    expect(height(15, pool)).toBeLessThan(WATER_LEVEL);
+    expect(height(15, riffle)).toBeGreaterThanOrEqual(WATER_LEVEL);
+    expect(old.riverGround(8, RIVER_ORIGIN, pool, course)).toBe(old.riverGround(8, RIVER_ORIGIN, riffle, course));
+    const field = ratedChannel(0.02);
+    const quiet = field.at(RIVER_ORIGIN, pool).z;
+    const fast = field.at(RIVER_ORIGIN, riffle).z;
+    expect(fast).toBeGreaterThan(quiet * 1.6);
+    expect(currentSound(quiet)).toBeLessThan(currentSound(fast) * 0.4);
   });
 
   it('rejects a small puddle inside the surveyed river corridor across a dry bank', () => {

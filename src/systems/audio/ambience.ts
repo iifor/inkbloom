@@ -13,6 +13,7 @@ import { dayHours } from '@/engine/render/daylight';
 import type { GameContext } from '@/game/types';
 import { seasonBlend } from '@/world/climate/calendar';
 import { smoothstep } from '@/world/math/noise';
+import { bankWavePhase } from '@/world/wilderness/water-waves';
 import { AmbienceSites, ambienceGain, type AmbienceSite } from './ambience-sites';
 
 interface Mix {
@@ -43,11 +44,14 @@ export class Ambience {
     if (this.cicada || !this.synth.ctx) return;
     const s = this.synth;
     this.cicada = s.noiseLoop({ type: 'bandpass', freq: 4200, q: 3, gain: 0.05, spatial: true });
-    this.stream = s.noiseLoop({ type: 'bandpass', freq: 900, q: 0.7, gain: 0.22, spatial: true });
+    this.stream = s.noiseLoop({ type: 'lowpass', freq: 750, q: 0, gain: 0.10, spatial: true });
     this.leaves = s.noiseLoop({ type: 'highpass', freq: 2400, gain: 0.12, spatial: true });
     const bed = (url: string, gain: number): Stream =>
       s.stream(import.meta.env.BASE_URL + url, { loop: true, gain, bus: 'ambience', spatial: true });
-    this.beds = { forest: bed(BEDS.forest, 0.55), birds: bed(BEDS.birds, 0.45), river: bed(BEDS.river, 0.6) };
+    const river = s.stream(import.meta.env.BASE_URL + BEDS.river, {
+      loop: true, gain: 0.27, bus: 'ambience', spatial: true, lowPass: 750,
+    });
+    this.beds = { forest: bed(BEDS.forest, 0.55), birds: bed(BEDS.birds, 0.45), river };
   }
 
   private sample(): void {
@@ -94,7 +98,7 @@ export class Ambience {
       if (site.kind === 'meadow') this.add(meadow, site.pos, 12, 76, 2.2);
       if (site.kind === 'water' && wild) this.add(shore, site.pos, 8, 62);
       if (site.kind === 'current' && wild)
-        this.add(current, site.pos, 10, 28 + 24 * site.strength, 0, site.strength);
+        this.add(current, site.pos, 7, 17 + 22 * site.strength, 0, site.strength);
     }
     const pan = (m: Mix) => (m.weight ? m.pan / m.weight : 0);
     const land = forest.level >= meadow.level ? forest : meadow;
@@ -148,9 +152,14 @@ export class Ambience {
     if (shore.source && roll(1.1 * night * shore.level * (spring + summer) * (1 - 0.5 * wet) * life))
       this.frog({ ...shore.source });
 
-    const water = current.level * (1 - 0.8 * winter * smoothstep(0, -3, a.seaTemp));
-    beds?.river.set(water, 0.65, pan(current));
-    this.stream?.set(beds?.river.playing ? 0 : water, pan(current));
+    const source = shore.source ?? current.source;
+    const phase = source ? bankWavePhase(source.x, source.z, performance.now() / 1000) : 0;
+    const lap = smoothstep(0.35, 0.70, phase) * (1 - smoothstep(0.70, 1, phase));
+    const wash = current.level * lap;
+    const water = current.level * (0.88 + wash * 0.19) * (1 - 0.8 * winter * smoothstep(0, -3, a.seaTemp));
+    const cutoff = 660 + 2450 * current.level + 550 * wash;
+    beds?.river.set(water, 0.42, pan(current), cutoff);
+    this.stream?.set(beds?.river.playing ? 0 : water, pan(current), cutoff);
     // bare winter branches hardly rustle
     this.leaves?.set(wild ? forest.level * smoothstep(1.5, 9, wind) * (1 - 0.7 * winter) : 0, pan(forest));
   }

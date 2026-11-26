@@ -219,7 +219,7 @@ export class Hud implements System {
     this.shown('friend', this.el.friend, !!friend);
     const t = now();
     const scene = this.scenes.active;
-    const brush = this.belt.active?.id === 'brush';
+    const brush = !this.ctx.combat.infected && this.belt.active?.id === 'brush';
     if (this.ctx.input.pressed('goal')) this.recallUntil = t + SHOW.recall;
     if (this.objectives.changedAt !== this.goalSeenAt) {
       this.goalSeenAt = this.objectives.changedAt;
@@ -307,8 +307,8 @@ export class Hud implements System {
       if (this.lastTool >= 0) this.slotsUntil = t + SHOW.slots;
       this.lastTool = this.belt.index;
     }
-    this.shown('slots', this.el.slots, recall || t < this.slotsUntil);
-    const hud = this.ctx.player.waterMode === 'swimming' ? undefined : this.belt.active?.hud();
+    this.shown('slots', this.el.slots, !this.ctx.combat.infected && (recall || t < this.slotsUntil));
+    const hud = this.ctx.combat.infected ? {lines:['墨怪 · 左键扑击'],progress:null,swatch:null} : this.ctx.player.waterMode === 'swimming' ? undefined : this.belt.active?.hud();
     // the tool's own line (mode and pigment, weapon and ammo) is news when it changes; the rest
     // (what the brush is aimed at, a skill cooling down) shows for as long as it is there
     const [own = '', ...rest] = hud?.lines ?? [];

@@ -6,6 +6,8 @@ import { defaultLook, type Look } from '@/content/characters';
 import { color } from '@/content/palette';
 import { TUNING } from '@/content/tuning';
 import { type Body, makeBody } from '@/engine/physics/world';
+import { avoidPerson } from '@/engine/physics/character-contact';
+import { npcBattles } from '@/systems/combat/npc-combat';
 import type { GameContext, PlayerApi, System } from '@/game/types';
 import type { RestMotion } from '@/world/net/protocol';
 
@@ -30,8 +32,8 @@ const STEP_RETURN = 18;
 const LAND_RECOVERY = 0.28;
 const GRASS = color('grass');
 const REST_VIEW = {
-  sitting: { height: 0.8, ahead: -0.35, pitch: -0.24, minPitch: -1.15, maxPitch: 0.62, yawLimit: 1.05 },
-  lying: { height: 0.5, ahead: -0.72, pitch: 0.42, minPitch: -0.42, maxPitch: 1.48, yawLimit: 0.58 },
+  sitting: { height: 0.8, ahead: -0.35, pitch: 0.02, minPitch: -0.65, maxPitch: 0.9, yawLimit: 1.2 },
+  lying: { height: 0.5, ahead: -0.72, pitch: 0.42, minPitch: -0.28, maxPitch: 1.48, yawLimit: 0.95 },
 } as const;
 const REST_SECONDS = { sitting: 0.8, lying: 1.05, standing: 0.52 } as const;
 
@@ -288,7 +290,7 @@ export class PlayerSystem implements System, PlayerApi {
   }
 
   private drawRestBody(dt: number): void {
-    if ((!this.resting && !this.gettingUp) || !this.ctx.combat.alive) {
+    if ((!this.resting && !this.gettingUp) || !this.ctx.combat.alive || this.ctx.combat.infected) {
       this.restBody?.hide();
       return;
     }
@@ -312,7 +314,7 @@ export class PlayerSystem implements System, PlayerApi {
       this.yaw = this.restYaw + THREE.MathUtils.clamp(this.yaw - this.restYaw, -yawLimit, yawLimit);
       this.pitch = THREE.MathUtils.clamp(this.pitch + look.pitch, view.minPitch, view.maxPitch);
     } else this.pitch = THREE.MathUtils.clamp(this.pitch + look.pitch, -1.5, 1.5);
-    if (!this.ctx.combat.alive) this.flying = false;
+    if (!this.ctx.combat.alive || this.ctx.combat.infected) this.flying = false;
     else if (input.pressed('debugFly')) {
       if (this.ctx.arena?.inside)
         this.ctx.events.emit('toast', { text: '竞技场内不能使用飞行器', seconds: 2 });
@@ -378,13 +380,13 @@ export class PlayerSystem implements System, PlayerApi {
         Math.exp(-dt * STEP_RETURN);
     }
     this.stepFeel(dt);
-    const kicked = this.arms.update(dt, this.swimBlend, this.body.vel, this.yaw, this.pitch);
-    if (this.flying && !this.flightBody && this.ctx.renderer.scene) {
-      this.flightBody = new FlightBody(this.ctx.renderer.scene);
+    const kicked = this.arms.update(dt, this.ctx.combat.infected ? 0 : this.swimBlend, this.body.vel, this.yaw, this.pitch);
+    if (this.flying && !this.flightBody) {
+      this.flightBody = new FlightBody();
     }
-    this.flightBody?.draw(dt, this.look, this.position, this.yaw, this.flying, this.ctx.combat.alive);
-    this.syncCamera();
+    this.flightBody?.update(dt, this.position, this.yaw, this.flying, this.ctx.combat.alive);
     this.drawRestBody(dt);
+    this.syncCamera();
     if (kicked && this.waterMode === 'swimming') {
       const hands = this.arms.hands();
       for (const h of hands) h.y = WATER_LEVEL;
@@ -426,7 +428,7 @@ export class PlayerSystem implements System, PlayerApi {
       this.airJumps = 0;
       const buoyancy = THREE.MathUtils.clamp((WATER_LEVEL - 0.72 - b.pos.y) * 5, -2.5, 3.5);
       b.vel.y = THREE.MathUtils.damp(Math.max(b.vel.y, -3), buoyancy, 9, dt);
-      this.ctx.scenes.active.physics.moveBody(b, dt);
+      this.moveBody(dt);
       return;
     }
     if (b.onGround) this.airJumps = P.airJumps;
@@ -454,7 +456,7 @@ export class PlayerSystem implements System, PlayerApi {
       b.vel.y < 0 &&
       !this.waitForGliderRelease &&
       input.held('jump') &&
-      this.ctx.state.inventory.glider;
+      !this.ctx.combat.infected && this.ctx.state.inventory.glider;
     if (this.gliding) {
       b.vel.y = Math.max(b.vel.y, -P.glideFall);
       const fx = -Math.sin(this.yaw) * P.glideSpeed;
@@ -464,7 +466,7 @@ export class PlayerSystem implements System, PlayerApi {
     }
     const down = -b.vel.y;
     const wasAboveWater = b.pos.y >= WATER_LEVEL - 0.03;
-    this.ctx.scenes.active.physics.moveBody(b, dt);
+    this.moveBody(dt);
     this.finishFall(down, wasAboveWater);
     if (b.pos.y < -80) {
       const s = this.ctx.scenes.active.spawn();
@@ -519,10 +521,24 @@ export class PlayerSystem implements System, PlayerApi {
     const floor = Math.max(this.ctx.wilderness.heightAt(b.pos.x, b.pos.z), WATER_LEVEL) + 0.2;
     const targetY = THREE.MathUtils.clamp(b.pos.y + up * speed * dt, floor, Math.max(floor, P.flyCeiling));
     b.vel.y = THREE.MathUtils.clamp((targetY - b.pos.y) / dt, -speed, speed);
-    this.ctx.scenes.active.physics.moveBody(b, dt);
+    this.moveBody(dt);
     b.onGround = false;
     if (!pushed) b.vel.set(0, 0, 0);
     else b.vel.y = 0;
+  }
+
+  private moveBody(dt: number): void {
+    const physics = this.ctx.scenes.active.physics;
+    this.ctx.net?.avoidPlayers(this.body, dt);
+    if (!this.ctx.arena?.inside) {
+      for (const npc of npcBattles(this.ctx).people) {
+        if (npc.alive && npc.physics === physics) {
+          const { x, y, z } = npc.position;
+          avoidPerson(this.body, x, y, z, P.height, dt);
+        }
+      }
+    }
+    physics.moveBody(this.body, dt);
   }
 
   /** Head bob from walking and the spring back from a landing dip (presentation only). */
@@ -549,6 +565,7 @@ export class PlayerSystem implements System, PlayerApi {
     // the crosshair. The collision body stays on the real tread throughout.
     this.eye.copy(this.body.pos).add(this.restEyeOffset);
     this.eye.y += P.eyeHeight * standing + this.stepOffset - this.swimBlend * 0.74;
+    this.restBody?.adjustEye(this.eye, this.restYaw, this.restPose);
     if (lying > 0)
       this.eye.y = Math.max(
         this.eye.y,
@@ -588,8 +605,14 @@ export class PlayerSystem implements System, PlayerApi {
       head.roll * this.swimBlend + this.restRoll,
       'YXZ',
     );
-    cam.updateMatrixWorld();
     this.forward.set(0, 0, -1).applyQuaternion(cam.quaternion);
+    if (this.ctx.combat.infected && this.ctx.combat.alive) {
+      const back = this.flightEyeOffset.copy(this.forward).negate();
+      const hit = this.ctx.scenes.active.physics.raycast(cam.position,back,3.2);
+      cam.position.addScaledVector(back,Math.max(0,(hit?.dist ?? 3.2)-0.12));
+      cam.position.y=Math.max(cam.position.y,(this.ctx.scenes.active.physics.ground?.(cam.position.x,cam.position.z) ?? -Infinity)+0.2);
+    }
+    cam.updateMatrixWorld();
   }
 
   /** Use the chosen character for the first-person body and hands. */
@@ -610,14 +633,13 @@ export class PlayerSystem implements System, PlayerApi {
       dt,
       this,
       held,
-      this.ctx.combat.alive && this.swimBlend <= 0.025 && !this.resting && !this.gettingUp,
+      this.ctx.combat.alive && !this.ctx.combat.infected && this.swimBlend <= 0.025 && !this.resting && !this.gettingUp,
       brace,
     );
   }
 
   dispose(): void {
     this.restBody?.dispose();
-    this.flightBody?.dispose();
     this.arms.dispose();
     this.walkArms.dispose();
   }

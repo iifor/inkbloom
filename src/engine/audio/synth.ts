@@ -53,7 +53,7 @@ export interface SampleOptions {
 /** A long recording streamed from a file (a looping ambience bed, or a music track). */
 export interface Stream {
   /** Fade to `level` over `seconds`; spatial streams can also pan left (-1) or right (1). */
-  set(level: number, seconds?: number, pan?: number): void;
+  set(level: number, seconds?: number, pan?: number, cutoff?: number): void;
   /** Fade out and stop for good. */
   stop(seconds?: number): void;
   /** Whether it is actually sounding: false while loading, after an error, or once ended. */
@@ -64,7 +64,7 @@ export interface Stream {
 
 export interface Loop {
   /** 0..1, smoothed. */
-  set(level: number, pan?: number): void;
+  set(level: number, pan?: number, cutoff?: number): void;
   stop(): void;
 }
 
@@ -156,6 +156,10 @@ export class Synth {
     this.applyVolumes();
   }
 
+  get speechVolume(): number {
+    return this.volumes.master * this.volumes.sfx;
+  }
+
   private applyVolumes(): void {
     if (!this.ctx || !this.master) return;
     const t = this.ctx.currentTime;
@@ -197,7 +201,7 @@ export class Synth {
    */
   stream(
     url: string,
-    o: { loop: boolean; gain: number; bus: 'music' | 'ambience'; spatial?: boolean },
+    o: { loop: boolean; gain: number; bus: 'music' | 'ambience'; spatial?: boolean; lowPass?: number },
   ): Stream {
     const ctx = this.ctx;
     const state = { playing: false, over: false };
@@ -207,7 +211,15 @@ export class Synth {
     el.preload = 'auto';
     const g = ctx.createGain();
     g.gain.value = 0;
-    ctx.createMediaElementSource(el).connect(g);
+    const source = ctx.createMediaElementSource(el);
+    const filter = o.lowPass === undefined ? null : ctx.createBiquadFilter();
+    if (filter) {
+      filter.type = 'lowpass';
+      filter.Q.value = 0;
+      filter.frequency.value = o.lowPass!;
+      source.connect(filter);
+      filter.connect(g);
+    } else source.connect(g);
     const pan = this.connectBed(g, o.bus, o.spatial);
     el.addEventListener('playing', () => (state.playing = !state.over));
     const end = (): void => {
@@ -218,10 +230,11 @@ export class Synth {
     el.addEventListener('ended', end);
     el.play().catch(end);
     return {
-      set: (level, seconds = 1, stereo = 0) => {
+      set: (level, seconds = 1, stereo = 0, cutoff?: number) => {
         g.gain.cancelScheduledValues(ctx.currentTime);
         g.gain.setTargetAtTime(Math.max(0, level) * o.gain, ctx.currentTime, Math.max(0.01, seconds / 3));
         pan?.pan.setTargetAtTime(stereo, ctx.currentTime, 0.12);
+        if (cutoff !== undefined) filter?.frequency.setTargetAtTime(cutoff, ctx.currentTime, 0.16);
       },
       stop: (seconds = 1) => {
         g.gain.setTargetAtTime(0, ctx.currentTime, Math.max(0.01, seconds / 3));
@@ -272,6 +285,32 @@ export class Synth {
     g.connect(this.out(o.pos, o.bus ?? 'sfx'));
     src.start(ctx.currentTime + (o.delay ?? 0));
     return true;
+  }
+
+  /** Recorded dialogue, with an explicit stop handle for focus loss and scene changes. */
+  dialogue(name: string, pos: Vec3): (() => void) | null {
+    const ctx = this.ctx,
+      buffer = this.samples.get(name)?.[0];
+    if (!ctx || ctx.state !== 'running' || !buffer) return null;
+    const source = ctx.createBufferSource();
+    source.buffer = buffer;
+    const gain = ctx.createGain();
+    gain.gain.value = 0.8;
+    source.connect(gain);
+    gain.connect(this.out(pos, 'sfx'));
+    let ended = false;
+    source.onended = () => {
+      ended = true;
+      source.disconnect();
+      gain.disconnect();
+    };
+    source.start();
+    return () => {
+      if (!ended) {
+        ended = true;
+        source.stop();
+      }
+    };
   }
 
   noise(o: NoiseOptions): void {
@@ -342,9 +381,10 @@ export class Synth {
     const pan = this.connectBed(g, o.bus ?? 'ambience', o.spatial);
     src.start();
     return {
-      set: (level, stereo = 0) => {
+      set: (level, stereo = 0, cutoff?: number) => {
         g.gain.setTargetAtTime(Math.max(0, level) * o.gain, ctx.currentTime, 0.12);
         pan?.pan.setTargetAtTime(stereo, ctx.currentTime, 0.12);
+        if (cutoff !== undefined) f.frequency.setTargetAtTime(cutoff, ctx.currentTime, 0.16);
       },
       stop: () => {
         g.gain.setTargetAtTime(0, ctx.currentTime, 0.05);

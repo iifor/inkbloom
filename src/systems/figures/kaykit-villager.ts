@@ -5,6 +5,7 @@ import { makeInkMaterial } from '@/engine/render/ink-material';
 import { characterMaterial, enableCharacterPaint } from '@/engine/render/character-paint';
 import type { Occupation, ResidentMotion } from '@/world/city/resident-routine';
 import { color } from '@/content/palette';
+import type { NpcFighter } from '@/systems/combat/npc-combat';
 import { kaykitDyeRole, residentDyes } from './resident-dyes';
 
 export const VILLAGER_MODELS = ['rogue', 'mage', 'barbarian', 'knight', 'rogue-hooded'] as const;
@@ -56,9 +57,18 @@ export class ResidentFigure {
   private readonly material = makeInkMaterial({ cloth: true });
   private readonly clips: Map<string, THREE.AnimationClip>;
   private current: THREE.AnimationAction;
-  private close = false;
-  private greetingCooldown = 0;
   private preview = false;
+  private head?: THREE.Bone;
+  private readonly headBase = new THREE.Quaternion();
+  private gazeApplied = false;
+  private gazeYaw = 0;
+  private gazePitch = 0;
+  private readonly headAt = new THREE.Vector3();
+  private readonly right = new THREE.Vector3();
+  private readonly up = new THREE.Vector3(0, 1, 0);
+  private readonly parentRotation = new THREE.Quaternion();
+  private readonly gazeRotation = new THREE.Quaternion();
+  private readonly pitchRotation = new THREE.Quaternion();
 
   constructor(
     source: Pick<GLTF, 'scene' | 'animations'>,
@@ -72,6 +82,7 @@ export class ResidentFigure {
     this.root.name = this.motions === VILLAGER_MOTIONS ? 'kaykit-villager' : 'quaternius-villager';
     this.root.add(this.model);
     this.model.traverse((object) => {
+      if (object instanceof THREE.Bone && /^head$/i.test(object.name)) this.head = object;
       if (!(object instanceof THREE.Mesh)) return;
       object.geometry = object.geometry.clone();
       const count = object.geometry.getAttribute('position').count;
@@ -140,7 +151,25 @@ export class ResidentFigure {
     this.play(this.motions.cheer?.clip ?? this.motions.interact.clip);
   }
 
+  combatPose(dt: number, fighter: NpcFighter): void {
+    this.resetGaze();
+    this.preview = true; // Hold a completed down animation instead of returning to idle.
+    const names =
+      fighter.down > 0
+        ? ['Death', 'Death_A', 'Defeat']
+        : fighter.hurt > 0
+          ? ['Hit_React', 'RecieveHit', 'Hit_A']
+          : fighter.swing >= 0
+            ? ['Punch', this.motions.slash?.clip ?? '', '1H_Melee_Attack_Chop']
+            : [fighter.approachHeading !== undefined ? this.motions.walk.clip : this.motions.idle.clip];
+    this.play(names.find((name) => this.clips.has(name)) ?? this.motions.idle.clip);
+    this.mixer.update(dt);
+    if (!names.some((name) => this.clips.has(name)) && fighter.down > 0) this.root.rotation.z = Math.PI / 2;
+    else this.root.rotation.z = 0;
+  }
+
   previewMotion(motion: VillagerMotion, firstPerson: boolean, dt: number): void {
+    this.resetGaze();
     this.preview = true;
     const name = this.motions[motion]!.clip;
     this.action(name).setLoop(THREE.LoopRepeat, Infinity);
@@ -153,20 +182,66 @@ export class ResidentFigure {
     this.mixer.update(dt);
   }
 
-  update(dt: number, close: boolean, motion: ResidentMotion = 'idle'): void {
-    this.greetingCooldown = Math.max(0, this.greetingCooldown - dt);
-    if (motion === 'walk') this.play(this.motions.walk.clip);
-    else if (close && !this.close && this.greetingCooldown === 0) {
-      this.play(this.motions.interact.clip);
-      this.greetingCooldown = 8;
-    } else if (
+  update(
+    dt: number,
+    close: boolean,
+    motion: ResidentMotion = 'idle',
+    lookAt?: { x: number; y: number; z: number },
+  ): void {
+    if (this.preview) this.play(this.motions.idle.clip);
+    this.preview = false;
+    this.root.rotation.z = 0;
+    this.resetGaze();
+    if (close) this.play(this.motions.idle.clip);
+    else if (motion === 'walk') this.play(this.motions.walk.clip);
+    else if (
       this.current.getClip().name === 'Idle' ||
       this.current.getClip().name === this.motions.walk.clip
     ) {
       this.play(this.motions[motion]!.clip);
     }
-    this.close = close;
     this.mixer.update(dt);
+    this.applyGaze(dt, lookAt);
+  }
+
+  private resetGaze(): void {
+    // Restore the animated pose before the mixer, also for rigs without a head track.
+    if (this.gazeApplied && this.head) this.head.quaternion.copy(this.headBase);
+    this.gazeApplied = false;
+  }
+
+  private applyGaze(dt: number, target?: { x: number; y: number; z: number }): void {
+    if (!this.head?.parent) return;
+    if (!target && Math.abs(this.gazeYaw) + Math.abs(this.gazePitch) < 0.0001) return;
+    this.head.getWorldPosition(this.headAt);
+    const bodyYaw = this.root.rotation.y;
+    let yaw = 0,
+      pitch = 0;
+    if (target) {
+      const dx = target.x - this.headAt.x,
+        dz = target.z - this.headAt.z;
+      const difference = Math.atan2(dx, dz) - bodyYaw;
+      yaw = THREE.MathUtils.clamp(Math.atan2(Math.sin(difference), Math.cos(difference)), -0.5, 0.5);
+      pitch = THREE.MathUtils.clamp(Math.atan2(target.y - this.headAt.y, Math.hypot(dx, dz)), -0.35, 0.3);
+    }
+    const ease = 1 - Math.exp(-9 * dt);
+    this.gazeYaw += (yaw - this.gazeYaw) * ease;
+    this.gazePitch += (pitch - this.gazePitch) * ease;
+    if (Math.abs(this.gazeYaw) + Math.abs(this.gazePitch) < 0.0001) return;
+    this.headBase.copy(this.head.quaternion);
+    this.head.parent.getWorldQuaternion(this.parentRotation);
+    this.right.set(Math.cos(bodyYaw), 0, -Math.sin(bodyYaw));
+    this.gazeRotation.setFromAxisAngle(this.up, this.gazeYaw);
+    this.pitchRotation.setFromAxisAngle(this.right, -this.gazePitch);
+    this.gazeRotation.multiply(this.pitchRotation);
+    // Convert a world-space adjustment into the bone parent's axes (rigs differ).
+    this.pitchRotation
+      .copy(this.parentRotation)
+      .invert()
+      .multiply(this.gazeRotation)
+      .multiply(this.parentRotation);
+    this.head.quaternion.copy(this.pitchRotation).multiply(this.headBase);
+    this.gazeApplied = true;
   }
 
   dispose(): void {

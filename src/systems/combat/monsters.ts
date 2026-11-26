@@ -22,6 +22,7 @@ import type { Point3 } from '@/game/events';
 import type { GameContext, HitOptions, TargetHit, TargetSource } from '@/game/types';
 import { findPath, type NavGrid, type Waypoint } from '@/world/nav/path';
 import { WATER_LEVEL } from '@/world/wilderness/water-level';
+import { npcBattles, type NpcFighter, type NpcEnemy } from './npc-combat';
 import { MonsterFigures, type Pose } from './monster-figure';
 
 const FEEL = TUNING.combat.feel;
@@ -68,6 +69,8 @@ const KNOCK_TIME = 0.3;
 let nextId = 1;
 
 interface Monster {
+  victim?: NpcFighter;
+  foe?: NpcEnemy;
   readonly id: number;
   readonly def: EnemyDef;
   readonly hitCenterHeight: number;
@@ -84,7 +87,7 @@ interface Monster {
   melt: number;
   readonly tag: string;
   readonly key: string | undefined;
-  readonly onDefeat: (() => void) | undefined;
+  readonly onDefeat: ((byNpc?: boolean) => void) | undefined;
   hp: number;
   aggro: boolean;
   attackT: number;
@@ -108,6 +111,7 @@ interface Monster {
 }
 
 interface Spit {
+  readonly victim?: NpcFighter;
   readonly pos: THREE.Vector3;
   readonly vel: THREE.Vector3;
   readonly damage: number;
@@ -139,7 +143,7 @@ const _sight = new THREE.Vector3();
 export interface SpawnOptions {
   /** Group label so a set (e.g. a tide's monsters) can be cleared together. */
   readonly tag: string;
-  readonly onDefeat?: () => void;
+  readonly onDefeat?: (byNpc?: boolean) => void;
   /** The colours it stole from where it lives; see world/paint/stolen.ts. */
   readonly colors?: readonly number[];
   /** Its saved identity (a stronghold slot, a wild monster id), so a defeat elsewhere (another
@@ -168,7 +172,7 @@ export class MonsterGroup implements TargetSource {
 
   spawn(type: number, pos: THREE.Vector3, opts: SpawnOptions): void {
     const def: EnemyDef = ENEMIES[type]!;
-    this.monsters.push({
+    const m: Monster = {
       id: nextId++,
       def,
       body: makeBody(pos, def.halfWidth, def.height, 0.55),
@@ -200,9 +204,17 @@ export class MonsterGroup implements TargetSource {
       seeT: Math.random() * SIGHT_INTERVAL,
       path: null,
       repathT: 0,
-    });
+    };
+    this.monsters.push(m);
+    m.foe = {
+      position: m.body.pos,
+      radius: def.halfWidth,
+      physics: this.physics,
+      alive: () => !m.dead,
+      damage: (amount, from) => this.hitOn(m, 0).damage(amount, from, { byNpc: true }),
+    };
+    npcBattles(this.ctx).enemies.add(m.foe);
   }
-
   /** Living monsters, for objectives and the HUD. */
   living(tag?: string): THREE.Vector3[] {
     return this.monsters.filter((m) => !m.dead && (!tag || m.tag === tag)).map((m) => m.body.pos);
@@ -289,7 +301,7 @@ export class MonsterGroup implements TargetSource {
           });
           return false;
         }
-        this.defeat(m, at, dealt);
+        this.defeat(m, at, dealt, opts.byNpc);
         return true;
       },
     };
@@ -322,22 +334,23 @@ export class MonsterGroup implements TargetSource {
 
   private remove(m: Monster): void {
     m.dead = true;
+    if (m.foe) npcBattles(this.ctx).enemies.delete(m.foe);
     // it stays drawn while it melts away
     m.melt = 0;
     m.act = null;
   }
 
-  private defeat(m: Monster, at: Point3, amount: number): void {
+  private defeat(m: Monster, at: Point3, amount: number, byNpc = false): void {
     m.hp = 0;
     this.remove(m);
-    this.ctx.events.emit('monster:died', { at, id: m.id, amount, colors: m.colors });
-    m.onDefeat?.();
+    if (!byNpc) this.ctx.events.emit('monster:died', { at, id: m.id, amount, colors: m.colors });
+    m.onDefeat?.(byNpc);
   }
 
-  private sees(m: Monster): boolean {
+  private sees(m: Monster, eye: THREE.Vector3): boolean {
     const p = m.body.pos;
     _eye.set(p.x, p.y + m.def.height * 0.8, p.z);
-    _sight.subVectors(this.ctx.player.eye, _eye);
+    _sight.subVectors(eye, _eye);
     const dist = _sight.length();
     if (dist < 1e-3) return true;
     const hit = this.physics.raycast(_eye, _sight.divideScalar(dist), dist);
@@ -427,7 +440,7 @@ export class MonsterGroup implements TargetSource {
 
   update(dt: number): void {
     const { player, combat } = this.ctx;
-    const pp = player.position;
+    const playerPos = player.position;
     this.plans = 0;
     for (const m of this.monsters) {
       if (m.dead) {
@@ -441,7 +454,7 @@ export class MonsterGroup implements TargetSource {
         m.tag === 'stronghold' &&
         !m.aggro &&
         !m.act &&
-        b.pos.distanceToSquared(pp) > DRAW_RANGE ** 2 &&
+        b.pos.distanceToSquared(playerPos) > DRAW_RANGE ** 2 &&
         b.pos.distanceToSquared(m.home) < 1
       )
         continue;
@@ -462,18 +475,34 @@ export class MonsterGroup implements TargetSource {
       m.seeT -= dt;
       m.jumpT -= dt;
       if (this.sinkInWater(m, dt)) continue;
+      if (m.seeT <= 0 || (m.victim && !m.victim.alive)) {
+        const playerRange = combat.alive && !combat.infected ? b.pos.distanceTo(playerPos) : Infinity;
+        const victim = npcBattles(this.ctx).victim(this.physics, b.pos, Math.min(def.aggro, playerRange));
+        if (victim !== m.victim) {
+          m.act = null;
+          m.path = null;
+          m.repathT = 0;
+          m.seeT = 0;
+        }
+        m.victim = victim;
+      }
+      const pp = m.victim?.position ?? playerPos;
+      const eye = m.victim?.eye ?? player.eye;
+      const targetAlive = m.victim ? m.victim.alive : combat.alive && !combat.infected;
+      const damageTarget = (amount: number) =>
+        m.victim ? m.victim.damage(amount) : combat.damagePlayer(amount, b.pos, { melee: true, inkMonster: true });
       _to.set(pp.x - b.pos.x, 0, pp.z - b.pos.z);
       const dist = _to.length();
       if (dist > 1e-3) _to.divideScalar(dist);
       if (m.seeT <= 0) {
         m.seeT = SIGHT_INTERVAL;
-        m.canSee = combat.alive && dist < def.aggro * 2.5 && this.sees(m);
+        m.canSee = targetAlive && dist < def.aggro * 2.5 && this.sees(m, eye);
       }
 
       if (!m.aggro && m.canSee && dist < def.aggro) m.aggro = true;
       if (
         m.aggro &&
-        (!combat.alive || b.pos.distanceTo(m.home) > TUNING.combat.leash || dist > def.aggro * 2.5)
+        (!targetAlive || b.pos.distanceTo(m.home) > TUNING.combat.leash || dist > def.aggro * 2.5)
       )
         m.aggro = false;
 
@@ -494,8 +523,8 @@ export class MonsterGroup implements TargetSource {
           }
           if (m.act?.kind === 'melee' && !m.act.done && m.act.t >= MELEE_LANDS) {
             m.act.done = true;
-            if (dist < a.range * 1.25 && Math.abs(pp.y - b.pos.y) < 2) {
-              combat.damagePlayer(a.damage, b.pos, { melee: true });
+            if (m.canSee && this.sees(m, eye) && dist < a.range * 1.25 && Math.abs(pp.y - b.pos.y) < 2) {
+              damageTarget(a.damage);
               this.ctx.events.emit('monster:bite', { at: b.pos });
             }
           }
@@ -564,9 +593,9 @@ export class MonsterGroup implements TargetSource {
       if (dashing && !dashing.done) {
         // passing the player's body (feet to head) on the way through
         const dy = pp.y - b.pos.y;
-        if (dist < LUNGE_REACH && dy > -1 && dy < 2) {
+        if (dist < LUNGE_REACH && dy > -1 && dy < 2 && this.sees(m, eye)) {
           dashing.done = true;
-          combat.damagePlayer(att.damage, b.pos, { melee: true });
+          damageTarget(att.damage);
           this.ctx.events.emit('monster:bite', { at: b.pos });
         }
       }
@@ -687,14 +716,14 @@ export class MonsterGroup implements TargetSource {
   private spit(m: Monster, speed: number, damage: number): void {
     const from = new THREE.Vector3(m.body.pos.x, m.body.pos.y + m.def.height * 0.8, m.body.pos.z);
     // aim a little high to make up for the drop
-    const target = this.ctx.player.eye.clone();
+    const target = (m.victim?.eye ?? this.ctx.player.eye).clone();
     const flight = from.distanceTo(target) / speed;
     target.y += 0.5 * SPIT_GRAVITY * flight * flight - 0.3;
     const vel = target.sub(from).normalize().multiplyScalar(speed);
     const mesh = new THREE.Mesh(spitGeo(), this.material);
     mesh.position.copy(from);
     this.root.add(mesh);
-    this.spits.push({ pos: from, vel, damage, mesh, life: SPIT_LIFE });
+    this.spits.push({ pos: from, vel, damage, mesh, life: SPIT_LIFE, victim: m.victim });
     this.ctx.events.emit('monster:spit', { at: from });
   }
 
@@ -709,10 +738,13 @@ export class MonsterGroup implements TargetSource {
       const wall = this.physics.raycast(s.pos, _dir, step);
       s.pos.addScaledVector(s.vel, dt);
       // distance from the spit to the player's body (feet to eye)
-      const pp = player.position;
-      const y = THREE.MathUtils.clamp(s.pos.y, pp.y, player.eye.y);
+      const pp = s.victim?.position ?? player.position;
+      const y = THREE.MathUtils.clamp(s.pos.y, pp.y, s.victim?.eye.y ?? player.eye.y);
       const hitPlayer = Math.hypot(s.pos.x - pp.x, s.pos.y - y, s.pos.z - pp.z) < 0.6;
-      if (hitPlayer) combat.damagePlayer(s.damage, s.pos);
+      if (hitPlayer && !wall) {
+        if (s.victim) s.victim.damage(s.damage);
+        else combat.damagePlayer(s.damage, s.pos, { inkMonster: true });
+      }
       if (hitPlayer || wall || s.life <= 0) {
         s.mesh.removeFromParent();
         this.spits.splice(i, 1);
@@ -724,6 +756,7 @@ export class MonsterGroup implements TargetSource {
     this.release();
     this.figures.dispose();
     for (const s of this.spits) s.mesh.removeFromParent();
+    for (const m of this.monsters) if (m.foe) npcBattles(this.ctx).enemies.delete(m.foe);
     this.monsters.length = 0;
     this.spits.length = 0;
   }

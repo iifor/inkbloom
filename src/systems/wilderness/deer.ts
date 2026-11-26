@@ -13,10 +13,8 @@ import { WATER_LEVEL } from '@/world/wilderness/generator';
 import { chunkSaturation } from '@/world/wilderness/wild-monsters';
 import { type Herd, herdsNear } from '@/world/wilderness/wildlife';
 
-/** A herd is put out within SHOW metres of the player (unless the player is already within
- * NEAR), and taken in beyond HIDE. */
+/** Include close herds on initial load/teleport; never leave a populated meadow empty. */
 const SHOW = 150;
-const NEAR = 70;
 const HIDE = 190;
 /** A herd taken in comes back out no further than this from its own meadow. */
 const ROAM = 60;
@@ -128,7 +126,7 @@ export class WildDeer {
         const at = this.spots.get(herd.id) ?? herd;
         if (!this.coloured(at)) continue;
         const d = Math.hypot(at.x - p.x, at.z - p.z);
-        if (d > NEAR && d <= SHOW) this.put(herd, at);
+        if (d <= SHOW && this.out.size < 3) this.put(herd, at);
       }
       for (const [id, o] of this.out)
         if (Math.hypot(o.ax - p.x, o.az - p.z) > HIDE) {

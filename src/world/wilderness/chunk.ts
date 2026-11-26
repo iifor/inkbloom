@@ -11,6 +11,7 @@ import { type Bridge, type Trail, pathsOf } from './paths';
 import { type PigmentSource, sourcesInChunk } from './sources';
 import { type Ruin, ruinsInChunk } from './ruins';
 import { type Farmstead, farmsteadInChunk } from './farmsteads';
+import { groundPropsInChunk, type GroundProp } from './ground-props';
 
 export interface Tree {
   readonly x: number;
@@ -38,6 +39,7 @@ export interface WildChunk {
   readonly heights: Float32Array;
   readonly biomes: Uint8Array;
   readonly trees: readonly Tree[];
+  readonly groundProps: readonly GroundProp[];
   readonly hasWater: boolean;
   readonly sources: readonly PigmentSource[];
   readonly ruins: readonly Ruin[];
@@ -180,6 +182,21 @@ export function* generateWildChunkSteps(
       offPath(t.x, t.z),
   );
   if (great) clearTrees.push(great);
+  const groundProps = groundPropsInChunk(
+    w,
+    cx,
+    cz,
+    clearTrees,
+    (x, z) =>
+      !sources.some((p) => Math.hypot(x - p.x, z - p.z) < 8) &&
+      !ruins.some((p) => Math.hypot(x - p.x, z - p.z) < 18) &&
+      !marks.some((p) => Math.hypot(x - p.x, z - p.z) < p.room + 4) &&
+      !(
+        farmstead &&
+        Math.abs(x - farmstead.x) < farmstead.hw + 5 &&
+        Math.abs(z - farmstead.z) < farmstead.hd + 5
+      ),
+  );
   const bridges: Bridge[] = [];
   const trails = paths.trailsNear(x0, z0, x0 + size, z0 + size);
   for (const t of trails)
@@ -201,6 +218,7 @@ export function* generateWildChunkSteps(
     heights,
     biomes,
     trees: clearTrees,
+    groundProps,
     hasWater,
     sources,
     ruins,

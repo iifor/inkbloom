@@ -257,6 +257,11 @@ export function serve(defaultHost: WorldHost, opts: ServeOptions): Promise<Serve
       }
       const { host, sockets, broadcast, deliver } = session;
       switch (m.t) {
+        case 'profile': {
+          const player = host.updateProfile(id, m.name, m.look);
+          if (player) broadcast({ t: 'profile', player }, id);
+          break;
+        }
         case 'traveller':
           if (opts.chooseStop)
             void host

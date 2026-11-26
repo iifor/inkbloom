@@ -321,7 +321,7 @@ function buildHouse(
     const min = { x: -1.1, y: down, z: hd + inset };
     const max = { x: 1.1, y: top, z: hd + inset + 0.42 * (k + 1) };
     for (const k of [h, far]) k.box(min, max, all(stone));
-    boxes.push({ min, max, data: {} });
+    boxes.push({ min, max, data: { tag: 'walk-surface' } });
   }
   if (b.garden > 0) fenceGarden(h, b, boxes);
   const turn = new THREE.Matrix4().makeRotationY(b.angle).setPosition(b.x, b.base, b.z);
@@ -441,6 +441,7 @@ function buildBridge(
       { x: mid.x, z: mid.z, angle, hx: half, hz: len / 2 + 0.05 },
       Math.min(ya, yb) - BRIDGE.deck,
       top,
+      { tag: 'walk-surface' },
     );
     // railings on both sides: a post per segment and a rail along the top
     const c = Math.cos(angle);
@@ -492,7 +493,9 @@ function buildBridge(
       { x: 0.8, y: (y - bottom) / 2, z: STEP.tread / 2 },
       stone,
     );
-    turnedCollider(physics, group, { x: at.x, z: at.z, angle, hx: 0.8, hz: STEP.tread / 2 }, bottom, y);
+    turnedCollider(physics, group, { x: at.x, z: at.z, angle, hx: 0.8, hz: STEP.tread / 2 }, bottom, y, {
+      tag: 'walk-surface',
+    });
   }
 }
 

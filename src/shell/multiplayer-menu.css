@@ -1,0 +1,274 @@
+/* A shared travel notebook: keep these styles local to the multiplayer page. */
+#overlay .menu-body:has([data-rooms]) {
+  width: min(730px, 100%);
+  flex-shrink: 0;
+  align-items: stretch;
+  gap: 20px;
+  padding: 30px 32px 18px;
+  text-align: left;
+  background: radial-gradient(ellipse at 5% 0%, #fff9e9, transparent 60%), #f5eedb;
+  border-color: #ac8962;
+  border-radius: 20px 16px 23px 17px;
+}
+#overlay:has([data-rooms]) {
+  padding: 28px 20px;
+}
+#overlay .join-header {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding-bottom: 4px;
+}
+#overlay .join-header h2 {
+  margin: 0 0 6px;
+  font-size: 42px;
+  line-height: 1.2;
+  letter-spacing: 0.12em;
+}
+#overlay .join-header p {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.6;
+}
+.join-emblem {
+  flex: 0 0 68px;
+  height: 68px;
+  padding: 9px;
+  color: #54775a;
+  background: #e3e8d4;
+  border: 1px solid #bac5a6;
+  border-radius: 46% 53% 45% 55%;
+  transform: rotate(-6deg);
+  fill: #f8f1de;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+.join-trail {
+  fill: none;
+  stroke-dasharray: 2 4;
+}
+.join-section-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+#overlay .join-lobby h3,
+#overlay .join-card h3 {
+  font: 600 17px/1.4 var(--hand);
+  margin: 0;
+  color: var(--wood-dark);
+}
+.join-section-heading > span {
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+#overlay .join-lobby [role='status']:not(:empty) {
+  margin: 0;
+  padding: 20px 16px;
+  border: 1px dashed #b8bea2;
+  border-radius: 10px;
+  background: #e9eadc;
+  text-align: center;
+  font-size: 14px;
+  line-height: 1.7;
+  letter-spacing: 0;
+}
+.join-options {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+.join-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 20px;
+  border: 1px solid #d0bea0;
+  border-radius: 12px 15px 11px 13px;
+  background: #fbf6e8;
+  min-width: 0;
+}
+.join-card.join-create {
+  background: #eef0e1;
+  border-color: #b7c3a4;
+}
+#overlay .join-card > p {
+  margin: -5px 0 3px;
+  font:
+    13px/1.6 'Microsoft YaHei',
+    sans-serif;
+}
+#overlay .menu-body:has([data-rooms]) label {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  font-size: 13px;
+}
+#overlay .menu-body:has([data-rooms]) label small {
+  margin-left: 6px;
+  font-size: 11px;
+  color: var(--ink-soft);
+}
+#overlay .menu-body:has([data-rooms]) input {
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 1px solid #b7a587;
+  border-radius: 7px;
+  background: #fffaf0;
+  color: var(--ink);
+  font:
+    14px/1.5 'Microsoft YaHei',
+    sans-serif;
+  box-shadow: inset 0 2px 3px #6b5a4b08;
+}
+#overlay .menu-body:has([data-rooms]) input::placeholder {
+  color: #817562;
+  opacity: 1;
+}
+#overlay .menu-body:has([data-rooms]) :is(input, button, summary):focus-visible {
+  outline: 2px solid #54775a;
+  outline-offset: 3px;
+}
+#overlay .menu-body:has([data-rooms]) button {
+  font-size: 15px;
+  min-height: 44px;
+  margin: 0;
+  padding: 10px 16px;
+  border-radius: 8px 11px 9px 12px;
+}
+#overlay .join-card button {
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+#overlay .join-card button.primary {
+  background: linear-gradient(105deg, #607d51, #718e60);
+  border-color: #516d45;
+  color: #fffbed;
+  text-shadow: none;
+}
+#overlay .join-card button.primary:hover {
+  background: #516d45;
+}
+#overlay .menu-body p.join-note {
+  margin: -8px 0 0;
+  font:
+    12px/1.6 'Microsoft YaHei',
+    sans-serif;
+  color: var(--ink-soft);
+}
+#overlay .join-server {
+  border-top: 1px solid #d6c9ad;
+  border-bottom: 1px solid #d6c9ad;
+  padding: 8px 0;
+}
+#overlay .join-server summary {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  min-height: 40px;
+  padding: 6px 2px;
+  color: var(--ink-soft);
+  font-size: 14px;
+  list-style: none;
+}
+.join-server summary::-webkit-details-marker {
+  display: none;
+}
+.join-server summary::after {
+  content: '+';
+  font-size: 20px;
+}
+.join-server[open] summary::after {
+  content: '−';
+}
+.join-server form {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 12px;
+  align-items: end;
+  padding: 8px 0 12px;
+}
+.join-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  margin-top: -12px;
+}
+#overlay .join-footer button {
+  width: auto;
+  padding: 8px 2px;
+  background: transparent;
+  box-shadow: none;
+  border: 0;
+  color: var(--wood-dark);
+}
+.join-footer > span {
+  font: 13px/1.6 var(--hand);
+  color: var(--ink-soft);
+}
+#overlay .join-lobby .room-list {
+  display: grid;
+  gap: 8px;
+  max-height: 190px;
+  padding: 3px;
+}
+#overlay .join-lobby .room-list:empty {
+  display: none;
+}
+#overlay .join-lobby .room-list button {
+  text-align: left;
+  background: #fbf6e8;
+  border-color: #c6b596;
+}
+#overlay .join-lobby form:not([hidden]) {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 12px;
+}
+#overlay .join-lobby form button {
+  width: auto;
+  flex: 1;
+}
+#overlay .join-lobby [data-retry] {
+  margin-top: 12px;
+}
+@media (max-width: 600px) {
+  #overlay .menu-body:has([data-rooms]) {
+    padding: 24px 20px 12px;
+    gap: 18px;
+  }
+  .join-options {
+    grid-template-columns: 1fr;
+  }
+  .join-card {
+    padding: 16px;
+  }
+  .join-section-heading {
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+  #overlay .join-header {
+    gap: 12px;
+  }
+  .join-emblem {
+    flex-basis: 54px;
+    height: 54px;
+  }
+  .join-server form {
+    grid-template-columns: 1fr;
+  }
+  .join-footer > span {
+    font-size: 12px;
+  }
+}

@@ -18,6 +18,7 @@ export class CombatSystem implements System, CombatApi {
   private sinceHurt = Infinity;
   private grace = 0;
   private deadFor = 0;
+  private turnedHere = false;
   private readonly fellAt = new THREE.Vector3();
   shieldLeft = 0;
   private shieldT = 0;
@@ -26,6 +27,10 @@ export class CombatSystem implements System, CombatApi {
 
   constructor(private readonly ctx: GameContext) {
     this.hp = this.maxHp;
+  }
+
+  get infected(): boolean {
+    return !!this.ctx.state.infectedAt && !this.byServer && !this.ctx.arena?.inside;
   }
 
   /** Grows with level and the health attribute; in the arena everyone has the same. */
@@ -153,10 +158,10 @@ export class CombatSystem implements System, CombatApi {
   damagePlayer(
     amount: number,
     from?: THREE.Vector3,
-    opts: { readonly melee?: boolean; readonly fall?: boolean } = {},
+    opts: { readonly melee?: boolean; readonly fall?: boolean; readonly inkMonster?: boolean } = {},
   ): void {
     // in the arena only the server hurts the player
-    if (!this.alive || this.grace > 0 || this.byServer) return;
+    if (!this.alive || this.grace > 0 || this.byServer || (opts.inkMonster && this.infected)) return;
     const melee = opts.melee === true;
     if (melee && from) {
       // a blow shoves the player away from it and checks their stride for a moment
@@ -179,19 +184,20 @@ export class CombatSystem implements System, CombatApi {
       melee,
       fall: opts.fall,
     });
-    if (this.hp <= 0) this.die(opts.fall);
+    if (this.hp <= 0) this.die(opts.fall, opts.inkMonster);
   }
 
-  private die(fall = false): void {
+  private die(fall = false, inkMonster = false): void {
     this.alive = false;
     this.deadFor = 0;
+    this.turnedHere = inkMonster;
     const p = this.ctx.player.position;
     this.fellAt.copy(p);
     const before = this.ctx.state.inventory.ink;
-    this.ctx.apply({ kind: 'death', scene: this.ctx.scenes.active.ref, x: p.x, y: p.y, z: p.z });
+    this.ctx.apply({ kind: 'death', ...(inkMonster ? {inkMonster: true as const} : {}), scene: this.ctx.scenes.active.ref, x: p.x, y: p.y, z: p.z });
     const lost = before - this.ctx.state.inventory.ink;
     this.ctx.events.emit('player:died', { lostInk: lost });
-    const cause = fall ? '摔倒了' : '被墨吞没了';
+    const cause = inkMonster ? '你被感染了，化成了墨怪' : fall ? '摔倒了' : '被墨吞没了';
     this.ctx.events.emit('toast', {
       // the objective then points back to the dropped ink
       text: lost > 0 ? `${cause}，掉了 ${lost} 墨` : cause,
@@ -200,8 +206,12 @@ export class CombatSystem implements System, CombatApi {
   }
 
   private respawn(): void {
-    const s = this.ctx.scenes.respawnPoint(this.fellAt);
-    this.ctx.player.teleport(s.pos, s.yaw);
+    if (this.infected && this.turnedHere) this.ctx.player.teleport(this.fellAt, this.ctx.player.yaw);
+    else {
+      const s = this.ctx.scenes.respawnPoint(this.fellAt);
+      this.ctx.player.teleport(s.pos, s.yaw);
+    }
+    this.turnedHere = false;
     this.hp = this.maxHp;
     this.alive = true;
     this.grace = C.respawnGrace;

@@ -3,6 +3,7 @@ import type { Waypoint } from '../nav/path';
 import { type Wilderness, WATER_LEVEL } from '../wilderness/generator';
 import type { WildChunk } from '../wilderness/chunk';
 import type { Farmstead } from '../wilderness/farmsteads';
+import { propFootprint } from '../wilderness/ground-props';
 import { pathsOf } from '../wilderness/paths';
 import { doorFront } from './features';
 import { groundAt, ROAD_MAIN, type CityLayout } from './layout';
@@ -128,6 +129,10 @@ export function farmActivities(w: Wilderness, chunk: WildChunk, farm: Farmstead)
   block(farm.x, farm.z - farm.front * farm.hd, farm.hw, 0.2);
   for (const r of chunk.ruins) block(r.x, r.z, 8, 8);
   for (const t of chunk.trees) block(t.x, t.z, 0.55, 0.55);
+  for (const prop of chunk.groundProps) {
+    const foot = propFootprint(prop);
+    if (foot) block(prop.x, prop.z, foot.hw, foot.hd, prop.yaw);
+  }
   for (const s of chunk.springs) block(s.x, s.z, s.r, s.r);
   for (const l of chunk.lookouts) block(l.x, l.z, 3, 3);
   const gate = { x: farm.x, z: farm.z + farm.front * (farm.hd + 2) };

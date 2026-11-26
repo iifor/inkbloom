@@ -57,8 +57,8 @@ export function askTraveller(
   j: Journey,
   nameOf: (e: Entrance) => string,
   topic: 'route' | 'news' | 'memory',
+  pose = travellerPose(j, state.clock, state.travellerLegs.get(j.trail.id)),
 ) {
-  const pose = travellerPose(j, state.clock, state.travellerLegs.get(j.trail.id));
   if (topic === 'memory') return recallTravels(w, state, j, nameOf);
   if (topic === 'news') {
     const towns = w

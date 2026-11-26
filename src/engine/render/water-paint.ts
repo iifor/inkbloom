@@ -6,9 +6,8 @@ import * as THREE from 'three';
 import { MAX_COLORS } from '@/content/palette';
 import { CURRENT_STEP } from '@/world/wilderness/water-current';
 import { WATER_LEVEL } from '@/world/wilderness/water-level';
+import { BANK_LAP_RATE } from '@/world/wilderness/water-waves';
 
-/** Ripple rings kept at once: six for the player, the rest for fish. */
-export const WAKE_COUNT = 18;
 export const RIVER_SAMPLES = 129;
 const FLOW_CYCLE = 2;
 
@@ -23,11 +22,33 @@ vec3 riverFlow(vec2 p) {
   vec2 velocity = texture2D(uRivers, (cell + 0.5) / uRiverGrid.w).rg * smoothstep(0.0, 8.0, margin);
   return vec3(velocity, smoothstep(0.025, 0.8, length(velocity)));
 }
-/** Ripples stretched along the current. */
-float currentRipple(vec2 p, vec3 flow) {
-  vec2 dir = flow.xy / max(1e-4, length(flow.xy));
-  vec2 q = vec2(dot(p, vec2(dir.y, -dir.x)), dot(p, dir));
-  return vnoise(vec2(q.x * 1.6, q.y * 0.35)) * 0.6 + vnoise(q * 2.3) * 0.4;
+/** Short crests cross the channel and advect along it. Foam breaks into separate patches. */
+vec2 currentRipple(vec2 q) {
+  float bend = vnoise(q * vec2(0.45, 0.31));
+  float ripple = vnoise(vec2(q.x * 0.46, q.y * 1.4 + bend * 0.7));
+  float detail = vnoise(q * vec2(1.45, 2.5) + 15.7);
+  float whitecap = smoothstep(0.53, 0.77, ripple) * smoothstep(0.32, 0.68, bend * 0.55 + detail * 0.45);
+  return vec2(mix(ripple, detail, 0.28), whitecap);
+}
+float bankPhase(vec2 p) {
+  return fract(uTime * ${BANK_LAP_RATE} + 0.22 * sin(dot(p, vec2(0.48, 0.31))) + 0.15 * sin(dot(p, vec2(-0.27, 0.64))));
+}
+// A narrow boundary between the two nearest Voronoi cells becomes the last foam threads.
+float foamThreads(vec2 p, float age) {
+  vec2 cell = floor(p);
+  vec2 f = fract(p);
+  vec2 nearest = vec2(9.0);
+  for (int y=-1; y<=1; y++) {
+    for (int x=-1; x<=1; x++) {
+      vec2 offset = vec2(float(x), float(y));
+      vec2 d = offset + hash22(cell + offset) - f;
+      float distance2 = dot(d, d);
+      if (distance2 < nearest.x) nearest = vec2(distance2, nearest.x);
+      else nearest.y = min(nearest.y, distance2);
+    }
+  }
+  float edge = nearest.y - nearest.x;
+  return 1.0 - smoothstep(mix(0.65, 0.048, age), mix(0.92, 0.11, age), edge);
 }`;
 
 /** What the water throws back and what the sun throws through it: bankPaint, a quick painting
@@ -54,29 +75,11 @@ float sunWeb(vec2 p) {
 }`;
 
 export const wakeGLSL = /* glsl */ `
-vec3 wakeLight(vec2 surface, float surfaceDist) {
-  float rings = 0.0;
-  float troughs = 0.0;
-  for (int i=0; i<${WAKE_COUNT}; i++) {
-    vec4 wake = uWakes[i];
-    float age = uTime - wake.z;
-    if (wake.w <= 0.0 || age < 0.0 || age > 2.4) continue;
-    vec2 delta = surface - wake.xy - vec2(.04,.12) * age;
-    delta.x *= 1.08;
-    float radius = age * mix(1.15, 1.95, wake.w);
-    if (dot(delta,delta) > (radius+.5)*(radius+.5)) continue;
-    float distort = sin(3.4*delta.x+1.5*delta.y) * cos(2.6*delta.y+float(i));
-    float crest = length(delta) - radius + .067 * distort;
-    float width = .06 + .047*age + min(.19, surfaceDist * .002);
-    vec2 band = vec2(crest,crest+.32)/width;
-    float ring = exp(-band.x*band.x) + .45 * exp(-band.y*band.y);
-    float fade = wake.w * smoothstep(.0,.14,age) * (1.0-smoothstep(.22,2.4,age));
-    float fragments = mix(.32,1.0,smoothstep(-.65,.55,distort));
-    rings += fade * ring * fragments;
-    float lee = (crest-.13)/width;
-    troughs += fade * exp(-lee*lee) * fragments;
-  }
-  return vec3(.45,.58,.5) * min(1.0,rings) - vec3(.12,.16,.15) * min(1.0,troughs);
+vec2 wakeAt(vec2 surface) {
+  vec2 uv = (surface - uWakeBounds.xy) / uWakeBounds.z;
+  if (!uHasWakes || any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0)))) return vec2(0.0);
+  vec2 edge = min(uv, 1.0 - uv);
+  return texture2D(uWakeField, uv).rg * smoothstep(0.0, 0.06, min(edge.x, edge.y));
 }`;
 
 /** The water's surface, inlined into the paint pass's main(): it works on that pass's locals
@@ -139,15 +142,38 @@ export const waterGLSL = /* glsl */ `
       // still water ripples in place; in a river the ripples stretch along the current and are
       // carried downstream: two copies drifting half a cycle apart, each faded out as it
       // starts over (the two-phase flow technique)
-      float still = vnoise(vec2(rp.x * 0.35 + uTime * 0.06, rp.y * 1.6)) * 0.6 + vnoise(rp * 2.3 - uTime * 0.09) * 0.4;
+      float still = vnoise(rp * 0.65 + vec2(uTime * 0.06, 0.0)) * 0.6 + vnoise(rp * 2.3 - uTime * 0.09) * 0.4;
       vec3 flow = riverFlow(rp);
-      float rapids = smoothstep(0.55, 2.35, length(flow.xy));
-      float ph0 = fract(uTime / ${FLOW_CYCLE.toFixed(1)});
+      float speed = length(flow.xy);
+      float rapids = smoothstep(0.95, 2.55, speed);
+      vec2 along = speed > 0.001 ? flow.xy / speed : vec2(0.0, 1.0);
+      vec2 across = vec2(along.y, -along.x);
+      float ph0 = fract(uTime / ${FLOW_CYCLE.toFixed(1)} + vnoise(rp * 0.075) * 0.45);
       float ph1 = fract(ph0 + 0.5);
       float swap = abs(ph0 - 0.5) * 2.0;
       vec2 drift0 = flow.xy * ph0 * ${FLOW_CYCLE.toFixed(1)};
       vec2 drift1 = flow.xy * ph1 * ${FLOW_CYCLE.toFixed(1)};
-      float rip = mix(still, mix(currentRipple(rp - drift0, flow), currentRipple(rp - drift1, flow), swap), flow.z);
+      // Keep the noise in world space so turns in the current do not tear its phase.
+      vec2 p0 = rp - drift0;
+      vec2 p1 = rp - drift1 + 19.2;
+      vec2 flowing = vec2(still, 0.0);
+      if (flow.z > 0.0) {
+        // Both phases share the distortion, so rolling over cannot jump the foam.
+        vec2 warp = (vec2(vnoise(rp * 0.91 - flow.xy * sin(uTime * 0.5) * 0.4),
+          vnoise(rp * 0.85 + across * cos(uTime * 0.61) + 12.6)) - 0.5) * 0.66;
+        p0 += warp;
+        p1 += warp;
+        float orientation = smoothstep(0.35, 0.88, abs(along.x));
+        if (orientation < 1.0) flowing = mix(currentRipple(p0), currentRipple(p1), swap);
+        if (orientation > 0.0) flowing = mix(flowing, mix(currentRipple(p0.yx), currentRipple(p1.yx), swap), orientation);
+        // A finer layer slips downstream faster with a little cross-stream shear.
+        vec2 shear = across * 0.31;
+        float lace = mix(vnoise((p0 - (drift0 * 0.35 + shear * ph0)) * 4.7),
+                         vnoise((p1 - (drift1 * 0.35 + shear * ph1)) * 4.7), swap);
+        flowing.y *= mix(0.52, 1.0, smoothstep(0.28, 0.76, lace));
+      }
+      float rip = mix(still, flowing.x, flow.z);
+      vec2 wakes = submerged ? wakeAt(rp) : vec2(0.0);
       vec3 rainRipples = vec3(0.0);
       if (uRainfall > 0.01 && eye.y > surfaceY && !fish) {
         float range = 1.0 - smoothstep(9.0, 30.0, length(vec3(rp - eye.xz, surfaceY - eye.y)));
@@ -156,7 +182,9 @@ export const waterGLSL = /* glsl */ `
           rainRipples = rainRings(rp, flow.xy * flow.z, mix(0.25, 0.98, uRainfall)) * strength;
         }
       }
-      vec2 surfaceSlope = (rip - 0.5) * vec2(0.12, 0.06) + rainRipples.xy * 0.14;
+      vec2 slopeDir = mix(vec2(0.6, 0.48), along + across * 0.23, flow.z);
+      vec2 surfaceSlope = (rip - 0.5) * slopeDir * mix(0.085, 0.21, rapids) + rainRipples.xy * 0.14;
+      surfaceSlope += (wakes.x - wakes.y) * vec2(0.05, -0.08);
       vec3 rdir = reflect(rd, normalize(vec3(surfaceSlope.x, 1.0, surfaceSlope.y)));
       float grazing = 1.0 - clamp(-rd.y, 0.0, 1.0);
       vec3 reflected = skyPaint(rdir);
@@ -201,16 +229,24 @@ export const waterGLSL = /* glsl */ `
         opacity = mix(0.16, 0.37, smoothstep(0.2, 1.4, waterDepth)) + surface * grazing * 0.16;
       } else {
         float fres = 0.2 + 0.7 * pow(grazing, 4.0);
-        water = mix(paletteColor(float(uWater)) * light, reflected, fres);
-        water += vec3(0.92, 0.96, 1.0) * smoothstep(0.76, 0.8, rip) * 0.22 * lit * (1.0 - uNight);
-        // where a river runs fast, its ripples break into streaks of white
-        water += vec3(0.95, 0.97, 1.0) * smoothstep(0.7, 0.86, rip) * rapids * 0.3 * mix(light, vec3(1.0), 0.4);
-        float glint = pow(max(0.0, dot(rdir, uSun)), 120.0) * step(0.55, vnoise(rp * 5.0 + uTime * 1.3));
-        water += uSunColor * glint * 1.4 * (1.0 - uNight);
+        float clear = exp(-max(0.0, waterDepth) * 0.82);
+        vec3 tint = paletteColor(float(uWater)) * light * mix(vec3(0.47, 0.74, 0.84), vec3(1.0), clear);
+        water = mix(tint, reflected, fres * mix(0.68, 1.0, clear));
+        water += vec3(0.92, 0.96, 1.0) * smoothstep(0.76, 0.85, rip) * 0.09 * lit * (1.0 - uNight);
+        // The same downstream displacement carries short, broken patches of white water.
+        vec3 whiteWater = vec3(0.92, 0.97, 0.99) * mix(light, vec3(1.0), 0.28);
+        float movingFoam = flowing.y * rapids;
+        if (movingFoam > 0.018 && d < 48.0) {
+          float tear = mix(foamThreads(p0 * 7.0, ph0), foamThreads(p1 * 7.0, ph1), swap);
+          movingFoam *= mix(0.25, 1.0, tear);
+        }
+        water = mix(water, whiteWater, movingFoam * 0.82);
+        float glint = pow(max(0.0, dot(rdir, uSun)), 120.0) * smoothstep(0.52, 0.75, rip);
+        water += uSunColor * glint * mix(0.42, 0.86, rapids) * (1.0 - uNight);
         float rippleShade = clamp(dot(rainRipples.xy, vec2(0.09, -0.07)), -0.1, 0.1);
         water *= 1.0 + rippleShade;
         water = mix(water, vec3(0.82, 0.9, 0.98) * mix(light, vec3(1.0), 0.45), rainRipples.z * 0.42);
-        opacity = submerged ? smoothstep(0.0, 0.22, waterDepth) * mix(0.38, 0.8, smoothstep(0.2, 3.0, waterDepth)) : 1.0;
+        opacity = submerged ? smoothstep(0.0, 0.15, waterDepth) * mix(0.94, 0.27, clear) : 1.0;
         // seen at a glancing angle even shallow water is a mirror: the bed shows only when
         // one looks down into it
         // (only partly: a river seen from its bank is nearly all at a glancing angle, and a
@@ -226,17 +262,38 @@ export const waterGLSL = /* glsl */ `
         shallow *= 1.0 - smoothstep(7.0, 24.0, d);
         col += col * uSunColor * sunWeb(wpos.xz) * shallow * lit * 0.3 * (1.0 - uNight) * (1.0 - uOvercast);
       }
-      if (submerged && (!fish || eye.y > ${WATER_LEVEL})) water += wakeLight(rp, distance(rp, eye.xz)) * mix(0.4, 1.0, lit);
+      if (!fish || eye.y > ${WATER_LEVEL})
+        water += (vec3(0.45, 0.58, 0.5) * wakes.x - vec3(0.12, 0.16, 0.15) * wakes.y) * mix(0.4, 1.0, lit);
       col = mix(col, mix(drainedAt(water), water, sat), opacity);
       // broken lines of foam along the shore, where the water thins out over the bank
-      if (submerged && !fish) {
-        float shore = 1.0 - smoothstep(0.03, 0.32, waterDepth);
-        vec2 sway = vec2(uTime * 0.18, uTime * 0.31);
-        float laced = mix(vnoise((rp - drift0) * 1.6 + sway), vnoise((rp - drift1) * 1.6 + sway), swap);
-        float lace = smoothstep(0.5, 0.78, mix(vnoise(rp * 1.6 + sway), laced, flow.z));
+      if (submerged && !fish && waterDepth < 0.56 && speed > 0.012) {
+        // A crest moves to decreasing depth, dissipates at the bank and retreats.
+        float shore = 1.0 - smoothstep(0.22, 0.56, waterDepth);
+        float bankGroup = vnoise(rp * 0.47);
+        float laced = mix(vnoise(p0 * 1.36), vnoise(p1 * 1.36), swap);
+        float phase = bankPhase(rp);
+        float wash = smoothstep(0.0, 0.16, phase) * (1.0 - smoothstep(0.67, 1.0, phase));
+        float crestDepth = mix(0.36, 0.015, smoothstep(0.0, 0.72, phase)) +
+          smoothstep(0.72, 1.0, phase) * 0.09;
+        float crest = 1.0 - smoothstep(0.026, 0.10, abs(waterDepth - crestDepth));
+        float lace = smoothstep(0.38, 0.74, laced * 0.55 + bankGroup * 0.45);
+        if (crest * wash * lace > 0.035 && d < 32.0)
+          lace *= foamThreads(rp * 8.0 + vec2(laced), smoothstep(0.48, 0.97, phase));
+        float bankFlow = smoothstep(0.012, 0.25, speed);
+        float washStrength = bankFlow * mix(0.35, 0.90, rapids);
         vec3 foam = vec3(0.95, 0.97, 0.98) * mix(light, vec3(1.0), 0.4);
-        col = mix(col, mix(drainedAt(foam), foam, sat), shore * lace * rapids * 0.55 * (1.0 - 0.6 * uNight));
+        col = mix(col, mix(drainedAt(foam), foam, sat), shore * crest * lace * wash * washStrength * (1.0 - 0.6 * uNight));
       }
+    }
+    // Exposed sand and rock retain a damp, smoother band after each lap.
+    if (uWildWater && !figure && (indexOf(s.g) == uSand || indexOf(s.g) == uRock) &&
+        waterDepth < 0.0 && waterDepth > -0.17 && d < 45.0) {
+      float bankSpeed = length(riverFlow(wpos.xz).xy);
+      float age = fract(bankPhase(wpos.xz) - 0.72) / ${BANK_LAP_RATE};
+      float wetness = (1.0 - smoothstep(0.01, 0.17, -waterDepth)) * exp(-age * 1.25) *
+        smoothstep(0.015, 0.30, bankSpeed);
+      float sheen = pow(max(0.0, dot(reflect(rd, vec3(0.0, 1.0, 0.0)), uSun)), 36.0);
+      col = col * (1.0 - wetness * 0.30) + uSunColor * sheen * wetness * 0.21 * (1.0 - uNight);
     }
     // a thin bright line where each of the swimmer's arms breaks the surface
     if (uWildWater && figure && d < ${OWN_ARMS.toFixed(1)}) {

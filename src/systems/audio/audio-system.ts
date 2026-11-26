@@ -9,6 +9,7 @@ import { WEAPONS } from '@/content/weapons';
 import { Ambience } from './ambience';
 import { groundUnder, stepLayers, stepRecording } from './footsteps';
 import { Music } from './music';
+import { NpcVoices } from './npc-voices';
 
 /** Major pentatonic steps; colours map onto it so every bloom is in key. */
 const PENTA = [0, 2, 4, 7, 9];
@@ -36,6 +37,8 @@ export class AudioSystem implements System {
   private dabAt = -1;
   private dripAt = -1;
   private rejectAt = -1;
+  private voices?: NpcVoices;
+  private growlAt = -10;
 
   constructor(private readonly ctx: GameContext) {
     this.music = new Music(this.synth, ctx);
@@ -135,6 +138,8 @@ export class AudioSystem implements System {
       on('monster:bite', ({ at }) =>
         s.noise({ dur: 0.07, gain: 0.45, type: 'bandpass', freq: 1800, q: 2, pos: at }),
       ),
+      on('monster:bite', ({ at }) => this.growl(at)),
+      on('monster:spit', ({ at }) => this.growl(at)),
       on('player:hurt', ({ fall }) => {
         if (fall) return;
         s.tone({ freq: 150, freqEnd: 60, dur: 0.22, gain: 0.3, type: 'triangle' });
@@ -298,6 +303,7 @@ export class AudioSystem implements System {
   start(): void {
     const first = !this.synth.ctx;
     this.synth.init();
+    this.voices ??= new NpcVoices(this.ctx, this.synth);
     void this.synth.resume();
     this.loops();
     if (first)
@@ -416,6 +422,7 @@ export class AudioSystem implements System {
 
   update(dt: number): void {
     if (!this.synth.ctx) return;
+    this.voices?.update(dt);
     const { player } = this.ctx;
     const yaw = player.yaw;
     this.synth.setListener(player.eye, { x: Math.cos(yaw), y: 0, z: -Math.sin(yaw) });
@@ -457,9 +464,19 @@ export class AudioSystem implements System {
   }
 
   dispose(): void {
+    this.voices?.dispose();
     for (const r of this.release) r();
     this.music.dispose();
     this.ambience.dispose();
     void this.synth.dispose();
+  }
+
+  private growl(at: Point3): void {
+    const s = this.synth;
+    if (s.now - this.growlAt < 2.5 || this.ctx.player.position.distanceToSquared(at) > 18 ** 2) return;
+    this.growlAt = s.now;
+    const pitch = 90 + Math.random() * 45;
+    s.tone({ freq: pitch, freqEnd: pitch * 0.6, dur: 0.48, gain: 0.13, type: 'sawtooth', pos: at });
+    s.noise({ freq: 420, freqEnd: 180, dur: 0.5, gain: 0.15, type: 'bandpass', q: 2, pos: at, attack: 0.06 });
   }
 }

@@ -15,6 +15,7 @@ import type { Tree, WildChunk } from '@/world/wilderness/chunk';
 import { riverbedMeadow, type Wilderness } from '@/world/wilderness/generator';
 import { appendSpawnCircle } from './build-spawn-circle';
 import { buildFarmstead } from './build-farmstead';
+import { addPropCollider, appendGroundProp } from './build-ground-props';
 
 /** Metres between terrain mesh vertices: the height function's own cell. Finer would only add
  * triangles lying flat on the same planes. */
@@ -139,12 +140,14 @@ export function* buildTerrainSteps(
   if (chunk.cx === 0 && chunk.cz === 0) appendSpawnCircle(w, g);
   // hot springs and summit lookouts
   appendLandmarks(chunk, w, g);
+  for (const prop of chunk.groundProps) appendGroundProp(g, prop, w.heightAt);
 }
 
 export function addChunkColliders(chunk: WildChunk, physics: PhysicsWorld, group: string): void {
   for (const t of chunk.trees) addTrunk(physics, group, t);
   addBridgeColliders(chunk, physics, group);
   addLandmarkColliders(chunk, physics, group);
+  for (const prop of chunk.groundProps) addPropCollider(physics, group, prop);
 }
 
 /** A collider round a tree's trunk: a great tree's bole is metres across. */

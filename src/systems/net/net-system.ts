@@ -3,10 +3,13 @@
 // player's own patches go out from ctx.apply as they happen (modes/open-world.ts). What is in
 // hand rides along with the motion; attacks and skills go out as gestures for others to see.
 import * as THREE from 'three';
+import type { Body } from '@/engine/physics/world';
 import type { GameContext, NetApi, System, FriendStatus } from '@/game/types';
 import { bearing } from '@/world/objectives';
 import { validTravelLeg } from '@/world/wilderness/travellers';
 import type { Fix } from '@/world/net/fix';
+import type { Visitor } from '@/world/npc-attention';
+import type { Profile } from '@/world/profile';
 import type { Patch } from '@/world/patch';
 import {
   AIMING,
@@ -89,8 +92,20 @@ export class NetSystem implements System, NetApi {
     return this.conn.welcome.id;
   }
 
+  npcVisitors(out: Visitor[]): void {
+    if (!this.ctx.arena?.inside) this.remote.npcVisitors(out);
+  }
+
+  avoidPlayers(body: Body, dt: number): void {
+    if (!this.down) this.remote.avoidPlayers(body, dt, this.me);
+  }
+
   send(m: ClientMessage): void {
     this.conn.send(m);
+  }
+
+  updateProfile(profile: Profile): void {
+    this.conn.send({ t: 'profile', name: profile.name, look: profile.look });
   }
 
   get players(): readonly PlayerInfo[] {
@@ -261,6 +276,10 @@ export class NetSystem implements System, NetApi {
       case 'joined':
         this.remote.add(m.player);
         this.ctx.events.emit('toast', { text: `${m.player.name} 进入了这个世界` });
+        break;
+      case 'profile':
+        // add() replaces metadata in-place, retaining motion, rest and arena state.
+        this.remote.add(m.player);
         break;
       case 'left': {
         const who = this.remote.list().find((p) => p.id === m.id)?.name;

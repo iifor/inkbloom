@@ -7,6 +7,19 @@ import { WATER_LEVEL } from './water-level';
 import { RIVER_LANE as LANE, RIVER_ORIGIN as ORIGIN, RIVER_X } from './river-corridors';
 
 export const DRAINAGE_REACH = 1024;
+
+/** Alternating shallow riffles and pools along a reach, shared with the current model. */
+export function riverPool(lane: number, z: number): number {
+  const reach = 0.68 * Math.sin(z / 36 + lane * 2.1) + 0.32 * Math.sin(z / 17 - lane * 1.7);
+  return smoothstep(-0.7, 0.72, reach);
+}
+
+/** Pools spread out, riffles contract, and each bank has its own gradual bends. */
+export function riverBankWidth(half: number, lane: number, z: number, side: number): number {
+  const spread = lerp(0.8, 1.21, riverPool(lane, z));
+  const bends = 0.10 * Math.sin(z / 27 + side * 1.5 + lane) + 0.06 * Math.sin(z / 11 + side * 1.9);
+  return half * (spread + bends);
+}
 const STEP = 64,
   COLUMNS = 13,
   SPACING = 32,
@@ -76,6 +89,7 @@ export function createDrainage(
   seed: number,
   elevation: (x: number, z: number) => number,
   connected = false,
+  shapedBed = false,
 ): Drainage {
   const reaches = new Map<string, Reach>();
   const anchors = new Map<string, number>();
@@ -319,7 +333,8 @@ export function createDrainage(
       for (let lane = nearest - 1; lane <= nearest + 1; lane++) {
         if (Math.abs(x - xpos(lane, HALF)) > 400) continue;
         const river = course(lane, z);
-        const distance = Math.abs(x - river.x);
+        const offset = x - river.x;
+        const distance = Math.abs(offset);
         // A broad floodplain/valley leads to a shelf, then the deep channel. No sheer cut at its edge.
         const valley = WATER_LEVEL + 1.2 + Math.max(0, distance - river.half) * 0.025;
         h = lerp(
@@ -327,8 +342,21 @@ export function createDrainage(
           Math.min(h, valley),
           valleyStrength * (1 - smoothstep(river.half + 20, river.half + 180, distance)),
         );
-        const channel = lerp(WATER_LEVEL - 2.8, WATER_LEVEL, smoothstep(0, river.half, distance));
-        h = lerp(Math.min(h, channel), h, smoothstep(river.half * 0.8, river.half + 17, distance));
+        if (shapedBed && distance > river.half * 1.4 + 17) continue;
+        const half = shapedBed ? riverBankWidth(river.half, lane, z, Math.sign(offset)) : river.half;
+        let channel = lerp(WATER_LEVEL - 2.8, WATER_LEVEL, smoothstep(0, half, distance));
+        if (shapedBed && distance < half) {
+          const pool = riverPool(lane, z);
+          const across = offset / half;
+          const thalweg = 0.24 * Math.sin(z / 55 + lane * 2.3);
+          const sideWidth = across < thalweg ? 1 + thalweg : 1 - thalweg;
+          const shelf = smoothstep(0.09, 1, Math.abs(across - thalweg) / sideWidth);
+          const bedDepth = lerp(1.25, 3.9, pool) * (1 - shelf);
+          // Uneven submerged bars taper to zero before the old shoreline.
+          const bars = 0.16 * Math.sin(z * 0.21 + across * 7) * Math.sin(across * 10 - z * 0.08);
+          channel = WATER_LEVEL - bedDepth * (1 + bars);
+        }
+        h = lerp(Math.min(h, channel), h, smoothstep(half * 0.8, half + 17, distance));
       }
       return h;
     },

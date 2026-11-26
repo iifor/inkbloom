@@ -92,7 +92,7 @@ export function inkWellById(w: Wilderness, id: string): InkWell | null {
 /** The well a guard keeps (its id), if `monster` is a guard's id. */
 export function wellOfGuard(monster: string): string | null {
   const m = /^(-?\d+),(-?\d+):(\d+)$/.exec(monster);
-  return m && Number(m[3]) >= GUARD_BASE ? `w${m[1]}_${m[2]}` : null;
+  return m && Number(m[3]) >= GUARD_BASE && Number(m[3]) < 100 ? `w${m[1]}_${m[2]}` : null;
 }
 
 /** Whether ink still seeps from a well where the land is this saturated (0 grey .. 1 colour). */

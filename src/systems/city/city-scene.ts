@@ -202,6 +202,7 @@ export class CityScene implements GameScene {
         villagePopulation(this.ctx, this.layout, this.entrance, this.homecomings),
         this.root,
         () => villageActivities(this.layout),
+        this.physics,
       );
       this.residents.update(dt);
     } else if (this.residents) {

@@ -7,7 +7,10 @@ import { WorldHost } from '@/world/net/host';
 import { GROUNDED, PROTOCOL, type ServerMessage } from '@/world/net/protocol';
 import { createWorldState } from '@/world/state';
 import { createWilderness } from '@/world/wilderness/generator';
+import { pathsOf } from '@/world/wilderness/paths';
 import { sourcesInChunk } from '@/world/wilderness/sources';
+import { landmarks } from '@/world/wilderness/traveller-memory';
+import { journeyOn, travellerPose } from '@/world/wilderness/travellers';
 
 const SEED = 11;
 const LOOK = defaultLook('ranger');
@@ -69,9 +72,45 @@ async function start(max = 10): Promise<number> {
 }
 
 describe('world server over WebSockets', () => {
+  it('broadcasts profile changes without reconnecting and includes them for late arrivals', async () => {
+    const port = await start();
+    const a = await client(port, '甲', 'profile-a');
+    const b = await client(port, '乙', 'profile-b');
+    clients.push(a, b);
+    const wa = await a.waitFor('welcome');
+    const wb = await b.waitFor('welcome');
+    if (wa.t !== 'welcome' || wb.t !== 'welcome') throw new Error('missing welcome');
+    const look = defaultLook('courier');
+    a.send({ t: 'profile', id: wb.id, name: '换装后的甲', look });
+    expect(await b.waitFor('profile')).toEqual({
+      t: 'profile',
+      player: { id: wa.id, name: '换装后的甲', look },
+    });
+    const later = await client(port, '丙', 'profile-c');
+    clients.push(later);
+    expect(await later.waitFor('welcome')).toMatchObject({
+      players: expect.arrayContaining([
+        { id: wa.id, name: '换装后的甲', look },
+        { id: wb.id, name: '乙', look: LOOK },
+      ]),
+    });
+    const nextLook = { ...look, accent: (look.accent + 1) % 4 };
+    a.send({ t: 'profile', name: '换装后的甲', look: nextLook });
+    expect(
+      await b.waitFor('profile', (m) => m.t === 'profile' && m.player.look.accent === nextLook.accent),
+    ).toMatchObject({ player: { id: wa.id, look: nextLook } });
+    expect(a.got.filter((m) => m.t === 'welcome')).toHaveLength(1);
+    expect(b.got.filter((m) => m.t === 'joined' && m.player.id === wa.id)).toHaveLength(0);
+  });
+
   it('shares one model decision between observers and restores it for a later arrival', async () => {
     const host = new WorldHost(createWorldState('travellers', 4242));
-    host.state.clock = 25; // The seed's spawn walker has already reached the first bridge.
+    const world = createWilderness(host.state.seed, [], host.state.terrainVersion);
+    const trail = pathsOf(world).trailsNear(0, 0, 128, 128).find((t) => t.id === 'spawn')!;
+    const journey = journeyOn(host.state.seed, trail)!;
+    const bridge = landmarks(world, host.state, journey).find((s) => s.kind === 'bridge')!;
+    host.state.clock = Math.max(0, bridge.at / journey.speed - journey.offset) + 1;
+    const walker = travellerPose(journey, host.state.clock);
     let decisions = 0;
     server = await serve(host, {
       port: 0,
@@ -89,7 +128,7 @@ describe('world server over WebSockets', () => {
       expect(await c.waitFor('welcome')).toMatchObject({ travellerAI: true });
       c.send({
         t: 'move',
-        p: [65, 2, 65],
+        p: [walker.x, world.heightAt(walker.x, walker.z), walker.z],
         v: [0, 0, 0],
         yaw: 0,
         pitch: 0,

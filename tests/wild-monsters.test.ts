@@ -4,22 +4,32 @@ import { enemyIndex } from '@/content/enemies';
 import { TUNING } from '@/content/tuning';
 import { createWilderness, townDistance } from '@/world/wilderness/generator';
 import { chunkSaturation, wildMonsterById, wildMonstersInChunk } from '@/world/wilderness/wild-monsters';
+import { wellOfGuard } from '@/world/wilderness/ink-wells';
 
 const SEED = 20261102;
 const W = TUNING.combat.wild;
 
 describe('wilderness monsters', () => {
-  it('appear on drained land and not on restored land', () => {
+  it('populate drained land, with only sparse remote packs on colourful land', () => {
     const w = createWilderness(SEED);
     let drained = 0;
     let restored = 0;
     for (let cx = -6; cx <= 6; cx++)
       for (let cz = -6; cz <= 6; cz++) {
         drained += wildMonstersInChunk(w, cx, cz, 0).length;
-        restored += wildMonstersInChunk(w, cx, cz, 1).length;
+        const packs = wildMonstersInChunk(w, cx, cz, 1);
+        restored += packs.length;
+        for (const m of packs) {
+          expect(Number(m.id.split(':')[1])).toBeGreaterThanOrEqual(100);
+          expect(w.townAt(m.x, m.z, TUNING.drain.outerRadius + 30)).toBeNull();
+          expect(Math.hypot(m.x - 64, m.z - 64)).toBeGreaterThan(250);
+          expect(wildMonsterById(w, m.id, 1)).toEqual(m);
+          expect(wellOfGuard(m.id)).toBeNull();
+        }
       }
     expect(drained).toBeGreaterThan(13 * 13 * W.drained[0] * 0.5);
-    expect(restored).toBe(0);
+    expect(restored).toBeGreaterThan(0);
+    expect(restored).toBeLessThan(drained * 0.15);
   });
 
   it('bring the odd 墨巨 to drained land only, at most one a chunk', () => {

@@ -22,9 +22,9 @@ export function buildFarmstead(
   collide: BoxSink,
   addDoor: (door: FarmDoor) => void = (door) => appendClosedFarmDoor(g, door),
 ): void {
-  const solid = (min: Vec3Like, max: Vec3Like, tint: number): void => {
+  const solid = (min: Vec3Like, max: Vec3Like, tint: number, data?: ColliderData): void => {
     g.box(min, max, faces(tint));
-    collide(min, max);
+    collide(min, max, data);
   };
   for (const [i, b] of yard.buildings.entries()) {
     const template = b.barn ? BUILDINGS[2] : BUILDINGS[0];
@@ -86,7 +86,9 @@ export function buildFarmstead(
       const floor = Math.min(b.foot, soil(near), soil(far)) - 0.12;
       const a = frontZ + yard.front * near;
       const edge = frontZ + yard.front * far;
-      solid(v(b.x - 1.1, floor, Math.min(a, edge)), v(b.x + 1.1, top, Math.max(a, edge)), rock);
+      solid(v(b.x - 1.1, floor, Math.min(a, edge)), v(b.x + 1.1, top, Math.max(a, edge)), rock, {
+        tag: 'walk-surface',
+      });
       if (top - soil(far + 0.38) <= 0.28) break;
       near = far;
       far += 0.38;

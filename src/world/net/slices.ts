@@ -9,6 +9,7 @@ import { type WorldState, createWorldState, deserializeWorld, serializeWorld } f
 
 /** Everything in a WorldState that belongs to one player. */
 export interface PlayerSlice {
+  infectedAt: WorldState['infectedAt'];
   inventory: WorldState['inventory'];
   unlocked: WorldState['unlocked'];
   growth: WorldState['growth'];
@@ -20,6 +21,7 @@ export interface PlayerSlice {
 }
 
 const KEYS = [
+  'infectedAt',
   'inventory',
   'unlocked',
   'growth',
@@ -33,6 +35,7 @@ const KEYS = [
 /** The slice the state holds now (the same objects, not copies). */
 export function takeSlice(state: WorldState): PlayerSlice {
   return {
+    infectedAt: state.infectedAt,
     inventory: state.inventory,
     unlocked: state.unlocked,
     growth: state.growth,

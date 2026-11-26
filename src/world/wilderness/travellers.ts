@@ -1,6 +1,7 @@
 import { hashInts, hashString, unit } from '../math/hash';
 import { validSightings, type Sighting } from './traveller-options';
 import type { Trail } from './paths';
+import { NpcAttention } from '../npc-attention';
 
 export interface Journey {
   readonly trail: Trail;
@@ -41,6 +42,37 @@ export interface TravelLeg {
   origin: number;
   /** Sightings from completed legs, captured when this one starts. */
   memory?: Sighting[];
+}
+
+/** Client presentation of a journey; an interruption never advances the walker off-screen. */
+export class TravellerRoutine {
+  readonly attention = new NpcAttention();
+  private source?: TravelLeg;
+  private leg?: TravelLeg;
+  private initialized = false;
+
+  constructor(private readonly journey: Journey) {}
+
+  pose(clock: number, plan?: TravelLeg) {
+    const time = this.attention.time(clock);
+    if (!this.initialized) {
+      this.initialized = true;
+      this.source = this.leg = plan;
+    } else if (plan !== this.source) {
+      const current = travellerPose(this.journey, time, this.leg);
+      this.source = plan;
+      // A server / AI destination may arrive during conversation. Start the new
+      // leg here, at the paused routine time, rather than snapping to its origin.
+      this.leg = {
+        ...plan,
+        at: time,
+        from: current.distance,
+        to: plan?.to ?? current.to,
+        origin: plan?.origin ?? current.origin,
+      };
+    }
+    return travellerPose(this.journey, time, this.leg);
+  }
 }
 
 export function validTravelLeg(value: unknown): value is TravelLeg {

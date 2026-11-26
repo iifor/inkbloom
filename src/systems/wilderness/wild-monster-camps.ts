@@ -102,9 +102,9 @@ export class WildMonsterCamps {
       tag: key,
       key: m.id,
       colors: this.colors.get(key) ?? [],
-      onDefeat: () => {
+      onDefeat: (byNpc) => {
         // the ink count on the HUD ticks up: no message
-        this.ctx.apply({ kind: 'hunt', monster: m.id });
+        this.ctx.apply({ kind: 'hunt', monster: m.id, ...(byNpc ? { npc: true } : {}) });
       },
     });
   }

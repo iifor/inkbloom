@@ -3,7 +3,7 @@ import type * as THREE from 'three';
 import type { GeometryData } from '@/engine/render/geometry-builder';
 import type { InkRenderer } from '@/engine/render/renderer';
 import type { Input } from '@/engine/input/input';
-import type { ColliderData, PhysicsWorld, Vec3Like } from '@/engine/physics/world';
+import type { Body, ColliderData, PhysicsWorld, Vec3Like } from '@/engine/physics/world';
 import type { CityLayout } from '@/world/city/layout';
 import type { WeaponKey } from '@/content/weapons';
 import type { ArenaMode, ArenaState, Team } from '@/world/arena/match';
@@ -13,6 +13,7 @@ import type { Patch, PatchResult } from '@/world/patch';
 import type { SceneRef, WorldState } from '@/world/state';
 import type { Entrance, Wilderness } from '@/world/wilderness/generator';
 import type { EventBus, GameEvents } from './events';
+import type { Visitor } from '@/world/npc-attention';
 
 /** A per-frame unit of behaviour. Systems run in the order a mode lists them. */
 export interface System {
@@ -156,6 +157,8 @@ export interface InteractionApi {
 /** One thing that was hit, and a way to hurt it (returns whether it died). */
 /** How a hit lands beyond its damage. */
 export interface HitOptions {
+  /** NPC self-defence must not award the observing player personal kill rewards. */
+  readonly byNpc?: boolean;
   /** Shove away from the attacker, metres per second (0 for none). */
   readonly knock?: number;
   /** A heavy blow (a blade, a shell's direct hit): the target holds still for a moment. */
@@ -189,12 +192,13 @@ export interface ShotResult {
 export interface CombatApi {
   readonly hp: number;
   readonly maxHp: number;
+  readonly infected?: boolean;
   readonly alive: boolean;
   /** `melee`: a blow that shoves the player back and slows them for a moment. */
   damagePlayer(
     amount: number,
     from?: THREE.Vector3,
-    opts?: { readonly melee?: boolean; readonly fall?: boolean },
+    opts?: { readonly melee?: boolean; readonly fall?: boolean; readonly inkMonster?: boolean },
   ): void;
   addTargets(source: TargetSource): () => void;
   /** A hitscan shot: hits the nearest target unless a wall is closer. */
@@ -258,6 +262,10 @@ export interface ArenaApi {
 
 /** This client's part in a server world. */
 export interface NetApi {
+  avoidPlayers(body: Body, dt: number): void;
+  readonly me?: number;
+  /** Visible, living peers who can attract nearby NPCs' attention. */
+  npcVisitors?(out: Visitor[]): void;
   requestTravellerPlan(trail: string): void;
   readonly friends: readonly FriendStatus[];
   readonly friendGuide: string;

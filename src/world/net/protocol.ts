@@ -11,7 +11,7 @@ import type { TravelLeg } from '../wilderness/travellers';
 import type { Fix } from './fix';
 import { validCity, validPatch, validScene } from './validate';
 
-export const PROTOCOL = 9;
+export const PROTOCOL = 11;
 export const DEFAULT_PORT = 5195;
 export const DEFAULT_MAX_PLAYERS = 10;
 /** Motion updates per second, each way. */
@@ -31,7 +31,9 @@ export const AIMING = 32;
 /** Seated paper-plane flight (F2), distinct from jumping and the overhead glider. */
 export const FLYING = 64;
 export const DOWNED = 128;
-const FLAGS = 255;
+export const INFECTED = 256;
+// Infection is assigned by the host from the player's saved state.
+const CLIENT_FLAGS = 255;
 
 /** Low-frequency directory, independent of nearby figure streaming. */
 export interface FriendLocation {
@@ -113,6 +115,7 @@ export interface RoomInfo {
 export const ROOM_CODE = /^[A-F0-9]{6}$/;
 
 export type ClientMessage =
+  | { readonly t: 'profile'; readonly name: string; readonly look: Look }
   | { readonly t: 'traveller'; readonly trail: string }
   | { readonly t: 'listRooms'; readonly v: number; readonly password: string }
   | { readonly t: 'visit'; readonly target: number; readonly request: number }
@@ -159,6 +162,7 @@ export const WEAPON_ACTS: Readonly<Record<WeaponKey, readonly [attack: ActKind, 
 };
 
 export type ServerMessage =
+  | { readonly t: 'profile'; readonly player: PlayerInfo }
   | { readonly t: 'traveller'; readonly trail: string; readonly leg: TravelLeg }
   | { readonly t: 'rooms'; readonly rooms: readonly RoomInfo[] }
   | { readonly t: 'friends'; readonly players: readonly FriendLocation[] }
@@ -249,6 +253,8 @@ export const SHARED_KINDS: ReadonlySet<Patch['kind']> = new Set([
   'defeat',
   'hunt',
   'cleanse',
+  'infectNpc',
+  'overrun',
   'collectStock',
   'complete',
 ]);
@@ -275,6 +281,10 @@ export function parseClientMessage(text: string): ClientMessage | null {
   }
   if (!m || typeof m !== 'object') return null;
   switch (m.t) {
+    case 'profile': {
+      const look = validLook(m.look);
+      return look ? { t: 'profile', name: cleanName(m.name), look } : null;
+    }
     case 'traveller':
       return typeof m.trail === 'string' && /^[a-z0-9_:-]{1,80}$/.test(m.trail)
         ? { t: 'traveller', trail: m.trail }
@@ -338,7 +348,7 @@ export function parseClientMessage(text: string): ClientMessage | null {
         v,
         yaw: m.yaw % (Math.PI * 2),
         pitch,
-        f: m.f & FLAGS,
+        f: m.f & CLIENT_FLAGS,
         scene: s,
         town,
         ...(rest && !(m.f & (FLYING | GLIDING | SWIMMING | DOWNED)) ? { rest } : {}),

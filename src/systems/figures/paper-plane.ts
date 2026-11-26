@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { color, type ColorKey } from '@/content/palette';
 import { ALWAYS_COLOR, GeometryBuilder } from '@/engine/render/geometry-builder';
 import type { PlayerPose } from './player-pose';
@@ -57,23 +58,47 @@ export function paperPlaneGeometry(): THREE.BufferGeometry {
   }
   // One central keel; duplicating this in both mirrored halves causes depth fighting.
   face([nose, [0, 0.13, 0.95], [0, 0.84, 1.3]], 'sand', 'limewash');
-  // A folded saddle supports the hips above the wings, leaving the deck ahead clear for boots.
-  const left: Point = [-0.19, 1.19, -0.26];
-  const right: Point = [0.19, 1.19, -0.26];
-  const backLeft: Point = [-0.16, 1.19, 0.10];
-  const backRight: Point = [0.16, 1.19, 0.10];
-  face([left, right, backRight, backLeft], 'sand');
-  const baseLeft: Point = [-0.26, 0.52, -0.29];
-  const baseRight: Point = [0.26, 0.52, -0.29];
-  const baseBackLeft: Point = [-0.22, 0.52, 0.22];
-  const baseBackRight: Point = [0.22, 0.52, 0.22];
-  face([left, baseLeft, baseBackLeft, backLeft], 'limewash');
-  face([right, baseRight, baseBackRight, backRight], 'limewash');
-  face([left, right, baseRight, baseLeft], 'cream');
-  face([backLeft, backRight, baseBackRight, baseBackLeft], 'cream');
-  const geometry = g.build();
-  // Put the folded deck below the pilot's boots instead of cutting across them.
-  geometry.translate(0, -0.24, 0);
+  const wings = g.build();
+  // The paper sail is overhead. A suspended pilot controls it from the wooden A-frame below.
+  wings.translate(0, 1.7, 0.65);
+  const frame = new GeometryBuilder();
+  const beam = (a: Point, b: Point, radius: number, paint: ColorKey): void => {
+    const start = new THREE.Vector3(...a),
+      end = new THREE.Vector3(...b);
+    const axis = end.clone().sub(start).normalize();
+    const u = new THREE.Vector3(0, 0, 1).cross(axis).normalize().multiplyScalar(radius);
+    const v = axis.clone().cross(u).normalize().multiplyScalar(radius);
+    for (let i = 0; i < 6; i++) {
+      const offset = (j: number) =>
+        u
+          .clone()
+          .multiplyScalar(Math.cos((j * Math.PI) / 3))
+          .addScaledVector(v, Math.sin((j * Math.PI) / 3));
+      const x = offset(i),
+        y = offset(i + 1);
+      frame.quad(
+        start.clone().add(x),
+        end.clone().add(x),
+        end.clone().add(y),
+        start.clone().add(y),
+        x.clone().add(y).normalize(),
+        color(paint),
+        ALWAYS_COLOR,
+      );
+    }
+  };
+  for (const side of [-1, 1]) {
+    beam([0, 2.32, -0.3], [side * 0.72, 1.25, -0.78], 0.025, 'brown');
+    // Suspension straps meet the pilot at the hips, leaving the head and forward view clear.
+    beam([side * 0.16, 2.3, 0.2], [side * 0.16, 1.18, 0.08], 0.018, 'teal');
+    beam([side * 0.26, 1.25, -0.78], [side * 0.46, 1.25, -0.78], 0.04, 'sand');
+  }
+  beam([-0.72, 1.25, -0.78], [0.72, 1.25, -0.78], 0.028, 'brown');
+  const bars = frame.build();
+  // Keep the complete vehicle in one instanced draw, including the suspension and handles.
+  const geometry = mergeGeometries([wings, bars])!;
+  wings.dispose();
+  bars.dispose();
   geometry.computeBoundingBox();
   geometry.computeBoundingSphere();
   return geometry;
@@ -117,7 +142,8 @@ export class PaperPlanes {
     const unfold = f.blend * f.blend * (3 - 2 * f.blend);
     this.at.position.set(p.x, p.y, p.z);
     this.at.rotation.set(f.pitch * f.blend, p.yaw, f.bank * f.blend, 'YXZ');
-    this.at.scale.set(unfold, unfold, unfold);
+    // Fold horizontally overhead; scaling height from the feet sweeps the sail through the pilot.
+    this.at.scale.set(unfold, 1, unfold);
     this.at.updateMatrix();
     this.mesh.setMatrixAt(this.used++, this.at.matrix);
   }

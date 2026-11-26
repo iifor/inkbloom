@@ -9,7 +9,6 @@ import { weaponModel } from '@/systems/figures/player-props';
 import type { PlayerPose } from '@/systems/figures/player-pose';
 import { HELD_ITEMS } from '@/world/net/protocol';
 import { CourierViewArms } from '@/systems/player/courier-view-arms';
-import { paperPlaneGeometry } from '@/systems/figures/paper-plane';
 
 let source: THREE.Group;
 const rest: PlayerPose = {
@@ -36,47 +35,62 @@ beforeAll(async () => {
 });
 
 describe('imported Quaternius courier', () => {
-  it('keeps the pilot mesh above the paper even when the plane banks or pitches', () => {
+  it.each(['courier', 'ranger', 'casual', 'witch'] as const)(
+    '%s reaches both glider handles with its own limb proportions',
+    async (key) => {
+      const bytes = await readFile(new URL(`../public/${characterModelPath(key)}`, import.meta.url));
+      const model = await new GLTFLoader().parseAsync(
+        bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
+        '',
+      );
+      const material = makeInkMaterial({ cloth: true });
+      const actor = new CourierActor(model.scene, material);
+      actor.pose(defaultLook(key), { ...rest, flight: { blend: 1, bank: 0, pitch: 0 } });
+      actor.rig.root.updateMatrixWorld(true);
+      for (const side of ['L', 'R'] as const) {
+        const palm = pos(actor.rig[`palm${side}`]);
+        expect(palm.distanceTo(new THREE.Vector3(side === 'L' ? -0.36 : 0.36, 1.25, -0.78))).toBeLessThan(
+          0.06,
+        );
+      }
+      actor.dispose();
+      material.dispose();
+    },
+  );
+
+  it('keeps the suspended pilot below the sail while banking and grips the bar', () => {
     const material = makeInkMaterial({ cloth: true });
     const actor = new CourierActor(source, material);
-    const paper = new THREE.Mesh(paperPlaneGeometry(), new THREE.MeshBasicMaterial());
     const vertex = new THREE.Vector3();
-    const ray = new THREE.Raycaster(new THREE.Vector3(), new THREE.Vector3(0, -1, 0), 0, 8);
     const inverse = new THREE.Matrix4();
-    for (const [blend, yaw, bank, pitch] of [
-      [0.25, 0, 0, 0],
-      [0.5, 0, 0, 0],
-      [0.75, 1.1, 0.3, -0.18],
-      [1, 0, 0, 0],
-      [1, 1.1, 0.3, -0.18],
-      [1, -1.1, -0.3, 0.18],
+    for (const [yaw, bank, pitch] of [
+      [0, 0, 0],
+      [1.1, 0.3, -0.18],
+      [-1.1, -0.3, 0.18],
     ] as const) {
-      actor.pose(defaultLook('courier'), { ...rest, yaw, flight: { blend, bank, pitch } });
+      actor.pose(defaultLook('courier'), { ...rest, yaw, flight: { blend: 1, bank, pitch } });
       actor.model.updateMatrixWorld(true);
-      inverse.makeRotationFromEuler(new THREE.Euler(pitch * blend, yaw, bank * blend, 'YXZ')).invert();
-      const unfold = blend * blend * (3 - 2 * blend);
-      let clearance = Infinity;
+      inverse.makeRotationFromEuler(new THREE.Euler(pitch, yaw, bank, 'YXZ')).invert();
+      let highest = -Infinity;
       actor.model.traverse((mesh) => {
         if (!(mesh instanceof THREE.SkinnedMesh) || !mesh.visible) return;
         const positions = mesh.geometry.getAttribute('position');
         for (let index = 0; index < positions.count; index++) {
           mesh.getVertexPosition(index, vertex).applyMatrix4(mesh.matrixWorld).applyMatrix4(inverse);
-          vertex.divideScalar(unfold);
-          if (vertex.y >= 1) continue;
-          ray.ray.origin.set(vertex.x, 2, vertex.z);
-          const surface = ray.intersectObject(paper, false)[0];
-          if (surface) clearance = Math.min(clearance, (vertex.y - surface.point.y) * unfold);
+          highest = Math.max(highest, vertex.y);
         }
       });
-      expect(clearance, `flight blend ${blend}`).toBeGreaterThan(blend === 1 ? 0.015 : 0);
-      if (blend === 1) expect(clearance).toBeLessThan(0.3);
+      expect(highest).toBeLessThan(2.1);
+      for (const side of ['L', 'R'] as const) {
+        const palm = pos(actor.rig[`palm${side}`]).applyMatrix4(inverse);
+        expect(palm.distanceTo(new THREE.Vector3(side === 'L' ? -0.36 : 0.36, 1.25, -0.78))).toBeLessThan(
+          0.06,
+        );
+      }
     }
-    paper.geometry.dispose();
-    paper.material.dispose();
     actor.dispose();
     material.dispose();
   });
-
   it('reuses the character arm vertices and skinning without changing the shared full-body asset', () => {
     const original = new Map<THREE.Object3D, number>();
     source.traverse((o) => {

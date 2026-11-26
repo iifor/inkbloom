@@ -30,6 +30,46 @@ beforeAll(async () => {
   shared = (await readModel('animated/BaseCharacter')).animations;
 });
 
+it.each([
+  'rogue',
+  'animated/CasualFemale',
+  'rpg/Wizard',
+  'cube/Character_Female_2',
+  'platformer/Character',
+] as const)('%s stops working to look at a visitor without accumulating head rotation', async (key) => {
+  const source = await readModel(key, isKayKit(key) ? 'kaykit' : 'quaternius');
+  if (key.startsWith('animated/')) source.animations = shared;
+  const actor = new ResidentFigure(source, 0, residentMotions(key));
+  const control = new ResidentFigure(source, 0, residentMotions(key));
+  let head: THREE.Bone | undefined;
+  actor.model.traverse((o) => {
+    if (o instanceof THREE.Bone && /^head$/i.test(o.name)) head = o;
+  });
+  expect(head).toBeDefined();
+  actor.update(0.1, false, 'slash');
+  control.update(0.1, false, 'slash');
+  for (let frame = 0; frame < 180; frame++) {
+    actor.update(1 / 60, true, 'slash', { x: 2, y: 1.7, z: 2 });
+    control.update(1 / 60, true, 'slash');
+  }
+  const controlHead = control.model.getObjectByName(head!.name)!;
+  const angle = head!.quaternion.angleTo(controlHead.quaternion);
+  expect(angle).toBeGreaterThan(0.1);
+  expect(angle).toBeLessThan(0.7);
+  expect(
+    actor.mixer
+      .existingAction(source.animations.find((c) => c.name === residentMotions(key).idle.clip)!)
+      ?.getEffectiveWeight(),
+  ).toBeCloseTo(1);
+  for (let frame = 0; frame < 120; frame++) {
+    actor.update(1 / 60, false, 'walk');
+    control.update(1 / 60, false, 'walk');
+  }
+  expect(head!.quaternion.angleTo(controlHead.quaternion)).toBeLessThan(0.001);
+  actor.dispose();
+  control.dispose();
+});
+
 it('gives every resident a reachable model while keeping the occupation of its existing home', () => {
   const seen = new Set<string>();
   for (let seed = 0; seed < 500; seed++) {
@@ -122,4 +162,27 @@ it.each([
   }
   expect(sample(0).values).toEqual(first.values);
   expect(sample().values).toEqual(original.values);
+});
+
+it('returns to routine animation after a held combat or down pose', async () => {
+  const { NpcFighter, NpcBattles } = await import('@/systems/combat/npc-combat');
+  const { PhysicsWorld } = await import('@/engine/physics/world');
+  const source = await readModel('rogue', 'kaykit');
+  const actor = new ResidentFigure(source);
+  const fighter = new NpcFighter(new NpcBattles(), new PhysicsWorld(), actor.root.position);
+  fighter.swing = 0.2;
+  for (let i = 0; i < 90; i++) actor.combatPose(1 / 60, fighter);
+  for (let i = 0; i < 30; i++) actor.update(1 / 60, false, 'idle');
+  expect(
+    actor.mixer.existingAction(source.animations.find((c) => c.name === 'Idle')!)?.getEffectiveWeight(),
+  ).toBeCloseTo(1);
+  fighter.damage(1000);
+  actor.combatPose(0.2, fighter);
+  for (let i = 0; i < 30; i++) actor.update(1 / 60, false, 'walk');
+  expect(actor.root.rotation.z).toBe(0);
+  expect(
+    actor.mixer.existingAction(source.animations.find((c) => c.name === 'Walking_A')!)?.getEffectiveWeight(),
+  ).toBeCloseTo(1);
+  fighter.dispose();
+  actor.dispose();
 });

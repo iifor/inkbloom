@@ -1,0 +1,49 @@
+{
+  "voices": [
+    {
+      "name": "zh-CN-XiaoxiaoNeural",
+      "styles": { "friendly": "friendly", "gentle": "gentle", "cheerful": "cheerful", "shy": "chat" }
+    },
+    {
+      "name": "zh-CN-YunxiNeural",
+      "styles": {
+        "friendly": "chat",
+        "gentle": "narration-relaxed",
+        "cheerful": "cheerful",
+        "shy": "embarrassed"
+      }
+    },
+    {
+      "name": "zh-CN-XiaoyiNeural",
+      "styles": {
+        "friendly": "affectionate",
+        "gentle": "gentle",
+        "cheerful": "cheerful",
+        "shy": "embarrassed"
+      }
+    },
+    {
+      "name": "zh-CN-YunjianNeural",
+      "styles": {
+        "friendly": "narration-relaxed",
+        "gentle": "narration-relaxed",
+        "cheerful": "cheerful",
+        "shy": "serious"
+      }
+    }
+  ],
+  "lines": [
+    { "id": "hello", "text": "你好呀！", "style": "friendly" },
+    { "id": "welcome", "text": "路上辛苦啦。", "style": "gentle" },
+    { "id": "meet", "text": "很高兴见到你！", "style": "cheerful" },
+    { "id": "farewell", "text": "路上小心呀。", "style": "gentle" },
+    { "id": "traveler", "text": "哎，你好，远道而来的朋友。", "style": "friendly" },
+    { "id": "rest", "text": "累了的话，就在附近歇歇脚吧。", "style": "gentle" },
+    { "id": "company", "text": "有人来走走，可真好呀！", "style": "cheerful" },
+    { "id": "hello-soft", "text": "啊，你好。刚才没注意到你。", "style": "shy" },
+    { "id": "take-time", "text": "别着急，慢慢走。", "style": "gentle" },
+    { "id": "wave", "text": "嗨！祝你一路顺风！", "style": "cheerful" },
+    { "id": "passing", "text": "你也从这里经过呀。", "style": "friendly" },
+    { "id": "quiet", "text": "嗯……见到你很高兴。", "style": "shy" }
+  ]
+}

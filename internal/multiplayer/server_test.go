@@ -112,7 +112,7 @@ func TestLivePostgres(t *testing.T) {
 			t.Fatal(err)
 		}
 		t.Cleanup(func() { c.CloseNow() })
-		m := object{"t": "hello", "v": 9, "token": token, "name": token, "look": object{"character": "courier", "skin": 0, "hair": 1, "accent": 5}}
+		m := object{"t": "hello", "v": 11, "token": token, "name": token, "look": object{"character": "courier", "skin": 0, "hair": 1, "accent": 5}}
 		for k, v := range extra {
 			m[k] = v
 		}

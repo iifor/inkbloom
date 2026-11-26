@@ -1,7 +1,5 @@
-// An ore vein: a broken boulder with a seam of the pigment running across it and a cluster of
-// six-sided crystals breaking out of the seam, with a stone or two fallen beside it. Faceted
-// like the hot-spring rocks (build-landmarks.ts), so the light lies on it in flat planes the
-// way a painter blocks in stone, instead of rolling smoothly round a lump.
+// A fractured outcrop. The pigment is a thin mineral inclusion inside the rock:
+// neighbouring layers share vertices along the seam, even where it almost pinches out.
 import * as THREE from 'three';
 import { color } from '@/content/palette';
 import { ALWAYS_COLOR, type GeometryBuilder } from '@/engine/render/geometry-builder';
@@ -9,143 +7,109 @@ import type { Rng } from '@/world/math/rng';
 import type { Wilderness } from '@/world/wilderness/generator';
 import type { PigmentSource } from '@/world/wilderness/sources';
 
-const rock = color('rock');
-const up = new THREE.Vector3(0, 1, 0);
-// a crystal: a hexagonal prism narrowing a little, under a six-sided point; base at y 0,
-// shoulder at y 1
-const prism = new THREE.CylinderGeometry(0.82, 1, 1, 6, 1, true).translate(0, 0.5, 0);
-const point = new THREE.ConeGeometry(0.82, 0.55, 6, 1, true).translate(0, 1.275, 0);
-
-/** A broken stone about one unit across: a ball cut down by a handful of cleavage planes, so
- * it has broad flat faces meeting at edges, like stone split along its grain, and a little
- * roughness on top. Non-indexed, so each face keeps its own flat normal; a corner moves the
- * same way in every face that shares it, so the stone stays closed. */
-function boulder(rng: Rng, detail: number, cuts: number): THREE.BufferGeometry {
-  const g = new THREE.IcosahedronGeometry(1, detail);
-  const planes = Array.from({ length: cuts }, (_, i) => ({
-    // spread round the stone, with one always taking off the underside
-    n:
-      i === 0
-        ? new THREE.Vector3(rng.range(-0.15, 0.15), -1, rng.range(-0.15, 0.15)).normalize()
-        : new THREE.Vector3(rng.range(-1, 1), rng.range(-0.6, 1), rng.range(-1, 1)).normalize(),
-    d: i === 0 ? 0.55 : rng.range(0.62, 0.86),
-  }));
-  const p = g.getAttribute('position');
-  const seed = rng.range(0, 100);
-  const v = new THREE.Vector3();
-  // rounded first: each face works out its corners itself, a hair apart
-  const k = (x: number): number => Math.round(x * 1000) / 1000;
-  for (let i = 0; i < p.count; i++) {
-    v.fromBufferAttribute(p, i).normalize();
-    // out along this direction until the first cut
-    let r = 1;
-    for (const pl of planes) {
-      const along = v.dot(pl.n);
-      if (along > 0.01) r = Math.min(r, pl.d / along);
+/** Slice each face with the same crooked geological plane. The resulting triangles tile
+ * the original face exactly, including the exposed crown and the corners between faces. */
+function fracturedStone(g: GeometryBuilder, matrix: THREE.Matrix4, pigment: number, rng: Rng): void {
+  const host: number[] = [],
+    mineral: number[] = [];
+  const bands = [
+    { low: -Infinity, high: -1, vertices: host },
+    { low: -1, high: 1, vertices: mineral },
+    { low: 1, high: Infinity, vertices: host },
+  ];
+  const slices = rng.int(7, 9);
+  const offset = rng.range(-0.25, 0.25),
+    dip = rng.range(0.18, 0.53);
+  const value = (p: THREE.Vector3) =>
+    (p.x + 0.46 * p.z + dip * p.y - offset + 0.13 * Math.sin(7 * p.z + 2 * p.y) + 0.07 * Math.sin(6 * p.y)) /
+    (0.013 + 0.065 * (0.5 + 0.5 * Math.sin(4 * p.z + 3 * p.y)));
+  type Corner = { p: THREE.Vector3; v: number };
+  const corner = (p: THREE.Vector3): Corner => ({ p, v: value(p) });
+  function clip(poly: Corner[], limit: number, above: boolean): Corner[] {
+    const inside = (p: Corner) => (above ? p.v >= limit : p.v <= limit);
+    const out: Corner[] = [];
+    for (let i = 0; i < poly.length; i++) {
+      const a = poly[i]!,
+        b = poly[(i + 1) % poly.length]!;
+      if (inside(a)) out.push(a);
+      if (inside(a) !== inside(b))
+        out.push({ p: a.p.clone().lerp(b.p, (limit - a.v) / (b.v - a.v)), v: limit });
     }
-    const h = Math.sin(k(v.x) * 12.9898 + k(v.y) * 78.233 + k(v.z) * 37.719 + seed) * 43758.5453;
-    r *= 0.985 + 0.03 * (h - Math.floor(h));
-    p.setXYZ(i, v.x * r, v.y * r, v.z * r);
+    return out;
   }
-  return g;
+  function face(a: Corner, b: Corner, c: Corner): void {
+    for (const band of bands) {
+      const poly = clip(clip([a, b, c], band.low, true), band.high, false);
+      for (let j = 1; j + 1 < poly.length; j++)
+        for (const i of [0, j, j + 1]) {
+          const p = poly[i]!.p;
+          band.vertices.push(p.x, p.y, p.z);
+        }
+    }
+  }
+  const columns: Corner[][] = [];
+  const crown = corner(new THREE.Vector3(-0.28, 1.09, 0.1));
+  for (let i = 0; i < slices; i++) {
+    const angle = ((i + rng.range(-0.19, 0.19)) * Math.PI * 2) / slices;
+    const radius = rng.range(0.84, 1.1),
+      x = radius * Math.cos(angle),
+      z = radius * Math.sin(angle);
+    const shelf = rng.range(0.72, 1.06);
+    columns.push([
+      corner(new THREE.Vector3(x * 0.91, -0.3, z * 0.91)),
+      corner(new THREE.Vector3(x, 0.25 + 0.16 * z + rng.range(-0.08, 0.13), z)),
+      corner(
+        new THREE.Vector3(x * shelf - 0.08, 0.8 - 0.25 * x + 0.13 * z + rng.range(-0.16, 0.15), z * shelf),
+      ),
+      corner(new THREE.Vector3(x * 0.55 - 0.18, 0.98 - 0.19 * x + rng.range(-0.09, 0.08), z * 0.58)),
+    ]);
+  }
+  for (let i = 0; i < slices; i++) {
+    const a = columns[i]!,
+      b = columns[(i + 1) % slices]!;
+    for (let j = 0; j < a.length - 1; j++) {
+      face(a[j]!, a[j + 1]!, b[j]!);
+      face(a[j + 1]!, b[j + 1]!, b[j]!);
+    }
+    face(a[3]!, crown, b[3]!);
+    if (i > 0 && i < slices - 1) face(columns[0]![0]!, a[0]!, b[0]!);
+  }
+  for (const [vertices, tint] of [
+    [host, color('rock')],
+    [mineral, pigment],
+  ] as const) {
+    const geometry = new THREE.BufferGeometry().setAttribute(
+      'position',
+      new THREE.Float32BufferAttribute(vertices, 3),
+    );
+    g.mesh(geometry, matrix, tint, ALWAYS_COLOR);
+    geometry.dispose();
+  }
 }
 
-/** Splits a stone's faces into rock and seam by a band either side of a plane through it. */
-function splitSeam(
-  stone: THREE.BufferGeometry,
-  normal: THREE.Vector3,
-  offset: number,
-  width: number,
-): { rock: THREE.BufferGeometry; seam: THREE.BufferGeometry } {
-  const p = stone.getAttribute('position');
-  const rockPos: number[] = [];
-  const seamPos: number[] = [];
-  const c = new THREE.Vector3();
-  const v = new THREE.Vector3();
-  for (let i = 0; i < p.count; i += 3) {
-    c.set(0, 0, 0);
-    for (let k = 0; k < 3; k++) c.add(v.fromBufferAttribute(p, i + k));
-    c.divideScalar(3);
-    const out = Math.abs(c.dot(normal) - offset) < width ? seamPos : rockPos;
-    for (let k = 0; k < 3; k++) out.push(p.getX(i + k), p.getY(i + k), p.getZ(i + k));
+export function addPigmentOre(
+  g: GeometryBuilder,
+  src: PigmentSource,
+  ground: Wilderness['heightAt'],
+  rng: Rng,
+): void {
+  const yaw = rng.range(0, Math.PI * 2);
+  const matrix = new THREE.Matrix4(),
+    q = new THREE.Quaternion();
+  // One high broken face, two lower shoulders and a loose fragment. Each is seated
+  // on the actual slope; the long axes follow the same bed of rock.
+  for (const [dx, dz, hw, h, hd] of [
+    [-0.32, 0, 1.12, 1.38, 0.85],
+    [0.96, 0.04, 0.84, 0.76, 0.65],
+    [-0.67, 0.82, 0.74, 0.48, 0.5],
+    [1.35, -0.76, 0.4, 0.31, 0.34],
+  ] as const) {
+    const x = src.x + dx * Math.cos(yaw) + dz * Math.sin(yaw),
+      z = src.z - dx * Math.sin(yaw) + dz * Math.cos(yaw);
+    q.setFromEuler(
+      new THREE.Euler(rng.range(-0.08, 0.08), yaw + rng.range(-0.22, 0.22), rng.range(-0.12, 0.02), 'YXZ'),
+    );
+    matrix.compose(new THREE.Vector3(x, ground(x, z) + 0.035, z), q, new THREE.Vector3(hw, h, hd));
+    fracturedStone(g, matrix, src.color, rng);
   }
-  const geometry = (pos: number[]): THREE.BufferGeometry =>
-    new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  return { rock: geometry(rockPos), seam: geometry(seamPos) };
-}
-
-export function addPigmentOre(g: GeometryBuilder, src: PigmentSource, ground: Wilderness['heightAt'], rng: Rng): void {
-  const m = new THREE.Matrix4();
-  const q = new THREE.Quaternion();
-  const yaw = rng.next() * Math.PI * 2;
-
-  // the boulder, seated in the slope
-  const size = new THREE.Vector3(1.45, 1.0, 1.2).multiplyScalar(rng.range(0.9, 1.1));
-  const at = new THREE.Vector3(src.x, ground(src.x, src.z) + size.y * 0.42, src.z);
-  q.setFromEuler(new THREE.Euler(rng.range(-0.12, 0.12), yaw, rng.range(-0.12, 0.12)));
-  m.compose(at, q, size);
-  const stone = boulder(rng, 3, 12);
-  // the seam runs slantwise round the stone, like a stratum
-  const tilt = rng.range(0.85, 1.2);
-  const across = rng.range(0, Math.PI * 2);
-  const seamNormal = new THREE.Vector3(Math.cos(across) * Math.cos(tilt), Math.sin(tilt), Math.sin(across) * Math.cos(tilt));
-  const { rock: body, seam } = splitSeam(stone, seamNormal, rng.range(-0.15, 0.2), 0.11);
-  g.mesh(body, m, rock, ALWAYS_COLOR);
-  g.mesh(seam, m, src.color, ALWAYS_COLOR);
-
-  // crystals break out of the seam's upper faces, leaning out from the stone
-  const sp = seam.getAttribute('position');
-  const sites: { pos: THREE.Vector3; out: THREE.Vector3 }[] = [];
-  const a = new THREE.Vector3();
-  const b = new THREE.Vector3();
-  const c = new THREE.Vector3();
-  for (let i = 0; i < sp.count; i += 3) {
-    a.fromBufferAttribute(sp, i).applyMatrix4(m);
-    b.fromBufferAttribute(sp, i + 1).applyMatrix4(m);
-    c.fromBufferAttribute(sp, i + 2).applyMatrix4(m);
-    const out = new THREE.Vector3().subVectors(c, b).cross(new THREE.Vector3().subVectors(a, b)).normalize();
-    if (out.y > 0.05) sites.push({ pos: a.clone().add(b).add(c).divideScalar(3), out });
-  }
-  sites.sort((s, t) => t.pos.y - s.pos.y);
-  const count = Math.min(sites.length, rng.int(5, 7));
-  const dir = new THREE.Vector3();
-  for (let i = 0; i < count; i++) {
-    // most from the top of the seam, a few further down it
-    const site = sites[i < 3 ? i : rng.int(3, sites.length - 1)]!;
-    dir
-      .copy(site.out)
-      .multiplyScalar(0.7)
-      .addScaledVector(up, 0.55)
-      .add(new THREE.Vector3(rng.range(-0.3, 0.3), 0, rng.range(-0.3, 0.3)))
-      .normalize();
-    const big = i < 3;
-    const length = big ? rng.range(0.5, 0.85) : rng.range(0.25, 0.45);
-    const radius = length * rng.range(0.2, 0.28);
-    // the root sunk into the stone
-    const base = site.pos.clone().addScaledVector(dir, -0.18);
-    q.setFromUnitVectors(up, dir).multiply(new THREE.Quaternion().setFromAxisAngle(up, rng.next() * Math.PI));
-    m.compose(base, q, new THREE.Vector3(radius, length, radius));
-    g.mesh(prism, m, src.color, ALWAYS_COLOR);
-    g.mesh(point, m, src.color, ALWAYS_COLOR);
-  }
-
-  // a stone or two broken off and lying beside it
-  const fallen = rng.int(1, 2);
-  for (let i = 0; i < fallen; i++) {
-    const turn = yaw + rng.range(-1.2, 1.2) + i * Math.PI;
-    const s = rng.range(0.35, 0.6);
-    const x = src.x + Math.cos(turn) * (1.25 + s * 0.5);
-    const z = src.z + Math.sin(turn) * (1.15 + s * 0.5);
-    q.setFromEuler(new THREE.Euler(rng.range(-0.4, 0.4), rng.next() * 6, rng.range(-0.4, 0.4)));
-    m.compose(new THREE.Vector3(x, ground(x, z) + s * 0.3, z), q, new THREE.Vector3(s * 1.2, s * 0.8, s));
-    const chip = boulder(rng, 1, 6);
-    // the seam carries on through what broke off
-    const parts = splitSeam(chip, seamNormal, rng.range(-0.3, 0.3), 0.16);
-    g.mesh(parts.rock, m, rock, ALWAYS_COLOR);
-    g.mesh(parts.seam, m, src.color, ALWAYS_COLOR);
-    for (const part of [chip, parts.rock, parts.seam]) part.dispose();
-  }
-  stone.dispose();
-  body.dispose();
-  seam.dispose();
 }

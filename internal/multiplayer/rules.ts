@@ -1,6 +1,6 @@
 import { WorldHost } from '@/world/net/host';
 import { createWorldState } from '@/world/state';
-import { parseClientMessage } from '@/world/net/protocol';
+import { parseClientMessage, PROTOCOL } from '@/world/net/protocol';
 
 // WorldHost copies acyclic save data before judging a patch. The embedded VM
 // supplies ECMAScript builtins but lacks the browser structuredClone API.
@@ -30,7 +30,7 @@ export function join(key: string, raw: string, room: string, ai = false) {
     player: host.info(r.id),
     welcome: {
       t: 'welcome',
-      v: 9,
+      v: PROTOCOL,
       id: r.id,
       max: host.max,
       room: room || undefined,
@@ -54,6 +54,18 @@ export function command(id: number, raw: string) {
   const m = JSON.parse(raw);
   const out: Delivery[] = [];
   switch (m.t) {
+    case 'profile': {
+      const player = host.updateProfile(id, m.name, m.look);
+      if (player)
+        out.push({
+          ids: host
+            .everyone()
+            .filter((p) => p.id !== id)
+            .map((p) => p.id),
+          message: { t: 'profile', player },
+        });
+      break;
+    }
     case 'move':
       host.move(id, m, m.scene, m.town);
       break;

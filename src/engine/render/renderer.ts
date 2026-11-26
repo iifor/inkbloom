@@ -32,7 +32,9 @@ import { SEA_SLOTS } from './paint-shader';
 import { PassTimer } from './pass-timer';
 import { SunShadows } from './sun-shadows';
 import { CURRENT_STEP } from '@/world/wilderness/water-current';
-import { RIVER_SAMPLES, RiverTable, WAKE_COUNT } from './water-paint';
+import { RIVER_SAMPLES, RiverTable } from './water-paint';
+import { WakeField } from './wake-field';
+import { WaterSpray } from './water-spray';
 
 /** Most pixels drawn a frame at each quality, to start with: about 2300 x 1400, and 1900 x 1100.
  * When frames keep up, automatic resolution raises it along with the pixel ratio. */
@@ -67,8 +69,6 @@ export class InkRenderer {
   private brushSpread = 2.1;
   private readonly postCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
   private readonly clearColor = new THREE.Color(1, 0, 0);
-  private fishWake = 0;
-  private playerWake = 0;
   private pixelRatio: number;
   /** The quality setting's pixel ratio: the most the frame is ever drawn at. */
   private maxPixelRatio: number;
@@ -87,6 +87,9 @@ export class InkRenderer {
   readonly texturesReady: Promise<void>;
   /** Surface velocities around the player for the water shader. */
   private readonly rivers = new RiverTable();
+  private readonly wakes = new WakeField();
+  private riverVelocity: ((x: number, z: number) => { x: number; z: number }) | null = null;
+  private readonly spray: WaterSpray;
   /** The player's field of view; tools zoom relative to it and return to it. */
   baseFov = 78;
   /** Mood of the whole view, set by gameplay each frame. `colour` 0..1 is how much colour
@@ -223,6 +226,8 @@ export class InkRenderer {
       depth: depthTexture,
       noise: this.noise,
       rivers: this.rivers.texture,
+      wakes: this.wakes.texture,
+      wakeBounds: this.wakes.bounds,
       canopyBrush: this.canopyBrush,
       surfaces: this.painted.surfaces,
       clouds: this.painted.clouds,
@@ -239,6 +244,7 @@ export class InkRenderer {
     this.precipitation = new Precipitation(depthTexture);
     this.critters = new Critters(depthTexture);
     this.steam = new Steam(depthTexture);
+    this.spray = new WaterSpray(depthTexture);
     this.smoke = new Steam(depthTexture);
     this.birds = new Birds(depthTexture);
     // the eye sees grass; the sun's shadow camera (default layer only) does not
@@ -329,6 +335,7 @@ export class InkRenderer {
     this.precipitation.setSize(rw, rh);
     this.critters.setSize(rw, rh);
     this.steam.setSize(rw, rh);
+    this.spray.setSize(rw, rh);
     this.smoke.setSize(rw, rh);
     this.birds.setSize(rw, rh);
   }
@@ -373,6 +380,7 @@ export class InkRenderer {
   }
 
   setRivers(x0: number, z0: number, at: (x: number, z: number) => { x: number; z: number }): void {
+    this.riverVelocity = at;
     this.rivers.set(x0, z0, at);
     this.post.uniforms.uRiverGrid!.value.set(x0, z0, CURRENT_STEP, RIVER_SAMPLES);
   }
@@ -381,9 +389,13 @@ export class InkRenderer {
     this.post.uniforms.uWildWater!.value = enabled;
   }
 
-  ripple(x: number, z: number, fromPlayer: boolean): void {
-    const i = fromPlayer ? this.playerWake++ % 6 : 6 + (this.fishWake++ % (WAKE_COUNT - 6));
-    this.post.uniforms.uWakes!.value[i].set(x, z, performance.now() / 1000, fromPlayer ? 1 : 0.52);
+  ripple(x: number, z: number, fromPlayer: boolean, strength = fromPlayer ? 1 : 0.52): void {
+    const v = this.riverVelocity?.(x, z);
+    this.wakes.add(x, z, performance.now() / 1000, fromPlayer, strength, v?.x, v?.z);
+  }
+
+  waterSplash(x: number, z: number, strength: number, flowX: number, flowZ: number): void {
+    this.spray.add(x, z, performance.now() / 1000, strength, flowX, flowZ);
   }
 
   /** While profiling (dev tools): GPU milliseconds per pass, summed over the frames measured
@@ -477,6 +489,9 @@ export class InkRenderer {
     shared.uLightDir.value.copy(this.day.dir).transformDirection(this.camera.matrixWorldInverse);
     const r = this.renderer;
     r.info.reset();
+    this.pass('wake');
+    this.post.uniforms.uHasWakes!.value = this.post.uniforms.uWildWater!.value &&
+      this.wakes.render(r, this.camera.getWorldPosition(_eye), now / 1000);
     this.pass('shadows');
     this.shadows.update(r, this.scene, this.camera, this.day.dir);
     this.pass('scene');
@@ -538,6 +553,7 @@ export class InkRenderer {
     this.precipitation.render(r, this.camera, { ...w, night: this.day.night }, u.uTime!.value);
     this.critters.render(r, this.camera, this.day.night);
     this.steam.render(r, this.camera, u.uTime!.value, this.day.night);
+    if (u.uWildWater!.value) this.spray.render(r, this.camera, now / 1000, this.day.night, this.day.dir);
     this.smoke.render(r, this.camera, u.uTime!.value, this.day.night);
     this.birds.render(r, this.camera, this.day.night);
     this.pass('fxaa');
@@ -558,11 +574,13 @@ export class InkRenderer {
     this.noise.dispose();
     this.painted.dispose();
     this.rivers.dispose();
+    this.wakes.dispose();
     if (shared.uCanopyBrush.value === this.canopyBrush) shared.uCanopyBrush.value = null;
     if (shared.uPlants.value === this.painted.plants) shared.uPlants.value = null;
     this.precipitation.dispose();
     this.critters.dispose();
     this.steam.dispose();
+    this.spray.dispose();
     this.smoke.dispose();
     this.birds.dispose();
     this.rt.dispose();

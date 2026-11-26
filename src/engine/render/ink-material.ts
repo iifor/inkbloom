@@ -33,6 +33,8 @@ export const shared = {
   /** xy = town centre, z = progress (0..1), w = half the town's side. */
   uCities: { value: Array.from({ length: TUNING.drain.maxCities }, () => new THREE.Vector4()) },
   uCityCount: { value: 0 },
+  uInkAreas: { value: Array.from({length: 12}, () => new THREE.Vector2()) },
+  uInkAreaCount: { value: 0 },
   /** Cleansed ink wells near by (x, z, radius of the colour round it): the land there keeps its
    * colour however grey the town (see world/wilderness/ink-wells.ts). */
   uWells: { value: Array.from({ length: MAX_WELLS }, () => new THREE.Vector4()) },
@@ -56,6 +58,9 @@ export const shared = {
   uWind: { value: new THREE.Vector2(2.4, 1.5) },
   /** Wind travel in world metres, integrated across changes in the weather. */
   uWindDrift: { value: new THREE.Vector2() },
+  /** Local resting body footprint: xyz = feet origin, w = pose blend. */
+  uRestArea: { value: new THREE.Vector4() },
+  uRestDirection: { value: new THREE.Vector2(0, 1) },
 };
 
 /** Layer for things drawn but never shadow-casting (grass: it would speckle the ground). */
@@ -140,6 +145,8 @@ varying float vPlantCell;
 #endif
 #ifdef FIELD
 uniform vec3 uField;
+uniform vec4 uRestArea;
+uniform vec2 uRestDirection;
 uniform vec2 uFieldFade;
 uniform float uDensity;
 #ifdef SEA
@@ -289,6 +296,17 @@ void main() {
   #else
     vTip = 1.0;
     vGust = 0.0;
+  #endif
+  #if defined(FIELD) && defined(USE_INSTANCING)
+    // Compress the small capsule under a resting body, including the feet and supporting
+    // hands. Roots stay planted; blades recover gradually with the standing-up blend.
+    vec3 plantRoot = (modelMatrix * instanceMatrix[3]).xyz;
+    vec2 fromBody = plantRoot.xz - uRestArea.xz;
+    float alongBody = clamp(dot(fromBody, uRestDirection), -0.85, 0.75);
+    float bodyDistance = length(fromBody - uRestDirection * alongBody);
+    float press = uRestArea.w * (1.0 - smoothstep(0.40, 0.72, bodyDistance));
+    press *= 1.0 - smoothstep(0.35, 0.65, abs(plantRoot.y - uRestArea.y));
+    world.y = mix(world.y, plantRoot.y + (world.y - plantRoot.y) * 0.025, press);
   #endif
   float idx = aColor;
   #if defined(USE_INSTANCING_COLOR) && !defined(FISH)
@@ -621,6 +639,8 @@ export function makeInkMaterial(opts: InkMaterialOptions = {}): THREE.ShaderMate
   return new THREE.ShaderMaterial({
     uniforms: {
       uLightDir: shared.uLightDir,
+      uRestArea: shared.uRestArea,
+      uRestDirection: shared.uRestDirection,
       uCities: shared.uCities,
       uCityCount: shared.uCityCount,
       uWells: shared.uWells,

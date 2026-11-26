@@ -42,13 +42,23 @@ it('preserves a distinct F2 flight flag through the server parser', () => {
   expect(FLYING & GLIDING).toBe(0);
 });
 
-it('seats every character with both knees forward, banking with the plane and empty hands', () => {
+it('suspends every character under the glider with trailing legs and hands on the control bar', () => {
   for (const c of CHARACTERS) {
     const r = characterRig(c.key);
     posePlayer(r, pose);
     expect(r.legL.rotation.x).toBeCloseTo(r.legR.rotation.x);
-    expect(r.shinL.rotation.x).toBeLessThan(-0.8);
-    expect(r.hips.position.y).toBeCloseTo(1.02);
+    expect(r.shinL.rotation.x).toBeGreaterThan(-0.3);
+    expect(r.hips.rotation.x).toBeLessThan(-0.9);
+    expect(r.hips.position.y).toBeCloseTo(1.18);
+    r.root.updateMatrixWorld(true);
+    for (const side of ['L', 'R'] as const) {
+      const palm = r.root.worldToLocal(r[`palm${side}`].getWorldPosition(new THREE.Vector3()));
+      expect(palm.distanceTo(new THREE.Vector3(side === 'L' ? -0.36 : 0.36, 1.25, -0.78))).toBeLessThan(
+        0.035,
+      );
+      const foot = r.root.worldToLocal(r[`foot${side}`].getWorldPosition(new THREE.Vector3()));
+      expect(foot.z).toBeGreaterThan(0.5);
+    }
     expect(r.root.rotation.z).toBeCloseTo(0.2);
     expect(heldIn(pose)).toBeNull();
     posePlayer(r, { ...pose, flight: undefined, air: false });
@@ -94,7 +104,7 @@ it('instances planes only for living riders, supports a crowd, and removes them 
   material.dispose();
 });
 
-it('F2 opens the local vehicle, steering moves the pilot, and toggling off folds it away', () => {
+it('F2 keeps the first-person view clear while flying and restores the camera when toggled off', () => {
   const h = headless();
   const scene = new THREE.Scene();
   let action = '';
@@ -116,23 +126,22 @@ it('F2 opens the local vehicle, steering moves the pilot, and toggling off folds
   h.held.add('forward');
   h.held.add('jump');
   h.run(0.6, (dt) => player.update(dt), 1 / 60);
-  const plane = scene.getObjectByName('paper-plane-vehicles') as THREE.InstancedMesh;
   expect(player.flying).toBe(true);
   expect(player.gliding).toBe(false);
-  expect(plane.count).toBe(1);
+  expect(scene.getObjectByName('paper-plane-vehicles')).toBeUndefined();
+  expect(scene.getObjectByName('paper-plane-pilot')).toBeUndefined();
   expect(player.position.z).toBeLessThan(-2);
   expect(player.position.y).toBeGreaterThan(22);
   h.held.clear();
   h.run(1, (dt) => player.update(dt), 1 / 60);
-  expect(h.ctx.renderer.camera.position.y - player.eye.y).toBeCloseTo(0.27);
-  expect(h.ctx.renderer.camera.position.z - player.eye.z).toBeCloseTo(-0.16);
+  expect(h.ctx.renderer.camera.position.y - player.eye.y).toBeCloseTo(-0.04);
+  expect(h.ctx.renderer.camera.position.z - player.eye.z).toBeCloseTo(-0.66);
   action = 'debugFly';
   player.update(1 / 60);
   action = '';
   h.run(0.6, (dt) => player.update(dt), 1 / 60);
   expect(player.flying).toBe(false);
-  expect(plane.count).toBe(0);
-  expect(scene.getObjectByName('paper-plane-pilot')!.visible).toBe(false);
+  expect(scene.getObjectByName('paper-plane-vehicles')).toBeUndefined();
   expect(h.ctx.renderer.camera.position.z - player.eye.z).toBeCloseTo(0);
   player.dispose();
   expect(scene.getObjectByName('paper-plane-pilot')).toBeUndefined();

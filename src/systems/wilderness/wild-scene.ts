@@ -24,8 +24,11 @@ import { WildRuins, buildRuin } from './ruins';
 import { WildMarks } from './marks';
 import { WildFish } from './fish';
 import { Waterweed } from './waterweed';
+import { RiverDrift } from './river-drift';
+import { RiverSpray } from './river-spray';
 import { GrassField } from './grass';
 import { WildDeer } from './deer';
+import { WildAmbientLife } from './ambient-life';
 import { WildTravellers } from './travellers';
 import { WildInkWells } from './ink-wells';
 import { WindFlags } from '@/engine/render/wind-flags';
@@ -76,12 +79,14 @@ export class WildScene implements GameScene {
   private readonly ruins: WildRuins;
   private readonly marks: WildMarks;
   private readonly deer: WildDeer;
+  private readonly ambientLife: WildAmbientLife;
   private readonly travellers: WildTravellers;
   private readonly wells: WildInkWells;
   private readonly grass: GrassField;
   private readonly flags: WindFlags;
   private readonly fish = new WildFish(this.root, (x, z) => this.ctx.renderer.ripple(x, z, false));
   private readonly weed = new Waterweed(this.root);
+  private readonly riverDrift: RiverDrift;
   private nextWake = 0;
   /** Towns near by that were laid out when the grass was last laid (see update). */
   private lawns = '';
@@ -89,12 +94,16 @@ export class WildScene implements GameScene {
   private riverX = NaN;
   private riverZ = NaN;
   private readonly offStroke: () => void;
+  private readonly offWaterLand: () => void;
+  private readonly riverSpray: RiverSpray;
 
   constructor(
     private readonly ctx: GameContext,
     private readonly homecomings: Homecomings,
   ) {
     this.root.name = 'wild';
+    this.riverDrift = new RiverDrift(ctx.wilderness, this.root, this.material);
+    this.riverSpray = new RiverSpray(ctx);
     this.landscape = new DistantTerrain(ctx.wilderness, this.root);
     // rolling hills: bodies stand on the height function itself, not on colliders
     this.physics.ground = (x, z) => ctx.wilderness.heightAt(x, z);
@@ -105,16 +114,24 @@ export class WildScene implements GameScene {
     this.ruins = new WildRuins(ctx, this.material, this.root);
     this.marks = new WildMarks(ctx, this.material, this.root);
     this.deer = new WildDeer(ctx, this.root, this.material);
-    this.travellers = new WildTravellers(ctx, this.root, this.material);
+    this.ambientLife = new WildAmbientLife(ctx, this.root, this.material, this.physics);
+    this.travellers = new WildTravellers(ctx, this.root, this.material, this.physics);
     this.wells = new WildInkWells(ctx, this.material, this.root);
     this.offStroke = ctx.events.on('player:stroke', ({ hands }) => {
-      for (const h of hands) ctx.renderer.ripple(h.x, h.z, true);
+      for (const h of hands) this.riverSpray.impact(h.x, h.z, 0.27);
+    });
+    this.offWaterLand = ctx.events.on('player:land', ({ impact, water }) => {
+      if (!water) return;
+      const { x, z } = ctx.player.position;
+      this.riverSpray.impact(x, z, Math.min(1, 0.45 + impact));
     });
   }
 
   spawn(): { pos: THREE.Vector3; yaw: number } {
-    const x = SPAWN_CENTER;
-    const z = SPAWN_CENTER;
+    const id = this.ctx.net?.me;
+    const angle = ((id ?? 1) - 1) * Math.PI * (3 - Math.sqrt(5));
+    const x = SPAWN_CENTER + (id ? Math.cos(angle) * 2.9 : 0);
+    const z = SPAWN_CENTER + (id ? Math.sin(angle) * 2.9 : 0);
     this.ensureAt(x, z);
     const w = this.ctx.wilderness;
     const road = pathsOf(w)
@@ -225,6 +242,8 @@ export class WildScene implements GameScene {
     const t = this.ctx.state.clock;
     this.fish.update(t, p, dt);
     this.weed.update(p);
+    this.riverDrift.update(t, p);
+    this.riverSpray.update();
     // a swimmer's wake comes from the strokes (see the constructor); a wader's from each step
     if (this.ctx.player.waterMode === 'wading' && this.ctx.player.speed > 0.45 && t >= this.nextWake) {
       this.ctx.renderer.ripple(p.x, p.z, true);
@@ -236,6 +255,7 @@ export class WildScene implements GameScene {
     this.monsters.update(dt);
     this.ruins.update(dt);
     this.deer.update(dt);
+    this.ambientLife.update(dt, this.loaded);
     this.travellers.update(dt, this.loaded);
     this.homecomings.update();
     for (const household of this.households) household.update(dt);
@@ -312,6 +332,7 @@ export class WildScene implements GameScene {
         farmPopulation(this.ctx, chunk.farmstead, this.homecomings),
         this.root,
         () => farmActivities(this.ctx.wilderness, chunk, chunk.farmstead!),
+        this.physics,
       );
       this.households.add(household);
       release.push(() => {
@@ -372,17 +393,20 @@ export class WildScene implements GameScene {
     if (this.building) while (!this.building.steps.next().done);
     this.building = null;
     this.offStroke();
+    this.offWaterLand();
     for (const [key, item] of [...this.loaded]) this.unload(key, item);
     this.sources.dispose();
     this.monsters.dispose();
     this.marks.dispose();
     this.deer.dispose();
+    this.ambientLife.dispose();
     this.travellers.dispose();
     this.wells.dispose();
     this.grass.dispose();
     this.flags.dispose();
     this.fish.dispose();
     this.weed.dispose();
+    this.riverDrift.dispose();
     this.trees.dispose();
     this.landscape.dispose();
     this.material.dispose();

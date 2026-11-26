@@ -70,9 +70,9 @@ describe('regional terrain and saved worlds', () => {
     state.clock = 1234;
     state.harvested.set('test-source', 1230);
     state.discovered.push('c2_1');
-    expect(deserializeWorld(serializeWorld(state)).terrainVersion).toBe(5);
+    expect(deserializeWorld(serializeWorld(state)).terrainVersion).toBe(6);
     const json = JSON.parse(serializeWorld(state));
-    for (const terrainVersion of [2, 3, 4]) {
+    for (const terrainVersion of [2, 3, 4, 5]) {
       const surveyed = deserializeWorld(JSON.stringify({ ...json, terrainVersion }));
       expect(deserializeWorld(serializeWorld(surveyed)).terrainVersion).toBe(terrainVersion);
     }
@@ -84,7 +84,7 @@ describe('regional terrain and saved worlds', () => {
       expect(old.discovered.includes('c2_1')).toBe(true);
       expect(deserializeWorld(serializeWorld(old)).terrainVersion).toBe(1);
     }
-    for (const terrainVersion of [undefined, 0, 6, '2'])
+    for (const terrainVersion of [undefined, 0, 7, '2'])
       expect(() => deserializeWorld(JSON.stringify({ ...json, terrainVersion }))).toThrow('地形版本');
   });
 

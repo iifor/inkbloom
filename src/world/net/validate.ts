@@ -7,6 +7,7 @@ import { ATTRIBUTES } from '@/content/progression';
 import { PALETTE } from '@/content/palette';
 import { TUNING } from '@/content/tuning';
 import type { Patch } from '../patch';
+import { validInkSite } from '../infection';
 import type { SceneRef } from '../state';
 
 /** Largest index into any per-town list (surfaces, stains, monsters, studios). */
@@ -47,6 +48,8 @@ export const validCity = (v: unknown): v is string => typeof v === 'string' && C
  * patches near the player who sent them, so nobody can make it work out far-off places.
  */
 export function placeOf(patch: Patch): { x: number; z: number } | null {
+  if (patch.kind === 'infectNpc' || patch.kind === 'overrun') return patch.site;
+  if (patch.kind === 'death' && patch.inkMonster) return patch;
   const size = TUNING.world.chunkSize;
   const chunk = (cx: string, cz: string): { x: number; z: number } => ({
     x: (Number(cx) + 0.5) * size,
@@ -97,7 +100,12 @@ export function validPatch(raw: unknown): Patch | null {
       return validCity(p.city) && isIndex(p.studio) ? { kind: p.kind, city: p.city, studio: p.studio } : null;
     case 'defeat':
       return validCity(p.city) && isIndex(p.monster)
-        ? { kind: 'defeat', city: p.city, monster: p.monster }
+        ? {
+            kind: 'defeat',
+            city: p.city,
+            monster: p.monster,
+            ...(p.npc === true ? { npc: true as const } : {}),
+          }
         : null;
     case 'complete':
     case 'tideHeld':
@@ -108,16 +116,23 @@ export function validPatch(raw: unknown): Patch | null {
         : null;
     case 'hunt':
       return typeof p.monster === 'string' && WILD_ID.test(p.monster)
-        ? { kind: 'hunt', monster: p.monster }
+        ? { kind: 'hunt', monster: p.monster, ...(p.npc === true ? { npc: true as const } : {}) }
         : null;
     case 'cleanse':
       return typeof p.well === 'string' && WELL_ID.test(p.well) ? { kind: 'cleanse', well: p.well } : null;
     case 'discover':
       return typeof p.ruin === 'string' && RUIN_ID.test(p.ruin) ? { kind: 'discover', ruin: p.ruin } : null;
+    case 'infectNpc':
+    case 'overrun': {
+      if (!validInkSite(p.site) || typeof p.person !== 'string' || !(/^(resident|outing|traveller):[\w,:.-]{1,100}$/.test(p.person) || (p.kind === 'overrun' && p.person === 'player'))) return null;
+      const {x,y,z,scene} = p.site;
+      if (!validScene(scene)) return null;
+      return {kind:p.kind,person:p.person,site:{x,y,z,scene:validScene(scene)!}};
+    }
     case 'death': {
       const scene = validScene(p.scene);
       return scene && isCoord(p.x) && isCoord(p.y) && isCoord(p.z)
-        ? { kind: 'death', scene, x: p.x, y: p.y, z: p.z }
+        ? { kind: 'death', scene, x: p.x, y: p.y, z: p.z, ...(p.inkMonster === true ? {inkMonster:true as const} : {}) }
         : null;
     }
     case 'recover':

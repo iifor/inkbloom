@@ -313,18 +313,15 @@ export class CourierActor {
     const dt = pose.t - this.lastT;
     const continuous =
       !pose.rest &&
-      // Flight already blends the seated pose against the unfolding vehicle.
+      // Flight already blends the suspended pose against the unfolding vehicle.
       !(pose.flight && pose.flight.blend > 0) &&
       dt > 0 &&
       dt <= 0.25 &&
       this.model.visible &&
       this.lastAt.distanceToSquared(this.position.set(pose.x, pose.y, pose.z)) < 4;
     const held = heldIn(pose);
-    this.fingerGrip = continuous
-      ? THREE.MathUtils.lerp(this.fingerGrip, held ? 1 : 0, 1 - Math.exp(-25 * dt))
-      : held
-        ? 1
-        : 0;
+    const grip = held ? 1 : (pose.flight?.blend ?? 0);
+    this.fingerGrip = continuous ? THREE.MathUtils.lerp(this.fingerGrip, grip, 1 - Math.exp(-25 * dt)) : grip;
     // Save the displayed hand before computing the new target; new tools rise from that hand.
     const previousGrip = continuous ? this.rig.palmR.getWorldPosition(new THREE.Vector3()) : null;
     posePlayer(this.rig, pose);
@@ -392,8 +389,8 @@ export class CourierActor {
           : 0.18 + Math.min(1, pose.stride) * 0.25;
     this.applyRig(
       look,
-      THREE.MathUtils.lerp(relaxed, 1, held ? this.fingerGrip : 0),
-      THREE.MathUtils.lerp(relaxed, 1, held && this.rig.props[held].off ? this.fingerGrip : 0),
+      THREE.MathUtils.lerp(relaxed, 1, this.fingerGrip),
+      THREE.MathUtils.lerp(relaxed, 1, held ? (this.rig.props[held].off ? this.fingerGrip : 0) : grip),
     );
     // Breathing scales the torso non-uniformly. Anchor the carried shaft to the
     // final skinned socket after blending and scaling the arms.
@@ -508,7 +505,9 @@ export class CourierFigures {
     let actor = pool.actors[pool.used++];
     if (!actor) {
       actor = new CourierActor(template, this.material);
-      if (this.hideHead) actor.retainTriangles(['Head', 'neck_01'], (weight) => weight < 0.25);
+      // Keep the neck/collar seam: removing neck-weighted triangles also cuts holes into
+      // loose shirts and shoulders when the player looks down while resting.
+      if (this.hideHead) actor.retainTriangles(['Head'], (weight) => weight < 0.5);
       this.parent.add(actor.model);
       pool.actors.push(actor);
     }

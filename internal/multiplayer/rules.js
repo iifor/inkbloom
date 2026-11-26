@@ -86,6 +86,23 @@ var Rules = (() => {
     validate: () => validate
   });
 
+  // src/world/infection.ts
+  var INFECTION_RADIUS = 36;
+  function sameScene(a, b) {
+    return a.kind === b.kind && (a.kind === "wild" || b.kind === "city" && a.id === b.id);
+  }
+  function inInfectionArea(center, p) {
+    return (center.x - p.x) ** 2 + (center.z - p.z) ** 2 <= INFECTION_RADIUS ** 2;
+  }
+  function areaKey(p) {
+    return [p.scene.kind === "wild" ? "wild" : p.scene.id, Math.round(p.x), Math.round(p.z)].join(":");
+  }
+  function validInkSite(v) {
+    var _a2, _b;
+    const s = v;
+    return !!s && (((_a2 = s.scene) == null ? void 0 : _a2.kind) === "wild" || ((_b = s.scene) == null ? void 0 : _b.kind) === "city" && /^c-?\d+_-?\d+$/.test(s.scene.id)) && [s.x, s.y, s.z].every((n) => typeof n === "number" && Number.isFinite(n) && Math.abs(n) <= 1e6);
+  }
+
   // src/content/tuning.ts
   var TUNING = {
     world: {
@@ -949,6 +966,15 @@ var Rules = (() => {
 
   // src/world/wilderness/drainage.ts
   var DRAINAGE_REACH = 1024;
+  function riverPool(lane, z) {
+    const reach = 0.68 * Math.sin(z / 36 + lane * 2.1) + 0.32 * Math.sin(z / 17 - lane * 1.7);
+    return smoothstep(-0.7, 0.72, reach);
+  }
+  function riverBankWidth(half, lane, z, side) {
+    const spread = lerp(0.8, 1.21, riverPool(lane, z));
+    const bends = 0.1 * Math.sin(z / 27 + side * 1.5 + lane) + 0.06 * Math.sin(z / 11 + side * 1.9);
+    return half * (spread + bends);
+  }
   var STEP = 64;
   var COLUMNS = 13;
   var SPACING = 32;
@@ -971,7 +997,7 @@ var Rules = (() => {
   }
   var CROSS_BANK = 24;
   var STARTER_CENTER = RIVER_ORIGIN - RIVER_X;
-  function createDrainage(seed, elevation, connected = false) {
+  function createDrainage(seed, elevation, connected = false, shapedBed = false) {
     const reaches = /* @__PURE__ */ new Map();
     const anchors = /* @__PURE__ */ new Map();
     const crossChannels = /* @__PURE__ */ new Map();
@@ -1190,15 +1216,28 @@ var Rules = (() => {
         for (let lane = nearest - 1; lane <= nearest + 1; lane++) {
           if (Math.abs(x - xpos(lane, HALF)) > 400) continue;
           const river = course(lane, z);
-          const distance = Math.abs(x - river.x);
+          const offset = x - river.x;
+          const distance = Math.abs(offset);
           const valley = WATER_LEVEL + 1.2 + Math.max(0, distance - river.half) * 0.025;
           h = lerp(
             h,
             Math.min(h, valley),
             valleyStrength * (1 - smoothstep(river.half + 20, river.half + 180, distance))
           );
-          const channel = lerp(WATER_LEVEL - 2.8, WATER_LEVEL, smoothstep(0, river.half, distance));
-          h = lerp(Math.min(h, channel), h, smoothstep(river.half * 0.8, river.half + 17, distance));
+          if (shapedBed && distance > river.half * 1.4 + 17) continue;
+          const half = shapedBed ? riverBankWidth(river.half, lane, z, Math.sign(offset)) : river.half;
+          let channel = lerp(WATER_LEVEL - 2.8, WATER_LEVEL, smoothstep(0, half, distance));
+          if (shapedBed && distance < half) {
+            const pool = riverPool(lane, z);
+            const across = offset / half;
+            const thalweg = 0.24 * Math.sin(z / 55 + lane * 2.3);
+            const sideWidth = across < thalweg ? 1 + thalweg : 1 - thalweg;
+            const shelf = smoothstep(0.09, 1, Math.abs(across - thalweg) / sideWidth);
+            const bedDepth = lerp(1.25, 3.9, pool) * (1 - shelf);
+            const bars = 0.16 * Math.sin(z * 0.21 + across * 7) * Math.sin(across * 10 - z * 0.08);
+            channel = WATER_LEVEL - bedDepth * (1 + bars);
+          }
+          h = lerp(Math.min(h, channel), h, smoothstep(half * 0.8, half + 17, distance));
         }
         return h;
       },
@@ -1239,7 +1278,7 @@ var Rules = (() => {
   }
 
   // src/world/wilderness/terrain-version.ts
-  var TERRAIN_VERSION = 5;
+  var TERRAIN_VERSION = 6;
 
   // src/world/wilderness/settlement-siting.ts
   function createSettlementSiting(seed, ground) {
@@ -1317,7 +1356,7 @@ var Rules = (() => {
     const bends = n("river-bends");
     const spawn = W.chunkSize / 2;
     const landforms = createLandforms(seed);
-    const drainage = createDrainage(seed, (x, z) => landforms(x, z).height, terrainVersion >= 3);
+    const drainage = createDrainage(seed, (x, z) => landforms(x, z).height, terrainVersion >= 3, terrainVersion >= 6);
     const regional = (x, z) => terrainVersion === 1 ? 0 : smoothstep(700, 1100, Math.hypot(x - spawn, z - spawn));
     const riverMiddle = (lane, z) => {
       const t = (z - spawn) / 155;
@@ -2964,7 +3003,7 @@ var Rules = (() => {
   }
 
   // src/world/state.ts
-  var SAVE_VERSION = 10;
+  var SAVE_VERSION = 11;
   var newTide = () => ({ nextIn: TUNING.tide.firstDelay, wave: null });
   function validTide(t) {
     const j = t;
@@ -3004,6 +3043,9 @@ var Rules = (() => {
       player: null,
       clock: 0,
       calendarOffset: 0,
+      infectedAt: null,
+      infectedPeople: /* @__PURE__ */ new Map(),
+      inkAreas: /* @__PURE__ */ new Map(),
       harvested: /* @__PURE__ */ new Map(),
       drop: null,
       hunted: /* @__PURE__ */ new Map(),
@@ -3159,6 +3201,9 @@ var Rules = (() => {
       clock: state.clock,
       calendarOffset: state.calendarOffset,
       drop: state.drop,
+      infectedAt: state.infectedAt,
+      infectedPeople: Object.fromEntries(state.infectedPeople),
+      inkAreas: Object.fromEntries(state.inkAreas),
       hunted: Object.fromEntries([...state.hunted].filter(([id]) => !wildMonsterBack(state, id))),
       cleansed: Object.fromEntries(state.cleansed),
       growth: state.growth,
@@ -3173,16 +3218,16 @@ var Rules = (() => {
   var SaveError = class extends Error {
   };
   function deserializeWorld(text) {
-    var _a2, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p, _q, _r, _s, _t, _u, _v, _w;
+    var _a2, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x, _y;
     let json;
     try {
       json = JSON.parse(text);
     } catch (e) {
       throw new SaveError(`\u5B58\u6863\u4E0D\u662F\u6709\u6548\u7684 JSON\uFF1A${e.message}`);
     }
-    if (json.version !== 1 && json.version !== 2 && json.version !== 3 && json.version !== 4 && json.version !== 5 && json.version !== 6 && json.version !== 7 && json.version !== 8 && json.version !== 9 && json.version !== SAVE_VERSION)
+    if (json.version !== 1 && json.version !== 2 && json.version !== 3 && json.version !== 4 && json.version !== 5 && json.version !== 6 && json.version !== 7 && json.version !== 8 && json.version !== 9 && json.version !== 10 && json.version !== SAVE_VERSION)
       throw new SaveError(`\u4E0D\u652F\u6301\u7684\u5B58\u6863\u7248\u672C ${json.version}`);
-    if (json.version >= 6 && ![1, 2, 3, 4, 5].some((version) => version === json.terrainVersion))
+    if (json.version >= 6 && ![1, 2, 3, 4, 5, 6].some((version) => version === json.terrainVersion))
       throw new SaveError(`\u4E0D\u652F\u6301\u7684\u5730\u5F62\u7248\u672C ${json.terrainVersion}`);
     if (typeof json.id !== "string" || !Number.isInteger(json.seed))
       throw new SaveError("\u5B58\u6863\u7F3A\u5C11\u4E16\u754C\u7F16\u53F7\u6216\u79CD\u5B50");
@@ -3257,11 +3302,14 @@ var Rules = (() => {
         (m) => typeof (m == null ? void 0 : m.id) === "string" && [m.x, m.y, m.z].every(Number.isFinite)
       ),
       nextMark: Number.isInteger(json.nextMark) ? json.nextMark : 1,
+      infectedAt: validInkSite(json.infectedAt) ? json.infectedAt : null,
+      infectedPeople: new Map(Object.entries((_v = json.infectedPeople) != null ? _v : {}).filter(([, v]) => validInkSite(v))),
+      inkAreas: new Map(Object.entries((_w = json.inkAreas) != null ? _w : {}).filter(([, v]) => validInkSite(v))),
       hunted: new Map(
-        Object.entries((_v = json.hunted) != null ? _v : {}).filter((e) => Number.isFinite(e[1]))
+        Object.entries((_x = json.hunted) != null ? _x : {}).filter((e) => Number.isFinite(e[1]))
       ),
       cleansed: new Map(
-        Object.entries((_w = json.cleansed) != null ? _w : {}).filter((e) => Number.isFinite(e[1]))
+        Object.entries((_y = json.cleansed) != null ? _y : {}).filter((e) => Number.isFinite(e[1]))
       ),
       drop: json.drop && [json.drop.x, json.drop.y, json.drop.z, json.drop.ink].every(Number.isFinite) ? __spreadProps(__spreadValues({}, json.drop), { ink: Math.max(0, Math.floor(json.drop.ink)) }) : null
     };
@@ -3754,7 +3802,7 @@ var Rules = (() => {
   }
   function wellOfGuard(monster) {
     const m = /^(-?\d+),(-?\d+):(\d+)$/.exec(monster);
-    return m && Number(m[3]) >= GUARD_BASE ? `w${m[1]}_${m[2]}` : null;
+    return m && Number(m[3]) >= GUARD_BASE && Number(m[3]) < 100 ? `w${m[1]}_${m[2]}` : null;
   }
   var wellSeeping = (saturation) => saturation < TUNING.combat.wild.greyBelow;
   function wellGuards(w, well, saturation, cleansed = false) {
@@ -3786,11 +3834,12 @@ var Rules = (() => {
     if (coloredRatio(states, skel.surfaces, chunk) < TUNING.blocks.thrivingAt) return;
     saved.stockFrom[chunk] = state.clock;
   }
-  function blockMilestones(state, city, surfaces, states, coloredOnce, chunk) {
+  function blockMilestones(state, city, surfaces, states, coloredOnce, chunk, reward = true) {
     var _a2;
     if ((_a2 = state.cities.get(city)) == null ? void 0 : _a2.peaceful) return;
     if (coloredOnce[chunk] || coloredRatio(states, surfaces, chunk) < TUNING.blocks.coloredAt) return;
     coloredOnce[chunk] = 1;
+    if (!reward) return;
     const g = state.growth;
     g.xp += XP.blockColored;
     milestone(g, "first-block", MILESTONES.firstBlockColored);
@@ -3798,16 +3847,16 @@ var Rules = (() => {
     if (MILESTONES.cityBlocks.includes(count))
       milestone(g, `city:${city}:blocks:${count}`, MILESTONES.cityBlocksPoint);
   }
-  function release(state, city, skel, states, coloredOnce, x, z, rule) {
+  function release(state, city, skel, states, coloredOnce, x, z, rule, reward = true) {
     const freed = releaseAround(skel.surfaces, states, x, z, rule);
     const chunks = /* @__PURE__ */ new Set();
     for (const i of freed) {
       states[i] = ORIGINAL;
-      state.growth.xp += XP.surface;
+      if (reward) state.growth.xp += XP.surface;
       chunks.add(skel.surfaces[i].chunk);
     }
     for (const c of chunks) {
-      blockMilestones(state, city, skel.surfaces, states, coloredOnce, c);
+      blockMilestones(state, city, skel.surfaces, states, coloredOnce, c, reward);
       markThriving(state, city, skel, states, c);
     }
   }
@@ -3857,8 +3906,8 @@ var Rules = (() => {
         const kept = wellOfGuard(m.id);
         if (kept && state.cleansed.has(kept)) return fail("\u8FD9\u91CC\u6CA1\u6709\u58A8\u602A");
         state.hunted.set(m.id, state.clock);
-        inv.ink += (_e = (_d = ENEMIES[m.type]) == null ? void 0 : _d.ink) != null ? _e : 0;
-        state.growth.xp += XP.monster;
+        if (!patch.npc) inv.ink += (_e = (_d = ENEMIES[m.type]) == null ? void 0 : _d.ink) != null ? _e : 0;
+        if (!patch.npc) state.growth.xp += XP.monster;
         return OK;
       }
       case "cleanse": {
@@ -3875,7 +3924,18 @@ var Rules = (() => {
         state.growth.xp += XP.wellCleansed;
         return OK;
       }
+      case "infectNpc": {
+        if (!state.infectedPeople.has(patch.person)) state.infectedPeople.set(patch.person, patch.site);
+        return OK;
+      }
+      case "overrun": {
+        const site = patch.person === "player" ? state.infectedAt : state.infectedPeople.get(patch.person);
+        if (!site || !sameScene(site.scene, patch.site.scene) || site.x !== patch.site.x || site.z !== patch.site.z) return fail("\u6B64\u5904\u6CA1\u6709\u611F\u67D3\u6E90");
+        state.inkAreas.set(areaKey(site), site);
+        return OK;
+      }
       case "death": {
+        if (patch.inkMonster) state.infectedAt = { scene: patch.scene, x: patch.x, y: patch.y, z: patch.z };
         const lost = Math.floor(inv.ink * TUNING.combat.deathInkShare);
         inv.ink -= lost;
         state.drop = { scene: patch.scene, x: patch.x, y: patch.y, z: patch.z, ink: lost };
@@ -3978,9 +4038,9 @@ var Rules = (() => {
         if (!m) return fail("\u6CA1\u6709\u8FD9\u53EA\u58A8\u602A");
         if (defeated[patch.monster]) return fail("\u5DF2\u7ECF\u6253\u8D25\u4E86");
         defeated[patch.monster] = 1;
-        inv.ink += (_l = (_k = ENEMIES[m.type]) == null ? void 0 : _k.ink) != null ? _l : 0;
-        state.growth.xp += XP.monster;
-        release(state, patch.city, skel, states, coloredOnce, m.x, m.z, TUNING.release.monster);
+        if (!patch.npc) inv.ink += (_l = (_k = ENEMIES[m.type]) == null ? void 0 : _k.ink) != null ? _l : 0;
+        if (!patch.npc) state.growth.xp += XP.monster;
+        release(state, patch.city, skel, states, coloredOnce, m.x, m.z, TUNING.release.monster, !patch.npc);
         return OK;
       }
       case "collectStock": {
@@ -4053,6 +4113,14 @@ var Rules = (() => {
   }
 
   // src/content/crew-characters.ts
+  var FRONTIER_CHARACTERS = [
+    { key: "cube/Character_Female_1", name: "\u65B9\u5757\u6A59\u8863\u65C5\u4EBA" },
+    { key: "cube/Character_Female_2", name: "\u65B9\u5757\u53CC\u9A6C\u5C3E\u65C5\u4EBA" },
+    { key: "cube/Character_Male_1", name: "\u65B9\u5757\u91D1\u53D1\u65C5\u4EBA" },
+    { key: "cube/Character_Male_2", name: "\u65B9\u5757\u9752\u886B\u65C5\u4EBA" },
+    { key: "cyber/Character", name: "\u9713\u8679\u884C\u8005" },
+    { key: "platformer/Character", name: "\u8DC3\u53F0\u5154" }
+  ];
   var CREW_CHARACTERS = [
     { key: "pirate/Anne", name: "\u6D77\u76D7\u5B89\u59AE" },
     { key: "pirate/Captain_Barbarossa", name: "\u5DF4\u5DF4\u7F57\u8428\u8239\u957F" },
@@ -4088,12 +4156,7 @@ var Rules = (() => {
     { key: "sushi/Rabbit_Grey", name: "\u7070\u53D1\u5154\u5E97\u5458" },
     { key: "sushi/Rabbit_Pink", name: "\u7C89\u53D1\u5154\u5E97\u5458" },
     { key: "sushi/Rabbit_Purple", name: "\u7D2B\u53D1\u5154\u5E97\u5458" },
-    { key: "cube/Character_Female_1", name: "\u65B9\u5757\u6A59\u8863\u65C5\u4EBA" },
-    { key: "cube/Character_Female_2", name: "\u65B9\u5757\u53CC\u9A6C\u5C3E\u65C5\u4EBA" },
-    { key: "cube/Character_Male_1", name: "\u65B9\u5757\u91D1\u53D1\u65C5\u4EBA" },
-    { key: "cube/Character_Male_2", name: "\u65B9\u5757\u9752\u886B\u65C5\u4EBA" },
-    { key: "cyber/Character", name: "\u9713\u8679\u884C\u8005" },
-    { key: "platformer/Character", name: "\u8DC3\u53F0\u5154" }
+    ...FRONTIER_CHARACTERS
   ];
 
   // src/content/quaternius-characters.ts
@@ -5026,6 +5089,58 @@ var Rules = (() => {
     return { low, high };
   }
 
+  // src/world/wilderness/ground-props.ts
+  function groundPropsInChunk(w, cx, cz, trees, clear2) {
+    const size = TUNING.world.chunkSize;
+    const props = [];
+    const paths = pathsOf(w);
+    for (let iz = 0; iz < 4; iz++)
+      for (let ix = 0; ix < 4; ix++) {
+        const seed = hashAt(w.seed, "ground-prop", cx * 4 + ix, cz * 4 + iz);
+        const rng = new Rng(seed);
+        if (!rng.chance(0.58)) continue;
+        const x = (cx + (ix + rng.range(0.17, 0.83)) / 4) * size;
+        const z = (cz + (iz + rng.range(0.17, 0.83)) / 4) * size;
+        const y = w.heightAt(x, z);
+        if (y < WATER_LEVEL - 0.12 || w.townAt(x, z, 6) || !clear2(x, z)) continue;
+        const road = paths.edgeDistance(x, z);
+        if (road < 5 || trees.some((t) => Math.hypot(x - t.x, z - t.z) < (t.kind === "great" ? 12 : 4)))
+          continue;
+        const nearWater = y < WATER_LEVEL + 2 && [
+          [8, 0],
+          [-8, 0],
+          [0, 8],
+          [0, -8]
+        ].some(([dx, dz]) => w.heightAt(x + dx, z + dz) < WATER_LEVEL);
+        const biome = BIOMES[w.biomeAt(x, z)].key;
+        const wooded = biome === "forest" || trees.some((t) => Math.hypot(x - t.x, z - t.z) < 10);
+        let kind;
+        if (nearWater) kind = rng.chance(0.65) ? "shingle" : "driftwood";
+        else if (y < WATER_LEVEL + 0.2) continue;
+        else if (road < 25 && rng.chance(wooded ? 0.5 : 0.25)) kind = "stump";
+        else if (wooded) kind = rng.chance(0.48) ? "windfall" : "mossRock";
+        else kind = "outcrop";
+        const scale = rng.range(0.72, 1.28);
+        let yaw = rng.range(0, Math.PI * 2);
+        if (kind === "driftwood") {
+          const dx = w.heightAt(x + 2, z) - w.heightAt(x - 2, z);
+          const dz = w.heightAt(x, z + 2) - w.heightAt(x, z - 2);
+          yaw = Math.atan2(dz, -dx) + rng.range(-0.3, 0.3);
+        }
+        let rise = 0, base = y;
+        if (kind === "windfall" || kind === "driftwood") {
+          const dx = Math.sin(yaw) * 1.8 * scale, dz = Math.cos(yaw) * 1.8 * scale;
+          const a = w.heightAt(x - dx, z - dz), b = w.heightAt(x + dx, z + dz);
+          rise = b - a;
+          base = (a + b) / 2;
+          if (Math.abs(rise) > 1.4 || Math.abs(base - y) > 0.23 || Math.min(a, b) < WATER_LEVEL - 0.18)
+            continue;
+        }
+        props.push({ kind, seed, x, y: base, z, yaw, scale, rise });
+      }
+    return props;
+  }
+
   // src/world/wilderness/chunk.ts
   var BAMBOO = { density: 0.75, maxSlope: 2.2, height: [7, 11], crown: [1.3, 2.1] };
   var PATH_ROOM = 2.5;
@@ -5120,6 +5235,13 @@ var Rules = (() => {
       (t) => !sources.some((src) => Math.hypot(t.x - src.x, t.z - src.z) < 4) && !ruins.some((r) => Math.hypot(t.x - r.x, t.z - r.z) < 14) && !(great && Math.hypot(t.x - great.x, t.z - great.z) < GREAT.room) && !marks.some((m) => Math.hypot(t.x - m.x, t.z - m.z) < m.room) && !(farmstead && Math.abs(t.x - farmstead.x) < farmstead.hw + 2.5 && Math.abs(t.z - farmstead.z) < farmstead.hd + 2.5) && offPath(t.x, t.z)
     );
     if (great) clearTrees.push(great);
+    const groundProps = groundPropsInChunk(
+      w,
+      cx,
+      cz,
+      clearTrees,
+      (x, z) => !sources.some((p) => Math.hypot(x - p.x, z - p.z) < 8) && !ruins.some((p) => Math.hypot(x - p.x, z - p.z) < 18) && !marks.some((p) => Math.hypot(x - p.x, z - p.z) < p.room + 4) && !(farmstead && Math.abs(x - farmstead.x) < farmstead.hw + 5 && Math.abs(z - farmstead.z) < farmstead.hd + 5)
+    );
     const bridges = [];
     const trails = paths.trailsNear(x0, z0, x0 + size, z0 + size);
     for (const t of trails)
@@ -5140,6 +5262,7 @@ var Rules = (() => {
       heights,
       biomes,
       trees: clearTrees,
+      groundProps,
       hasWater,
       sources,
       ruins,
@@ -5359,6 +5482,8 @@ var Rules = (() => {
   }
   var validCity = (v) => typeof v === "string" && CITY.test(v);
   function placeOf(patch) {
+    if (patch.kind === "infectNpc" || patch.kind === "overrun") return patch.site;
+    if (patch.kind === "death" && patch.inkMonster) return patch;
     const size = TUNING.world.chunkSize;
     const chunk = (cx, cz) => ({
       x: (Number(cx) + 0.5) * size,
@@ -5399,21 +5524,32 @@ var Rules = (() => {
       case "collectStock":
         return validCity(p.city) && isIndex(p.studio) ? { kind: p.kind, city: p.city, studio: p.studio } : null;
       case "defeat":
-        return validCity(p.city) && isIndex(p.monster) ? { kind: "defeat", city: p.city, monster: p.monster } : null;
+        return validCity(p.city) && isIndex(p.monster) ? __spreadValues({
+          kind: "defeat",
+          city: p.city,
+          monster: p.monster
+        }, p.npc === true ? { npc: true } : {}) : null;
       case "complete":
       case "tideHeld":
         return validCity(p.city) ? { kind: p.kind, city: p.city } : null;
       case "harvest":
         return typeof p.source === "string" && WILD_ID.test(p.source) ? { kind: "harvest", source: p.source } : null;
       case "hunt":
-        return typeof p.monster === "string" && WILD_ID.test(p.monster) ? { kind: "hunt", monster: p.monster } : null;
+        return typeof p.monster === "string" && WILD_ID.test(p.monster) ? __spreadValues({ kind: "hunt", monster: p.monster }, p.npc === true ? { npc: true } : {}) : null;
       case "cleanse":
         return typeof p.well === "string" && WELL_ID.test(p.well) ? { kind: "cleanse", well: p.well } : null;
       case "discover":
         return typeof p.ruin === "string" && RUIN_ID.test(p.ruin) ? { kind: "discover", ruin: p.ruin } : null;
+      case "infectNpc":
+      case "overrun": {
+        if (!validInkSite(p.site) || typeof p.person !== "string" || !(/^(resident|outing|traveller):[\w,:.-]{1,100}$/.test(p.person) || p.kind === "overrun" && p.person === "player")) return null;
+        const { x, y, z, scene } = p.site;
+        if (!validScene(scene)) return null;
+        return { kind: p.kind, person: p.person, site: { x, y, z, scene: validScene(scene) } };
+      }
       case "death": {
         const scene = validScene(p.scene);
-        return scene && isCoord(p.x) && isCoord(p.y) && isCoord(p.z) ? { kind: "death", scene, x: p.x, y: p.y, z: p.z } : null;
+        return scene && isCoord(p.x) && isCoord(p.y) && isCoord(p.z) ? __spreadValues({ kind: "death", scene, x: p.x, y: p.y, z: p.z }, p.inkMonster === true ? { inkMonster: true } : {}) : null;
       }
       case "recover":
         return { kind: "recover" };
@@ -5437,13 +5573,15 @@ var Rules = (() => {
   }
 
   // src/world/net/protocol.ts
+  var PROTOCOL = 11;
   var DEFAULT_MAX_PLAYERS = 10;
   var VIEW_RANGE = 300;
   var GLIDING = 2;
   var SWIMMING = 4;
   var FLYING = 64;
   var DOWNED = 128;
-  var FLAGS2 = 255;
+  var INFECTED = 256;
+  var CLIENT_FLAGS = 255;
   var HELD_ITEMS = ["brush", ...WEAPONS.map((w) => w.key)];
   function validRest(value) {
     if (!value || typeof value !== "object") return null;
@@ -5475,6 +5613,8 @@ var Rules = (() => {
     "defeat",
     "hunt",
     "cleanse",
+    "infectNpc",
+    "overrun",
     "collectStock",
     "complete"
   ]);
@@ -5497,6 +5637,10 @@ var Rules = (() => {
     }
     if (!m || typeof m !== "object") return null;
     switch (m.t) {
+      case "profile": {
+        const look = validLook(m.look);
+        return look ? { t: "profile", name: cleanName(m.name), look } : null;
+      }
       case "traveller":
         return typeof m.trail === "string" && /^[a-z0-9_:-]{1,80}$/.test(m.trail) ? { t: "traveller", trail: m.trail } : null;
       case "listRooms":
@@ -5543,7 +5687,7 @@ var Rules = (() => {
           v,
           yaw: m.yaw % (Math.PI * 2),
           pitch,
-          f: m.f & FLAGS2,
+          f: m.f & CLIENT_FLAGS,
           scene: s,
           town
         }, rest && !(m.f & (FLYING | GLIDING | SWIMMING | DOWNED)) ? { rest } : {});
@@ -6452,6 +6596,24 @@ var Rules = (() => {
     }
     const well = inkWellInChunk(w, cx, cz);
     if (well) out.push(...wellGuards(w, well, saturation, cleansed));
+    if (!cleansed && saturation >= TUNING.combat.wild.greyBelow && unit(hashAt(w.seed, "remote-pack", cx, cz)) < 0.22) {
+      for (let attempt = 0; attempt < 8; attempt++) {
+        const h = hashAt(w.seed, "remote-pack-home", cx, cz, attempt);
+        const x = cx * size + 20 + unit(h) * (size - 40);
+        const z = cz * size + 20 + unit(hashAt(h, "z")) * (size - 40);
+        if (Math.hypot(x - size / 2, z - size / 2) < 260 || w.townAt(x, z, TUNING.drain.outerRadius + 40))
+          continue;
+        if (pathsOf(w).edgeDistance(x, z) < 18 || w.heightAt(x, z) < WATER_LEVEL + 1) continue;
+        for (let k = 0; k < 2 + h % 2; k++) {
+          const px = x + Math.sin(k * 2.4) * 4, pz = z + Math.cos(k * 2.4) * 4;
+          const y = w.heightAt(px, pz);
+          if (y < WATER_LEVEL + 1 || Math.abs(y - w.heightAt(x, z)) > 1.5) continue;
+          const type = enemyIndex(["blot", "weasel", "spider"][h % 3]);
+          out.push({ id: `${cx},${cz}:${100 + k}`, type, x: px, y, z: pz });
+        }
+        break;
+      }
+    }
     return out;
   }
   function wildMonsterById(w, id, saturation) {
@@ -6511,6 +6673,7 @@ var Rules = (() => {
 
   // src/world/net/slices.ts
   var KEYS = [
+    "infectedAt",
     "inventory",
     "unlocked",
     "growth",
@@ -6522,6 +6685,7 @@ var Rules = (() => {
   ];
   function takeSlice(state) {
     return {
+      infectedAt: state.infectedAt,
       inventory: state.inventory,
       unlocked: state.unlocked,
       growth: state.growth,
@@ -6673,6 +6837,22 @@ var Rules = (() => {
     everyone() {
       return [...this.members.values()].map((m) => ({ id: m.id, name: m.name, look: m.look }));
     }
+    /** Only the authenticated member can change their profile; keep late arrivals and saves current. */
+    updateProfile(id, name, rawLook) {
+      const member = this.members.get(id);
+      const look = validLook(rawLook);
+      if (!member || !look) return null;
+      name = cleanName(name);
+      if (member.name === name && member.look.character === look.character && member.look.skin === look.skin && member.look.hair === look.hair && member.look.accent === look.accent)
+        return null;
+      member.name = name;
+      member.look = look;
+      const saved = this.players.get(member.token);
+      saved.name = name;
+      saved.look = look;
+      this.dirty = true;
+      return this.info(id);
+    }
     /**
      * Let a player in, with their own things from last time if the token is known. The same
      * token already online is taken to be a dropped connection that never closed: the new one
@@ -6743,7 +6923,7 @@ var Rules = (() => {
         if (scene.kind !== "wild" || (motion.f & (FLYING | GLIDING)) !== 0 || Math.hypot(px - x, pz - z) > radius || py > this.wilderness.heightAt(px, pz) + ARENA.wall.height + 5)
           return;
       }
-      m.motion = motion;
+      m.motion = __spreadProps(__spreadValues({}, motion), { f: motion.f & ~INFECTED | (m.slice.infectedAt && !inArena ? INFECTED : 0) });
       m.motionAt = this.uptime;
       const inTown = !inArena && town !== null && this.near(motion, { kind: "complete", city: town }) ? town : null;
       if (inTown !== m.town) {
@@ -6772,14 +6952,16 @@ var Rules = (() => {
     }
     /** The true state of whatever this patch touches in the shared world. */
     truth(patch) {
-      var _a2, _b;
+      var _a2, _b, _c, _d;
       const city = "city" in patch ? this.state.cities.get(patch.city) : void 0;
       const fix = {};
+      if (patch.kind === "overrun") fix.inkArea = [areaKey(patch.site), (_a2 = this.state.inkAreas.get(areaKey(patch.site))) != null ? _a2 : null];
+      if (patch.kind === "infectNpc") fix.infectedPerson = [patch.person, (_b = this.state.infectedPeople.get(patch.person)) != null ? _b : null];
       if (city && "city" in patch) fix.city = cityFix(patch.city, void 0, city);
       if (patch.kind === "harvest" && this.state.harvested.has(patch.source))
         fix.harvested = [[patch.source, this.state.harvested.get(patch.source)]];
-      if (patch.kind === "hunt") fix.hunted = [[patch.monster, (_a2 = this.state.hunted.get(patch.monster)) != null ? _a2 : null]];
-      if (patch.kind === "cleanse") fix.cleansed = [[patch.well, (_b = this.state.cleansed.get(patch.well)) != null ? _b : null]];
+      if (patch.kind === "hunt") fix.hunted = [[patch.monster, (_c = this.state.hunted.get(patch.monster)) != null ? _c : null]];
+      if (patch.kind === "cleanse") fix.cleansed = [[patch.well, (_d = this.state.cleansed.get(patch.well)) != null ? _d : null]];
       return Object.keys(fix).length ? fix : null;
     }
     /** Judge a player's patch against their own things and the shared world. */
@@ -6793,6 +6975,12 @@ var Rules = (() => {
       });
       const m = this.members.get(id);
       if (!m) return fail2("\u4E0D\u5728\u8FD9\u4E2A\u4E16\u754C\u91CC");
+      if (patch.kind === "infectNpc" || patch.kind === "overrun" || patch.kind === "death" && patch.inkMonster) {
+        const site = patch.kind === "death" ? patch : patch.site;
+        if (this.arena.has(id) || !m.motion || !m.slice.player || !sameScene(m.slice.player.scene, site.scene) || Math.hypot(m.motion.p[0] - site.x, m.motion.p[2] - site.z) > (patch.kind === "death" ? 12 : 110))
+          return fail2("\u4E0D\u5728\u611F\u67D3\u73B0\u573A");
+        if (patch.kind === "overrun" && [...this.members.values()].some((p) => !this.arena.has(p.id) && !p.slice.infectedAt && p.slice.player && sameScene(p.slice.player.scene, site.scene) && inInfectionArea(site, p.slice.player))) return fail2("\u9644\u8FD1\u8FD8\u6709\u672A\u611F\u67D3\u7684\u73A9\u5BB6");
+      }
       if (!this.near(m.motion, patch)) return fail2("\u79BB\u90A3\u91CC\u592A\u8FDC\u4E86");
       if ("city" in patch && !this.townAllowed(m, patch.city)) return fail2("\u4E00\u4E0B\u5B50\u53BB\u4E86\u592A\u591A\u57CE");
       if (patch.kind === "drain" || patch.kind === "tideHeld") {
@@ -6821,6 +7009,7 @@ var Rules = (() => {
       if (patch.kind === "harvest") fix.harvested = [[patch.source, this.state.harvested.get(patch.source)]];
       if (patch.kind === "hunt") fix.hunted = [[patch.monster, this.state.hunted.get(patch.monster)]];
       if (patch.kind === "cleanse") fix.cleansed = [[patch.well, this.state.cleansed.get(patch.well)]];
+      if (patch.kind === "overrun" || patch.kind === "infectNpc") Object.assign(fix, this.truth(patch));
       return { ok: true, shared: SHARED_KINDS.has(patch.kind), fix: Object.keys(fix).length ? fix : null };
     }
     /** Whether this player may act in this town now (see TOWN_BUDGET); remembers it if so. */
@@ -7002,7 +7191,7 @@ var Rules = (() => {
       player: host.info(r.id),
       welcome: {
         t: "welcome",
-        v: 9,
+        v: PROTOCOL,
         id: r.id,
         max: host.max,
         room: room || void 0,
@@ -7025,6 +7214,15 @@ var Rules = (() => {
     const m = JSON.parse(raw);
     const out = [];
     switch (m.t) {
+      case "profile": {
+        const player = host.updateProfile(id, m.name, m.look);
+        if (player)
+          out.push({
+            ids: host.everyone().filter((p) => p.id !== id).map((p) => p.id),
+            message: { t: "profile", player }
+          });
+        break;
+      }
       case "move":
         host.move(id, m, m.scene, m.town);
         break;

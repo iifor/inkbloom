@@ -3,6 +3,7 @@ import { ROOM_CODE, type RoomRequest } from '@/world/net/protocol';
 // character, settings, world list and controls screens. Plain DOM; worlds switch by reloading
 // the page with ?world=<id>, so every world starts from a clean session.
 import './character-picker.css';
+import './multiplayer-menu.css';
 import {
   CHARACTERS,
   HAIR_COLORS,
@@ -111,7 +112,7 @@ const CONTROLS = [
   ['J', '再看一眼当前目标'],
   ['U', '释放鼠标，点击画面恢复操作'],
   ['Esc / P', '打开暂停菜单和设置'],
-  ['F2', '展开 / 收起纸飞机；WASD 飞行，空格上升，Ctrl 下降，Shift 加速'],
+  ['F2', '展开 / 收起纸翼滑翔器；WASD 飞行，空格上升，Ctrl 下降，Shift 加速'],
   ['F3', '帧率（再按：详细信息、关闭）'],
 ];
 
@@ -175,11 +176,10 @@ export class Menu {
     const characterScroll = this.root.querySelector('.chars')?.scrollTop ?? 0;
     const toolsScroll = this.root.querySelector('.picker-tools')?.scrollTop ?? 0;
     const w = this.world;
-    const restored = [...w.cities.values()].filter((c) => c.completed).length;
-    const summary = `${w.name} · Lv ${levelOf(w.growth.xp)} · 已恢复 ${restored} 座城`;
     const profile = this.actions.profile();
     const who = profile ? `角色：${esc(profile.name)} · ${characterDef(profile.look.character).name}` : '';
     const online = this.actions.online();
+    const summary = `${online ? '' : `${w.name} · `}Lv ${levelOf(w.growth.xp)}`;
     // in a server world: where, who else is here, and a way out
     const net = online
       ? `<p class="online">${
@@ -198,7 +198,7 @@ export class Menu {
     switch (this.screen) {
       case 'main':
         body = `<h1>重彩</h1><p>世界本来是彩色的。墨潮抽走了颜色。</p>
-          <button class="primary" data-a="play">${profile ? `开始：${esc(summary)}` : '开始：先选一个角色'}</button>
+          <button class="primary" data-a="play">${online ? '继续游戏' : profile ? `开始：${esc(summary)}` : '开始：先选一个角色'}</button>
           ${profile ? `<button data-a="character">${who}</button>` : ''}
           ${net}
           ${online ? '<button data-a="leave">离开联机</button>' : '<button data-a="join">联机</button>'}
@@ -223,19 +223,32 @@ export class Menu {
           <button data-a="main">回到主菜单</button>`;
         break;
       case 'join':
-        body = `<h2>联机</h2>
-          <section data-rooms aria-label="房间列表"></section>
-          <details><summary>创建新房间</summary>
-          <label>房间密码 <input type="password" data-room-password maxlength="128" autocomplete="off" placeholder="留空即可直接加入"></label>
-          <button data-a="room-create">创建房间</button>
-          <p class="hint">所有人离开 5 分钟后，房间和进度会清除。</p></details>
-          <details><summary>用房间号加入</summary>
-          <label>房间号 <input type="text" data-room maxlength="6" placeholder="6 位房间号"></label>
-          <button data-a="room-join">加入房间</button></details>
-          <details><summary>直连已有世界服务器</summary>
-          <label>地址 <input data-server value="${esc(this.actions.lastServer())}"></label>
-          <button data-a="join-go">直连世界</button></details>
-          <button data-a="back">返回</button>`;
+        body = `<header class="join-header">
+          <svg class="join-emblem" viewBox="0 0 64 64" aria-hidden="true"><path d="M10 30 54 12 39 53 28 37 10 30Z M28 37 54 12 M28 37 26 49 34 44"/><path class="join-trail" d="M9 45c-9 9 8 15 12 7"/></svg>
+          <div><h2>联机</h2><p>与朋友一起，把颜色还给世界。</p></div>
+          </header>
+          <section class="join-lobby" aria-labelledby="join-lobby-title">
+            <div class="join-section-heading"><h3 id="join-lobby-title">寻找同行的旅人</h3><span>房间列表 · 实时更新</span></div>
+            <div data-rooms aria-label="房间列表"></div>
+          </section>
+          <div class="join-options">
+            <form class="join-card join-create" data-join-action="room-create">
+              <h3>创建新房间</h3><p>留一处风景，等朋友来。</p>
+              <label><span>房间密码 <small>选填</small></span><input type="password" data-room-password maxlength="128" autocomplete="new-password" placeholder="留空，朋友即可直接加入"></label>
+              <button class="primary" type="submit">创建房间 <span aria-hidden="true">＋</span></button>
+            </form>
+            <form class="join-card" data-join-action="room-join">
+              <h3>加入朋友</h3><p>已经有房间号？从这里出发。</p>
+              <label><span>房间号</span><input type="text" data-room maxlength="6" autocomplete="off" spellcheck="false" placeholder="输入 6 位房间号"></label>
+              <button type="submit">加入房间 <span aria-hidden="true">→</span></button>
+            </form>
+          </div>
+          <p class="join-note">临时房间 · 所有人离开 5 分钟后，房间及进度会清除。</p>
+          <details class="join-server"><summary>直连已有世界服务器</summary>
+            <form data-join-action="join-go"><label><span>服务器地址</span><input type="text" data-server autocomplete="off" spellcheck="false" value="${esc(this.actions.lastServer())}" placeholder="例如 127.0.0.1:5195"></label>
+            <button type="submit">连接世界</button></form>
+          </details>
+          <footer class="join-footer"><button data-a="back"><span aria-hidden="true">←</span> 返回</button><span>沿途的风景，一起慢慢看。</span></footer>`;
         break;
       case 'friends':
         body = `<h2>在线伙伴</h2><p class="hint">定位后，画面会持续显示方向和距离。传送会在伙伴附近寻找安全地面，竞技场内不可用。</p><div data-friends></div><button data-a="play">回到游戏</button><button data-a="back">返回</button>`;
@@ -287,9 +300,8 @@ export class Menu {
         const worlds = await this.actions.listWorlds();
         const rows = worlds
           .map((x) => {
-            const r = [...x.cities.values()].filter((c) => c.completed).length;
             const here = x.id === w.id ? '（当前）' : '';
-            return `<button data-world="${esc(x.id)}">${esc(x.name)}${here} · Lv ${levelOf(x.growth.xp)} · 已恢复 ${r} 座城 <small>${esc(x.id)}</small></button>`;
+            return `<button data-world="${esc(x.id)}">${esc(x.name)}${here} · Lv ${levelOf(x.growth.xp)}</button>`;
           })
           .join('');
         body = `<h2>世界列表</h2>${rows || '<p>还没有世界</p>'}<button data-a="new">新世界</button><button data-a="back">返回</button>`;
@@ -414,6 +426,12 @@ export class Menu {
 
   private bind(): void {
     const body = this.root.querySelector<HTMLElement>('.menu-body')!;
+    body.querySelectorAll<HTMLFormElement>('[data-join-action]').forEach((form) => {
+      form.onsubmit = (event) => {
+        event.preventDefault();
+        this.act(form.dataset.joinAction!);
+      };
+    });
     body.querySelectorAll<HTMLButtonElement>('button[data-a]').forEach((b) => {
       b.onclick = () => this.act(b.dataset.a!);
     });

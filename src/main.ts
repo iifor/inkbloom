@@ -95,20 +95,6 @@ function showJoinFailed(kv: KeyValue, url: string, e: unknown, room?: RoomReques
   overlay.querySelector<HTMLButtonElement>('#alone')!.onclick = () => openServer(null);
 }
 
-/** A link to a server this browser has not joined from its own menu: ask before connecting. */
-function confirmJoin(url: string): Promise<boolean> {
-  startup.hidden = true;
-  overlay.hidden = false;
-  overlay.querySelector('.menu-body')!.innerHTML = `<h2>加入联机世界？</h2><p></p>
-    <p class="hint">只加入你认识的人开的服务器。</p>
-    <button class="primary" id="join">加入</button><button id="alone">单人游戏</button>`;
-  overlay.querySelector('.menu-body p')!.textContent = url;
-  return new Promise((done) => {
-    overlay.querySelector<HTMLButtonElement>('#join')!.onclick = () => done(true);
-    overlay.querySelector<HTMLButtonElement>('#alone')!.onclick = () => done(false);
-  });
-}
-
 async function boot(): Promise<void> {
   loading(0, '正在读取世界…');
   const params = new URLSearchParams(location.search);
@@ -140,15 +126,10 @@ async function boot(): Promise<void> {
       showJoinFailed(kv, url, new Error('房间号格式无效'), room);
       return;
     }
-    // joining from a link someone sent: say where to, and let the player say no
-    if (address && kv.getItem('inkbloom:server') !== address && !(await confirmJoin(url))) {
-      openServer(null);
-      return;
-    }
     overlay.hidden = true;
     startup.hidden = false;
     loading(0, '正在连接世界…');
-    // asked once is enough: a retry (a password, a hiccup) goes straight in
+    // Remember the destination for retries and the direct-connect form.
     if (address) {
       kv.setItem('inkbloom:server', address);
       const clean = new URL(location.href);
@@ -234,6 +215,11 @@ async function boot(): Promise<void> {
   apply(settings);
 
   let profile = loadProfile(kv);
+  if (net && !profile) {
+    // The connection already used this default character; enter with the same look.
+    profile = { name: DEFAULT_NAME, look: defaultLook('courier') };
+    saveProfile(kv, profile);
+  }
   // the hands holding the weapons, and swimming, are this character's
   const dress = (look: Look): void => {
     game.weapons.setLook(look);
@@ -247,8 +233,19 @@ async function boot(): Promise<void> {
   const preview = new CharacterPreview(game.ctx);
   const world = state;
   const input = game.ctx.input;
+  // Reloading into a room loses the browser's click activation. Enter immediately;
+  // the first click on the world starts audio and captures the mouse, without firing.
+  const activateOnlineControls = (event: MouseEvent): void => {
+    if (!overlay.hidden || event.button !== 0) return;
+    canvas.removeEventListener('mousedown', activateOnlineControls, true);
+    event.stopImmediatePropagation();
+    input.clear();
+    game.audio.start();
+    void input.requestLock();
+  };
   const menu = new Menu(overlay, state, {
     async play() {
+      canvas.removeEventListener('mousedown', activateOnlineControls, true);
       errorText.textContent = '';
       // audio may only start from a click; the play button is one
       game.audio.start();
@@ -284,7 +281,10 @@ async function boot(): Promise<void> {
     saveProfile(p) {
       saveProfile(kv, p);
       profile = loadProfile(kv);
-      if (profile) dress(profile.look);
+      if (profile) {
+        dress(profile.look);
+        game.net?.updateProfile(profile);
+      }
     },
     preview: (look) => preview.show(look),
     previewVillager: (key) => preview.showVillager(key),
@@ -362,7 +362,10 @@ async function boot(): Promise<void> {
   });
   const previewKey = CHARACTER_KEYS.find((key) => key === params.get('preview'));
   if (previewKey) menu.editCharacter(previewKey);
-  else menu.show('main');
+  else if (net) {
+    menu.hide();
+    canvas.addEventListener('mousedown', activateOnlineControls, true);
+  } else menu.show('main');
   input.onLockChange = (locked) => {
     if (!locked) void game.save.flush();
   };
@@ -376,6 +379,7 @@ async function boot(): Promise<void> {
   window.addEventListener('pagehide', () => void game.save.flush());
   canvas.inert = false;
   startup.hidden = true;
+  if (net && !previewKey) canvas.focus();
   game.loop.start();
 }
 

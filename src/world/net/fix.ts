@@ -21,7 +21,11 @@ export interface CityFix {
   readonly peaceful?: boolean;
 }
 
+import type { InkSite } from '../infection';
+
 export interface Fix {
+  readonly infectedPerson?: [string, InkSite | null];
+  readonly inkArea?: [string, InkSite | null];
   readonly city?: CityFix;
   /** Wilderness source / monster id -> clock time it was harvested / hunted (for a monster,
    * null: not hunted, so a kill the server refused comes back). */
@@ -70,6 +74,10 @@ export interface Changed {
 export function applyFix(state: WorldState, fix: Fix | null | undefined): Changed {
   const changed: Changed = { city: null, surfaces: [], stains: [], defeated: [] };
   if (!fix) return changed;
+  for (const [map, entry] of [[state.infectedPeople, fix.infectedPerson], [state.inkAreas, fix.inkArea]] as const) {
+    if (!entry) continue;
+    if (entry[1]) map.set(entry[0], entry[1]); else map.delete(entry[0]);
+  }
   const c = fix.city;
   const saved = c ? state.cities.get(c.id) : undefined;
   if (c && saved) {

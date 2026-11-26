@@ -13,7 +13,9 @@ import { type CitySkeleton, monsterFingerprint, stainFingerprint } from './city/
 
 import { TERRAIN_VERSION, type TerrainVersion } from './wilderness/terrain-version';
 
-export const SAVE_VERSION = 10;
+import { type InkSite, validInkSite } from './infection';
+
+export const SAVE_VERSION = 11;
 
 export type SceneRef = { readonly kind: 'wild' } | { readonly kind: 'city'; readonly id: string };
 
@@ -68,6 +70,9 @@ export interface WorldState {
   /** Extra environment seconds accumulated by time acceleration; never used for cooldowns. */
   calendarOffset: number;
   /** Wilderness source id -> clock time it was last harvested. */
+  infectedAt: InkSite | null;
+  infectedPeople: Map<string, InkSite>;
+  inkAreas: Map<string, InkSite>;
   harvested: Map<string, number>;
   /** At most one drop at a time; dying again loses the old one. */
   drop: InkDrop | null;
@@ -187,6 +192,9 @@ export function createWorldState(id: string, seed: number, name = '新世界'): 
     player: null,
     clock: 0,
     calendarOffset: 0,
+    infectedAt: null,
+    infectedPeople: new Map(),
+    inkAreas: new Map(),
     harvested: new Map(),
     drop: null,
     hunted: new Map(),
@@ -364,6 +372,9 @@ interface WorldJson {
   travellerLegs?: Record<string, TravelLeg>;
   harvested?: Record<string, number>;
   drop?: InkDrop | null;
+  infectedAt?: InkSite | null;
+  infectedPeople?: Record<string, InkSite>;
+  inkAreas?: Record<string, InkSite>;
   hunted?: Record<string, number>;
   cleansed?: Record<string, number>;
   growth?: Growth;
@@ -435,6 +446,9 @@ export function serializeWorld(state: WorldState): string {
     clock: state.clock,
     calendarOffset: state.calendarOffset,
     drop: state.drop,
+    infectedAt: state.infectedAt,
+    infectedPeople: Object.fromEntries(state.infectedPeople),
+    inkAreas: Object.fromEntries(state.inkAreas),
     hunted: Object.fromEntries([...state.hunted].filter(([id]) => !wildMonsterBack(state, id))),
     cleansed: Object.fromEntries(state.cleansed),
     growth: state.growth,
@@ -466,10 +480,11 @@ export function deserializeWorld(text: string): WorldState {
     json.version !== 7 &&
     json.version !== 8 &&
     json.version !== 9 &&
+    json.version !== 10 &&
     json.version !== SAVE_VERSION
   )
     throw new SaveError(`不支持的存档版本 ${json.version}`);
-  if (json.version >= 6 && ![1, 2, 3, 4, 5].some((version) => version === json.terrainVersion))
+  if (json.version >= 6 && ![1, 2, 3, 4, 5, 6].some((version) => version === json.terrainVersion))
     throw new SaveError(`不支持的地形版本 ${json.terrainVersion}`);
   if (typeof json.id !== 'string' || !Number.isInteger(json.seed))
     throw new SaveError('存档缺少世界编号或种子');
@@ -554,6 +569,9 @@ export function deserializeWorld(text: string): WorldState {
       (m) => typeof m?.id === 'string' && [m.x, m.y, m.z].every(Number.isFinite),
     ),
     nextMark: Number.isInteger(json.nextMark) ? json.nextMark! : 1,
+    infectedAt: validInkSite(json.infectedAt) ? json.infectedAt : null,
+    infectedPeople: new Map(Object.entries(json.infectedPeople ?? {}).filter(([,v]) => validInkSite(v))),
+    inkAreas: new Map(Object.entries(json.inkAreas ?? {}).filter(([,v]) => validInkSite(v))),
     hunted: new Map(
       Object.entries(json.hunted ?? {}).filter((e): e is [string, number] => Number.isFinite(e[1])),
     ),

@@ -6,6 +6,7 @@ import { heldIn, holdPose } from './player-hold';
 import type { Rig } from './player-rig';
 import { swimArms } from './player-swim';
 import { restHands } from './player-rest';
+import { flightHands } from './player-flight';
 
 /** What a player's figure is doing this frame. */
 export interface PlayerPose {
@@ -21,7 +22,7 @@ export interface PlayerPose {
   readonly stride: number;
   readonly air: boolean;
   readonly glide: boolean;
-  /** F2 flight: seated on a paper plane; angles tilt rider and vehicle together. */
+  /** F2 flight: suspended below a paper glider; pilot and sail bank together. */
   readonly flight?: { readonly blend: number; readonly bank: number; readonly pitch: number };
   /** Swimming in deep water: lying along the surface, arms stroking, legs kicking. */
   readonly swim?: boolean;
@@ -201,20 +202,18 @@ export function posePlayer(r: Rig, p: PlayerPose): void {
   if (p.flight && p.flight.blend > 0 && p.dying < 0) {
     const f = p.flight.blend;
     const blend = (from: number, to: number): number => from + (to - from) * f;
-    r.hips.position.y = blend(r.hips.position.y, 1.02);
-    r.hips.rotation.x *= 1 - f;
-    r.torso.rotation.x = blend(r.torso.rotation.x, -0.12);
-    r.head.rotation.x = blend(r.head.rotation.x, p.pitch * 0.4);
+    r.hips.position.y = blend(r.hips.position.y, 1.18);
+    r.hips.rotation.x = blend(r.hips.rotation.x, -0.95);
+    r.torso.rotation.x = blend(r.torso.rotation.x, -0.05);
+    r.head.rotation.x = blend(r.head.rotation.x, 0.8 + p.pitch * 0.25);
     for (const side of ['L', 'R'] as const) {
       const sign = side === 'L' ? -1 : 1;
       const leg = r[`leg${side}`].rotation;
-      leg.set(blend(leg.x, 1.42), blend(leg.y, -sign * 0.18), 0);
-      r[`shin${side}`].rotation.x = blend(r[`shin${side}`].rotation.x, -0.88);
-      r[`foot${side}`].rotation.x = -0.38 * f;
-      const arm = r[`arm${side}`].rotation;
-      arm.set(blend(arm.x, 0.4), 0, blend(arm.z, sign * 0.25));
-      r[`fore${side}`].rotation.x = blend(r[`fore${side}`].rotation.x, 0.65);
+      leg.set(blend(leg.x, -0.1), blend(leg.y, -sign * 0.06), 0);
+      r[`shin${side}`].rotation.x = blend(r[`shin${side}`].rotation.x, -0.22);
+      r[`foot${side}`].rotation.x = -0.15 * f;
     }
+    flightHands(r, f);
     lift = f;
   }
   const item = heldIn(p);

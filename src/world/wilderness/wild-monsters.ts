@@ -9,6 +9,7 @@ import { hashAt, unit } from '../math/hash';
 import { type Wilderness, WATER_LEVEL } from './generator';
 import { influenceOf, saturationAt } from './drain';
 import { inkWellInChunk, wellGuards } from './ink-wells';
+import { pathsOf } from './paths';
 
 export interface WildMonster {
   /** `<cx>,<cz>:<k>`; stable across sessions for the same land. */
@@ -93,6 +94,31 @@ export function wildMonstersInChunk(
   }
   const well = inkWellInChunk(w, cx, cz);
   if (well) out.push(...wellGuards(w, well, saturation, cleansed));
+  // Occasional packs in remote, colourful wilderness. Restored village outskirts and
+  // the opening meadow stay safe; these slots never collide with ordinary/well guards.
+  if (
+    !cleansed &&
+    saturation >= TUNING.combat.wild.greyBelow &&
+    unit(hashAt(w.seed, 'remote-pack', cx, cz)) < 0.22
+  ) {
+    for (let attempt = 0; attempt < 8; attempt++) {
+      const h = hashAt(w.seed, 'remote-pack-home', cx, cz, attempt);
+      const x = cx * size + 20 + unit(h) * (size - 40);
+      const z = cz * size + 20 + unit(hashAt(h, 'z')) * (size - 40);
+      if (Math.hypot(x - size / 2, z - size / 2) < 260 || w.townAt(x, z, TUNING.drain.outerRadius + 40))
+        continue;
+      if (pathsOf(w).edgeDistance(x, z) < 18 || w.heightAt(x, z) < WATER_LEVEL + 1) continue;
+      for (let k = 0; k < 2 + (h % 2); k++) {
+        const px = x + Math.sin(k * 2.4) * 4,
+          pz = z + Math.cos(k * 2.4) * 4;
+        const y = w.heightAt(px, pz);
+        if (y < WATER_LEVEL + 1 || Math.abs(y - w.heightAt(x, z)) > 1.5) continue;
+        const type = enemyIndex((['blot', 'weasel', 'spider'] as const)[h % 3]!);
+        out.push({ id: `${cx},${cz}:${100 + k}`, type, x: px, y, z: pz });
+      }
+      break;
+    }
+  }
   return out;
 }
 

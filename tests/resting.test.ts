@@ -5,6 +5,7 @@ import { townLayout } from '@/world/city/layout';
 import { villageLawnKind } from '@/world/city/lawn';
 import { createWilderness, WATER_LEVEL } from '@/world/wilderness/generator';
 import { headless } from './support/headless';
+import { shared } from '@/engine/render/ink-material';
 
 it('rests on a town lawn, stands up when moving, and rejects paving and obstructed spots', () => {
   const h = headless();
@@ -28,7 +29,7 @@ it('rests on a town lawn, stands up when moving, and rejects paving and obstruct
   const y = wilderness.heightAt(x, z);
   let pressed = '';
   Object.assign(h.ctx, {
-    renderer: { camera: new THREE.PerspectiveCamera() },
+    renderer: { camera: new THREE.PerspectiveCamera(), scene: new THREE.Scene() },
     wilderness,
     cities: { byId: () => layout },
   });
@@ -55,6 +56,7 @@ it('rests on a town lawn, stands up when moving, and rejects paving and obstruct
   expect(p.resting).toBe('sitting');
   for (let i = 0; i < 50; i++) step();
   expect(p.restMotion).toMatchObject({ sitting: 1, lying: 0 });
+  expect(shared.uRestArea.value.w).toBe(1);
   const anchoredYaw = p.restMotion!.yaw;
   p.yaw += 0.4;
   expect(p.restMotion!.yaw).toBe(anchoredYaw);
@@ -69,6 +71,8 @@ it('rests on a town lawn, stands up when moving, and rejects paving and obstruct
   h.held.clear();
   for (let i = 0; i < 40; i++) step();
   expect(p.restMotion).toBeUndefined();
+  expect(shared.uRestArea.value.w).toBe(0);
+  expect(h.ctx.renderer.scene.getObjectByName('resting-player')!.visible).toBe(false);
 
   place(layout.square.x, layout.square.z);
   act('sit');

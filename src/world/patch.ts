@@ -19,7 +19,10 @@ import type { WildMonster } from './wilderness/wild-monsters';
 import type { Ruin } from './wilderness/ruins';
 import { type InkWell, wellOfGuard } from './wilderness/ink-wells';
 
+import { areaKey, sameScene, type InkSite } from './infection';
+
 export type Patch =
+  | { readonly kind: 'infectNpc' | 'overrun'; readonly person: string; readonly site: InkSite }
   | { readonly kind: 'restore'; readonly city: string; readonly surface: number }
   | { readonly kind: 'paint'; readonly city: string; readonly surface: number; readonly color: number }
   | { readonly kind: 'drain'; readonly city: string; readonly surface: number }
@@ -30,14 +33,15 @@ export type Patch =
   /** Harvest a wilderness pigment source. */
   | { readonly kind: 'harvest'; readonly source: string }
   /** A stronghold monster was defeated: mark it and pay its ink. */
-  | { readonly kind: 'defeat'; readonly city: string; readonly monster: number }
+  | { readonly kind: 'defeat'; readonly city: string; readonly monster: number; readonly npc?: true }
   /** A wilderness monster was defeated: pay its ink; it comes back after a while. */
-  | { readonly kind: 'hunt'; readonly monster: string }
+  | { readonly kind: 'hunt'; readonly monster: string; readonly npc?: true }
   /** Cleanse an ink well whose guards are down: it runs clear for good. */
   | { readonly kind: 'cleanse'; readonly well: string }
   /** The player died here: drop a share of held ink at this spot. */
   | {
       readonly kind: 'death';
+      readonly inkMonster?: true;
       readonly scene: SceneRef;
       readonly x: number;
       readonly y: number;
@@ -114,10 +118,12 @@ function blockMilestones(
   states: Uint8Array,
   coloredOnce: Uint8Array,
   chunk: number,
+  reward = true,
 ): void {
   if (state.cities.get(city)?.peaceful) return;
   if (coloredOnce[chunk] || coloredRatio(states, surfaces, chunk) < TUNING.blocks.coloredAt) return;
   coloredOnce[chunk] = 1;
+  if (!reward) return;
   const g = state.growth;
   g.xp += XP.blockColored;
   milestone(g, 'first-block', MILESTONES.firstBlockColored);
@@ -138,16 +144,17 @@ function release(
   x: number,
   z: number,
   rule: { readonly radius: number; readonly max: number },
+  reward = true,
 ): void {
   const freed = releaseAround(skel.surfaces, states, x, z, rule);
   const chunks = new Set<number>();
   for (const i of freed) {
     states[i] = ORIGINAL;
-    state.growth.xp += XP.surface;
+    if (reward) state.growth.xp += XP.surface;
     chunks.add(skel.surfaces[i]!.chunk);
   }
   for (const c of chunks) {
-    blockMilestones(state, city, skel.surfaces, states, coloredOnce, c);
+    blockMilestones(state, city, skel.surfaces, states, coloredOnce, c, reward);
     markThriving(state, city, skel, states, c);
   }
 }
@@ -205,8 +212,8 @@ function applyRules(state: WorldState, patch: Patch, ctx: PatchContext): PatchRe
       const kept = wellOfGuard(m.id);
       if (kept && state.cleansed.has(kept)) return fail('这里没有墨怪');
       state.hunted.set(m.id, state.clock);
-      inv.ink += ENEMIES[m.type]?.ink ?? 0;
-      state.growth.xp += XP.monster;
+      if (!patch.npc) inv.ink += ENEMIES[m.type]?.ink ?? 0;
+      if (!patch.npc) state.growth.xp += XP.monster;
       return OK;
     }
     case 'cleanse': {
@@ -223,7 +230,18 @@ function applyRules(state: WorldState, patch: Patch, ctx: PatchContext): PatchRe
       state.growth.xp += XP.wellCleansed;
       return OK;
     }
+    case 'infectNpc': {
+      if (!state.infectedPeople.has(patch.person)) state.infectedPeople.set(patch.person, patch.site);
+      return OK;
+    }
+    case 'overrun': {
+      const site = patch.person === 'player' ? state.infectedAt : state.infectedPeople.get(patch.person);
+      if (!site || !sameScene(site.scene, patch.site.scene) || site.x !== patch.site.x || site.z !== patch.site.z) return fail('此处没有感染源');
+      state.inkAreas.set(areaKey(site), site);
+      return OK;
+    }
     case 'death': {
+      if (patch.inkMonster) state.infectedAt = {scene:patch.scene, x:patch.x, y:patch.y, z:patch.z};
       const lost = Math.floor(inv.ink * TUNING.combat.deathInkShare);
       inv.ink -= lost;
       state.drop = { scene: patch.scene, x: patch.x, y: patch.y, z: patch.z, ink: lost };
@@ -333,9 +351,9 @@ function applyRules(state: WorldState, patch: Patch, ctx: PatchContext): PatchRe
       if (!m) return fail('没有这只墨怪');
       if (defeated[patch.monster]) return fail('已经打败了');
       defeated[patch.monster] = 1;
-      inv.ink += ENEMIES[m.type]?.ink ?? 0;
-      state.growth.xp += XP.monster;
-      release(state, patch.city, skel, states, coloredOnce, m.x, m.z, TUNING.release.monster);
+      if (!patch.npc) inv.ink += ENEMIES[m.type]?.ink ?? 0;
+      if (!patch.npc) state.growth.xp += XP.monster;
+      release(state, patch.city, skel, states, coloredOnce, m.x, m.z, TUNING.release.monster, !patch.npc);
       return OK;
     }
     case 'collectStock': {

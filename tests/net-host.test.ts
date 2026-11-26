@@ -6,7 +6,7 @@ import { deserializeSlice } from '@/world/net/slices';
 import { validPatch } from '@/world/net/validate';
 import * as release from '@/world/paint/release';
 import { cityStates, createWorldState, savedProgress } from '@/world/state';
-import { chunkSaturation } from '@/world/wilderness/wild-monsters';
+import { chunkSaturation, wildMonstersInChunk } from '@/world/wilderness/wild-monsters';
 import { startsPeaceful } from '@/world/city/origin';
 import { layoutCache } from '@/world/net/patch-context';
 import { type Entrance, createWilderness } from '@/world/wilderness/generator';
@@ -22,12 +22,50 @@ const host = (max = 10): WorldHost => new WorldHost(createWorldState('net', SEED
 const at = (x: number, z: number): Motion => ({ p: [x, 0, z], v: [0, 0, 0], yaw: 0, pitch: 0, f: GROUNDED });
 const wild = { kind: 'wild' } as const;
 
+it.each([false, true])('accepts wilderness defeats (NPC: %s) without duplicate rewards', (npc) => {
+  const h = host();
+  const w = createWilderness(SEED);
+  let found;
+  for (let x = -5; x <= 5 && !found; x++)
+    for (let z = -5; z <= 5 && !found; z++) {
+      const sat = chunkSaturation(w, x, z, (id) => savedProgress(h.state, id));
+      found = wildMonstersInChunk(w, x, z, sat).find((m) => Number(m.id.split(':')[1]) >= 100);
+    }
+  expect(found).toBeDefined();
+  const m = found!;
+  const id = joined(h, 77, m.x, m.z);
+  const before = deserializeSlice(h.sliceOf(id)!);
+  const patch = { kind: 'hunt' as const, monster: m.id, ...(npc ? { npc: true as const } : {}) };
+  expect(validPatch(patch)).toEqual(patch);
+  expect(h.patch(id, patch).ok).toBe(true);
+  const after = deserializeSlice(h.sliceOf(id)!);
+  if (npc) {
+    expect(after.inventory.ink).toBe(before.inventory.ink);
+    expect(after.growth.xp).toBe(before.growth.xp);
+  } else expect(after.growth.xp).toBeGreaterThan(before.growth.xp);
+  expect(h.state.hunted.has(m.id)).toBe(true);
+  expect(h.patch(id, { kind: 'hunt', monster: m.id }).ok).toBe(false);
+});
+
 function joined(h: WorldHost, i: number, x = 0, z = 0): number {
   const r = h.join(token(i), `玩家${i}`, LOOK);
   if (!r.ok) throw new Error(r.reason);
   h.move(r.id, at(x, z), wild, null);
   return r.id;
 }
+
+it('keeps infection personal and rejects district colour loss while a nearby peer is healthy', () => {
+  const h=host(), a=joined(h,1), b=joined(h,2);
+  const site={scene:wild,x:0,y:0,z:0};
+  const death={kind:'death',...site,inkMonster:true} as const;
+  expect(h.patch(a,death).ok).toBe(true);
+  expect(deserializeSlice(h.sliceOf(b)!).infectedAt).toBeNull();
+  const overrun={kind:'overrun',person:'player',site} as const;
+  expect(h.patch(a,overrun).ok).toBe(false);
+  expect(h.patch(b,death).ok).toBe(true);
+  expect(h.patch(b,overrun)).toMatchObject({ok:true,shared:true});
+  expect(WorldHost.load(h.save()).state.inkAreas.size).toBe(1);
+});
 
 function aSource(): PigmentSource {
   const w = createWilderness(SEED);
@@ -65,6 +103,38 @@ function colour(h: WorldHost, town: Entrance, who: number, surface: number): voi
 }
 
 describe('world host: who is in', () => {
+  it('updates appearance in place and keeps the saved profile current', () => {
+    const h = host();
+    const id = joined(h, 1, 12, 24);
+    const observer = joined(h, 2, 12, 25);
+    const before = h.nearby(observer);
+    const slice = h.sliceOf(id);
+    h.save();
+    const look = defaultLook('ranger');
+    expect(h.updateProfile(id, ' 新名字 ', look)).toEqual({ id, name: '新名字', look });
+    expect(h.dirty).toBe(true);
+    expect(h.nearby(observer)).toEqual(before);
+    expect(h.sliceOf(id)).toBe(slice);
+    expect(h.count).toBe(2);
+    expect(h.everyone()).toContainEqual({ id, name: '新名字', look });
+    expect(JSON.parse(h.save()).players[token(1)]).toMatchObject({ name: '新名字', look });
+    expect(h.updateProfile(id, '新名字', look)).toBeNull();
+    expect(h.updateProfile(999, 'other', look)).toBeNull();
+    expect(h.dirty).toBe(false);
+  });
+
+  it('validates profile updates and discards client-supplied player IDs', () => {
+    const look = defaultLook('ranger');
+    expect(parseClientMessage(JSON.stringify({ t: 'profile', id: 99, name: '新名字', look }))).toEqual({
+      t: 'profile',
+      name: '新名字',
+      look,
+    });
+    expect(
+      parseClientMessage(JSON.stringify({ t: 'profile', name: 'bad', look: { character: 'missing' } })),
+    ).toBeNull();
+  });
+
   it('takes up to the limit and turns the next player away', () => {
     const h = host(10);
     for (let i = 0; i < 10; i++) joined(h, i);
@@ -427,4 +497,18 @@ describe('protocol', () => {
     // a held tide must name a town
     expect(validPatch({ kind: 'tideHeld' })).toBeNull();
   });
+});
+
+it('shares NPC city defeats without granting personal kill rewards', () => {
+  const town = aTown(),
+    h = host(),
+    id = keeper(h, 1, town);
+  const before = deserializeSlice(h.sliceOf(id)!);
+  const patch = { kind: 'defeat' as const, city: town.cityId, monster: 0, npc: true as const };
+  expect(validPatch(patch)).toEqual(patch);
+  expect(h.patch(id, patch)).toMatchObject({ ok: true, shared: true });
+  const after = deserializeSlice(h.sliceOf(id)!);
+  expect(after.inventory.ink).toBe(before.inventory.ink);
+  expect(after.growth.xp).toBe(before.growth.xp);
+  expect(h.patch(id, { kind: 'defeat', city: town.cityId, monster: 0 }).ok).toBe(false);
 });

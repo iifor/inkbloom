@@ -1,5 +1,5 @@
 import { smoothstep } from '../math/noise';
-import type { ChannelGuide } from './drainage';
+import { type ChannelGuide, riverBankWidth, riverPool } from './drainage';
 import type { Wilderness } from './generator';
 import { RIVER_LANE, RIVER_ORIGIN } from './river-corridors';
 import { WATER_LEVEL } from './water-level';
@@ -16,7 +16,7 @@ export function channelSpeed(depth: number, slope: number): number {
 }
 
 export function currentSound(speed: number): number {
-  return smoothstep(0.25, 2.35, speed);
+  return smoothstep(0.42, 2.8, speed) ** 1.5;
 }
 
 export function waterCurrentsOf(world: Wilderness): WaterCurrents {
@@ -49,20 +49,27 @@ export class WaterCurrents {
     const { world } = this;
     const lane = Math.round((x - RIVER_ORIGIN) / RIVER_LANE);
     const river = world.riverAt(lane, z);
-    const distance = Math.abs(x - river.x);
     const { basin, branch } = world.waterGuidesAt(x, z);
-    if (basin >= 1 || (!branch && distance >= river.half + 3)) return STILL;
+    if (basin >= 1 || (!branch && Math.abs(x - river.x) > river.half * 2.5 + 6)) return STILL;
+    const tangent = (at: number) => {
+      const dx = world.riverAt(lane, at + 8).x - world.riverAt(lane, at - 8).x;
+      const length = Math.hypot(dx, 16);
+      return { dx: dx / length, dz: 16 / length };
+    };
+    const initial = tangent(z);
+    const centerZ = z + (x - river.x) * initial.dx * initial.dz;
+    const center = world.riverAt(lane, centerZ);
+    const distance = Math.hypot(x - center.x, z - centerZ);
+    const half = world.terrainVersion >= 6
+      ? riverBankWidth(center.half, lane, centerZ, Math.sign(x - center.x))
+      : center.half;
+    if (!branch && distance >= half + 3) return STILL;
     const depth = WATER_LEVEL - world.terrainHeightAt(x, z);
     if (depth <= 0.025) return STILL;
 
-    const mainWeight = 1 - smoothstep(0.48, 1, distance / (river.half + 3));
+    const mainWeight = 1 - smoothstep(0.32, 1, distance / (half + 3));
     const branchWeight = branch ? 1 - smoothstep(0.38, 1, branch.distance / branch.half) : 0;
-    const along = 48;
-    const a = world.riverAt(lane, z - along).x;
-    const b = world.riverAt(lane, z + along).x;
-    const length = Math.hypot(b - a, along * 2);
-    const dx = (b - a) / length, dz = (along * 2) / length;
-    const main: ChannelGuide = { x: river.x, z, dx, dz, distance, half: river.half };
+    const main: ChannelGuide = { x: center.x, z: centerZ, ...tangent(centerZ), distance, half };
     const velocity = (
       guide: ChannelGuide, weight: number, offset: number,
       startX: number, startZ: number, endX: number, endZ: number,
@@ -76,7 +83,18 @@ export class WaterCurrents {
       };
       const fall = height(startX, startZ) - height(endX, endZ);
       const slope = fall / Math.hypot(endX - startX, endZ - startZ);
-      const speed = Math.sign(slope) * channelSpeed(depth, Math.abs(slope)) * weight;
+      let speed: number;
+      if (guide === main) {
+        // Use the broader valley to orient the reach and local grade to rate it.
+        // A gravel bar or a pool's uphill lip must not reverse the surface current.
+        const span = 210;
+        const head = (height(world.riverAt(lane, centerZ - span).x, centerZ - span) -
+          height(world.riverAt(lane, centerZ + span).x, centerZ + span)) / (span * 2);
+        const direction = Math.sign(head);
+        const grade = 0.7 * Math.abs(head) + 0.3 * Math.max(0, direction * slope);
+        const reachSpeed = channelSpeed(depth, grade);
+        speed = direction * Math.min(3.6, reachSpeed * (1.38 - 0.99 * riverPool(lane, centerZ))) * weight;
+      } else speed = Math.sign(slope) * channelSpeed(depth, Math.abs(slope)) * weight;
       if (!speed) return STILL;
       // A low spot beside a channel can be wet without belonging to it. Require
       // a wet path to the channel and a wet reach in both directions.
@@ -86,14 +104,19 @@ export class WaterCurrents {
       }
       for (const step of [-16, -8, 8, 16]) {
         if (guide === main) {
-          if (!wet(world.riverAt(lane, z + step).x, z + step)) return STILL;
+          if (!wet(world.riverAt(lane, centerZ + step).x, centerZ + step)) return STILL;
         } else {
           if (!wet(guide.x + guide.dx * step, guide.z + guide.dz * step)) return STILL;
         }
       }
       return { x: guide.dx * speed, z: guide.dz * speed };
     };
-    const riverVelocity = velocity(main, mainWeight, river.half + 28, a, z - along, b, z + along);
+    const along = 48;
+    const riverVelocity = velocity(
+      main, mainWeight, center.half + 28,
+      world.riverAt(lane, centerZ - along).x, centerZ - along,
+      world.riverAt(lane, centerZ + along).x, centerZ + along,
+    );
     const branchVelocity = branch
       ? velocity(
           branch, branchWeight * (1 - mainWeight), 24,

@@ -105,7 +105,7 @@ export function createWilderness(
   const bends = n('river-bends');
   const spawn = W.chunkSize / 2;
   const landforms = createLandforms(seed);
-  const drainage = createDrainage(seed, (x, z) => landforms(x, z).height, terrainVersion >= 3);
+  const drainage = createDrainage(seed, (x, z) => landforms(x, z).height, terrainVersion >= 3, terrainVersion >= 6);
   // Preserve the introductory valley, then gradually reveal the larger regions.
   const regional = (x: number, z: number) =>
     terrainVersion === 1 ? 0 : smoothstep(700, 1100, Math.hypot(x - spawn, z - spawn));

@@ -1,3 +1,5 @@
+import type { PhysicsWorld } from '@/engine/physics/world';
+import { type NpcFighter, inkFighter, populationSurvey } from '@/systems/combat/npc-combat';
 import type * as THREE from 'three';
 import { RESIDENT_NAMES } from '@/content/names';
 import type { GameContext } from '@/game/types';
@@ -14,6 +16,9 @@ import { type CityLayout, groundAt } from '@/world/city/layout';
 import { hashInts } from '@/world/math/hash';
 import type { Farmstead } from '@/world/wilderness/farmsteads';
 import { ResidentFigure } from '@/systems/figures/kaykit-villager';
+import { NpcVisitors } from '@/systems/figures/npc-visitors';
+import { footHeight, walkNpc } from '@/systems/figures/npc-walking';
+import { NpcAttention, attentionYaw } from '@/world/npc-attention';
 import {
   loadResident,
   modelForResident,
@@ -168,6 +173,8 @@ function occupation(spot: ResidentSpot) {
 
 /** Keep the population deterministic, and only allocate animated models in the player's neighbourhood. */
 export class Residents {
+  private readonly stopSurvey: () => void;
+  private readonly fighters = new Map<ResidentSpot, NpcFighter>();
   private actors = new Map<ResidentSpot, ResidentFigure>();
   private wanted = new Set<ResidentSpot>();
   private loading = new Set<ResidentSpot>();
@@ -177,12 +184,22 @@ export class Residents {
   private area?: Neighbourhood;
   private refreshIn = 0;
   private spots: ResidentSpot[] = empty;
+  private readonly attention = new WeakMap<ResidentSpot, NpcAttention>();
+  private readonly visitors: NpcVisitors;
   constructor(
     private readonly ctx: GameContext,
     private readonly population: () => ResidentSpot[],
     private readonly root: THREE.Object3D,
     private readonly neighbourhood: () => Neighbourhood,
-  ) {}
+    private readonly physics: PhysicsWorld,
+  ) {
+    this.visitors = new NpcVisitors(ctx);
+    this.stopSurvey = populationSurvey(ctx,physics,healthy => this.population().some(spot => {
+      const route=this.routes.get(spot);
+      const p=this.fighters.get(spot)?.position ?? (route ? residentPose(spot,occupation(spot),route.outing,outingTime(spot,this.ctx.state.clock).phase) : spot);
+      return healthy('resident:'+spot.seed,p);
+    }));
+  }
 
   update(dt: number): void {
     if (typeof window === 'undefined') return;
@@ -190,6 +207,7 @@ export class Residents {
     this.refreshIn -= dt;
     const spots = this.population();
     const clock = this.ctx.state.clock;
+    this.visitors.update();
     if (spots !== this.spots || this.refreshIn <= 0) {
       this.spots = spots;
       this.refreshIn = 0.35;
@@ -200,7 +218,7 @@ export class Residents {
       this.toPlan = [];
       const near: { spot: ResidentSpot; d: number }[] = [];
       for (const { spot } of candidates) {
-        const time = outingTime(spot, clock);
+        const time = outingTime(spot, this.attention.get(spot)?.time(clock) ?? clock);
         const route = this.routes.get(spot);
         if (!route || route.shift !== time.shift) {
           this.toPlan.push(spot);
@@ -216,6 +234,9 @@ export class Residents {
       this.wanted = new Set(near.map((s) => s.spot));
       for (const [spot, actor] of this.actors) {
         if (!this.wanted.has(spot)) {
+          this.attention.get(spot)?.release(clock);
+          this.fighters.get(spot)?.dispose();
+          this.fighters.delete(spot);
           actor.dispose();
           this.actors.delete(spot);
         }
@@ -225,7 +246,7 @@ export class Residents {
     const next = this.toPlan.shift();
     if (next) {
       this.area ??= this.neighbourhood();
-      const { shift } = outingTime(next, clock);
+      const { shift } = outingTime(next, this.attention.get(next)?.time(clock) ?? clock);
       this.routes.set(next, { shift, outing: planOuting(this.area, next, occupation(next), shift) });
     }
     // Spread skeleton creation across frames when entering a dense settlement.
@@ -243,7 +264,7 @@ export class Residents {
             residentMotions(variant),
             spot.seed,
           );
-          actor.root.position.set(spot.x, spot.y, spot.z);
+          actor.root.position.set(spot.x, footHeight(this.physics, spot.x, spot.y, spot.z), spot.z);
           actor.root.rotation.y = spot.angle;
           Object.assign(actor.root.userData, {
             resident: spot.name,
@@ -261,23 +282,73 @@ export class Residents {
       break;
     }
     for (const [spot, actor] of this.actors) {
+      const id = 'resident:'+spot.seed;
+      actor.root.visible = !this.ctx.state.infectedPeople.has(id);
+      if (!actor.root.visible) {
+        this.fighters.get(spot)?.dispose(); this.fighters.delete(spot);
+        continue;
+      }
+      let attention = this.attention.get(spot);
+      if (!attention) this.attention.set(spot, (attention = new NpcAttention()));
       const route = this.routes.get(spot);
-      const time = outingTime(spot, clock);
+      const time = outingTime(spot, attention.time(clock));
       const pose =
         route?.shift === time.shift
           ? residentPose(spot, occupation(spot), route.outing, time.phase)
           : { ...spot, motion: 'idle' as const };
-      const y =
-        pose.motion === 'idle' && pose.x === spot.x && pose.z === spot.z
-          ? spot.y
-          : this.area!.ground(pose.x, pose.z);
-      actor.root.position.set(pose.x, y, pose.z);
-      actor.root.rotation.y = pose.angle;
-      actor.update(dt, actor.root.position.distanceToSquared(player) < 3.5 ** 2, pose.motion);
+      const ground = (this.area ??= this.neighbourhood()).ground;
+      let fighter = this.fighters.get(spot);
+      if (!fighter) {
+        actor.root.position.set(
+          pose.x,
+          footHeight(this.physics, pose.x, ground(pose.x, pose.z), pose.z),
+          pose.z,
+        );
+        fighter = inkFighter(this.ctx, this.physics, actor.root.position, id);
+        this.fighters.set(spot, fighter);
+      }
+      fighter.update(dt, ground, this.visitors.people);
+      if (fighter.busy) {
+        attention.hold(clock);
+        if (fighter.target && !fighter.down)
+          actor.root.rotation.y = attentionYaw(
+            actor.root.rotation.y,
+            fighter.approachHeading ?? Math.atan2(
+              fighter.target.position.x - fighter.position.x,
+              fighter.target.position.z - fighter.position.z,
+            ),
+            dt,
+          );
+        actor.combatPose(dt, fighter);
+        continue;
+      }
+      const heading = attention.target ? undefined : walkNpc(fighter, pose, ground, this.visitors.people, dt);
+      attention.update(
+        clock,
+        dt,
+        actor.root.position,
+        this.visitors.people,
+        (visitor) => this.visitors.canSee(actor.root.position, visitor),
+        actor.root.rotation.y,
+      );
+      const target = attention.target;
+      const desired = target
+        ? Math.atan2(target.x - fighter.position.x, target.z - fighter.position.z)
+        : (heading ?? pose.angle);
+      actor.root.rotation.y = attentionYaw(actor.root.rotation.y, desired, dt);
+      actor.update(
+        dt,
+        !!target,
+        heading !== undefined ? 'walk' : pose.motion === 'walk' ? 'idle' : pose.motion,
+        target ? { x: target.x, y: target.eyeY, z: target.z } : undefined,
+      );
     }
   }
 
   dispose(): void {
+    this.stopSurvey();
+    for (const fighter of this.fighters.values()) fighter.dispose();
+    this.fighters.clear();
     this.wanted.clear();
     for (const actor of this.actors.values()) actor.dispose();
     this.actors.clear();

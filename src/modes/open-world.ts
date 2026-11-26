@@ -26,6 +26,7 @@ import { SceneManager } from '@/systems/scenes/scene-manager';
 import { Brush } from '@/systems/tools/brush';
 import { WeaponSlot } from '@/systems/tools/weapons';
 import { Marker } from '@/systems/tools/marker';
+import { InfectionSystem } from '@/systems/combat/infection';
 import { CombatSystem } from '@/systems/combat/combat';
 import { InkDropSystem } from '@/systems/combat/ink-drop';
 import { ToolBelt } from '@/systems/tools/tool';
@@ -100,6 +101,8 @@ export async function startOpenWorld(opts: {
     (id) => ctx.cities.progress(id),
   );
   ctx.apply = (patch) => {
+    // Only the host can see every nearby player, including spectators outside the render budget.
+    if (patch.kind === 'overrun' && ctx.net) { ctx.net.sendPatch(patch); return {ok:true}; }
     const levelBefore = levelOf(ctx.state.growth.xp);
     const pointsBefore = ctx.state.growth.points;
     const weaponsBefore = ctx.state.inventory.weapons.length;
@@ -218,6 +221,7 @@ export async function startOpenWorld(opts: {
     player,
     combat,
     scenes,
+    new InfectionSystem(ctx),
     ...(remote ? [remote] : []),
     ...(arena ? [arena] : []),
     interactions,

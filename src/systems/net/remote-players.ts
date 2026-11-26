@@ -6,6 +6,10 @@
 // their attacks and skills as the gestures come in. In the arena they also flinch when hit and
 // go down in ink, and wear their team's colour.
 import * as THREE from 'three';
+import { ENEMIES } from '@/content/enemies';
+import { MonsterFigures } from '@/systems/combat/monster-figure';
+import type { Body } from '@/engine/physics/world';
+import { avoidPerson } from '@/engine/physics/character-contact';
 import type { Look } from '@/content/characters';
 import { TUNING } from '@/content/tuning';
 import { makeInkMaterial } from '@/engine/render/ink-material';
@@ -13,9 +17,11 @@ import type { GameContext, System } from '@/game/types';
 import { NameTags } from '@/shell/name-tags';
 import { ACTION_SECONDS, PlayerFigures } from '@/systems/figures/player-figure';
 import { FlightMotion } from '@/systems/figures/flight-motion';
+import type { Visitor } from '@/world/npc-attention';
 import {
   AIMING,
   DOWNED,
+  INFECTED,
   FLYING,
   GLIDING,
   GROUNDED,
@@ -112,6 +118,7 @@ export class RemotePlayers implements System {
   private readonly group = new THREE.Group();
   private readonly material = makeInkMaterial({ cloth: true });
   private readonly figures = new PlayerFigures(this.group, this.material);
+  private inkFigures?: MonsterFigures;
   private readonly tags: NameTags;
   private readonly head = new THREE.Vector3();
   private t = 0;
@@ -159,6 +166,27 @@ export class RemotePlayers implements System {
   /** Who is drawn, standing, right now. */
   standing(): number[] {
     return [...this.players].filter(([, r]) => r.drawn && r.dying < 0).map(([id]) => id);
+  }
+
+  npcVisitors(out: Visitor[]): void {
+    for (const [id, r] of this.players) {
+      const motion = r.samples.at(-1)?.m;
+      if (!r.drawn || r.dying >= 0 || !motion || motion.f & (DOWNED | FLYING | GLIDING | INFECTED)) continue;
+      const rest = motion.rest;
+      const eyeHeight = 1.5 - 0.65 * (rest?.sitting ?? 0) - 1.15 * (rest?.lying ?? 0);
+      out.push({ id, x: r.at.x, y: r.at.y, z: r.at.z, eyeY: r.at.y + eyeHeight });
+    }
+  }
+
+  avoidPlayers(body: Body, dt: number, me: number): void {
+    for (const [id, r] of this.players) {
+      const sample = r.samples.at(-1);
+      if (!sample || this.t - sample.t >= STALE || r.dying >= 0 || sample.m.f & DOWNED) continue;
+      const { p, rest, f } = sample.m;
+      const height =
+        TUNING.player.height - (f & SWIMMING ? 0.65 : (rest?.lying ?? 0) * 1.2 + (rest?.sitting ?? 0) * 0.7);
+      avoidPerson(body, p[0], p[1], p[2], height, dt, me < id ? -1 : 1);
+    }
   }
 
   flinch(id: number): void {
@@ -216,6 +244,7 @@ export class RemotePlayers implements System {
     const root = this.ctx.scenes.active.root;
     if (this.group.parent !== root) root.add(this.group);
     this.figures.begin();
+    this.inkFigures?.begin();
     for (const [id, r] of this.players) {
       const newest = r.samples[r.samples.length - 1];
       const m = newest && this.t - newest.t < STALE ? interpolate(r.samples, this.t - DELAY) : null;
@@ -231,6 +260,16 @@ export class RemotePlayers implements System {
       r.at.y = m.p[1];
       r.at.z = m.p[2];
       r.at.yaw = m.yaw;
+      // A teleport or a late snapshot can put the delayed figure around the lens for a frame.
+      const eye = this.ctx.renderer.camera.position;
+      if (
+        Math.hypot(eye.x - r.at.x, eye.z - r.at.z) < 0.48 &&
+        eye.y > r.at.y - 0.1 &&
+        eye.y < r.at.y + TUNING.player.height + 0.35
+      ) {
+        this.tags.remove(id);
+        continue;
+      }
       const speed = Math.hypot(m.v[0], m.v[2]);
       r.flight.update(dt, (m.f & FLYING) !== 0 && r.dying < 0, m.yaw, speed, m.v[1]);
       const stride = Math.min(1.7, speed / TUNING.player.walkSpeed);
@@ -257,6 +296,14 @@ export class RemotePlayers implements System {
       const ease = 1 - Math.exp(-EASE * dt);
       r.aim += ((sighted ? 1 : 0) - r.aim) * ease;
       r.paint += (((m.f & PAINTING) !== 0 ? 1 : 0) - r.paint) * ease;
+      if(m.f & INFECTED){
+        if(!this.inkFigures){this.inkFigures=new MonsterFigures(this.group,this.material);this.inkFigures.begin();}
+        this.inkFigures.draw(ENEMIES[0],{x:r.at.x,y:r.at.y,z:r.at.z,yaw:m.yaw,walk:r.walk,stride,air:!(m.f&GROUNDED),
+          hurt:r.hurt,attack:-1,dying:r.dying,t:this.t,colors:[ENEMIES[0].eyes]});
+        this.head.set(r.at.x,r.at.y+1.65,r.at.z);
+        this.tags.place(id,r.info.name+' · 墨怪',this.head,r.accent);
+        continue;
+      }
       this.figures.draw(
         look,
         {
@@ -287,9 +334,11 @@ export class RemotePlayers implements System {
       else this.tags.place(id, r.info.name, this.head, r.accent);
     }
     this.figures.end();
+    this.inkFigures?.end();
   }
 
   dispose(): void {
+    this.inkFigures?.dispose();
     this.figures.dispose();
     this.material.dispose();
     this.group.removeFromParent();

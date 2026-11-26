@@ -72,6 +72,7 @@ export class ToolBelt implements System {
   update(dt: number): void {
     const { player } = this.ctx;
     const stowed =
+      this.ctx.combat.infected ||
       player.waterMode === 'swimming' ||
       player.gliding ||
       player.flying ||

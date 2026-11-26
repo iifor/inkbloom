@@ -1,6 +1,6 @@
 # Sound credits
 
-Every recording here is public domain (CC0 1.0): free to use, change and ship, with no
+The recordings listed in the table below are public domain (CC0 1.0): free to use, change and ship, with no
 attribution required. We credit the authors anyway, with thanks. Downloaded 2026-11-16.
 
 | File(s)                                                | Author                                                          | Original                                                                 | License |
@@ -21,3 +21,8 @@ in `src/content/sounds.ts`; every one has a synthesised fallback, so the game st
 right without them.
 
 Only add recordings whose license is CC0 (public domain).
+
+
+## Generated NPC dialogue
+
+voices/*.mp3: generated with Microsoft Azure Speech on 2026-11-25 using XiaoxiaoNeural, YunxiNeural, XiaoyiNeural and YunjianNeural (48 clips). These generated files are separate from the CC0 recordings above. Source lines and styles: scripts/generate-npc-voices.mjs. Credentials are supplied only through environment variables at generation time.
