@@ -1,8 +1,7 @@
 // Lit windows and smoking chimneys. The house builder marks both in the geometry itself
 // (GeometryBuilder.pane and .chimney write the aPane attribute), so they survive merging and
 // the trip back from the city worker; a scene hands each mesh's geometry here as it loads and
-// the renderer asks every few frames for the ones nearest the eye: the windows to light the
-// walls and street round them at night, the chimneys to smoke.
+// the renderer asks every few frames for windows near the camera and chimneys near the player.
 import * as THREE from 'three';
 
 /** Lit windows that shine on their surroundings at once (the nearest). */
@@ -14,6 +13,7 @@ export const LAMP_REACH = 7;
 /** Beyond this from the eye a lamp has faded out, so one dropping out of the nearest few is
  * not seen to go. */
 const LAMP_FADE = [32, 46] as const;
+const SMOKE_FADE = [72, 90] as const;
 
 interface Marks {
   /** x, y, z of each lit window's lamp, a little out from the glass. */
@@ -65,13 +65,13 @@ export class Lamps {
     return () => this.sets.delete(marks);
   }
 
-  private nearest(of: 'lamps' | 'chimneys', eye: THREE.Vector3, count: number, reach: number): void {
+  private nearest(of: 'lamps' | 'chimneys', origin: THREE.Vector3Like, count: number, reach: number): void {
     const near = this.near;
     near.length = 0;
     for (const set of this.sets) {
       const a = set[of];
       for (let i = 0; i < a.length; i += 3) {
-        const d = Math.hypot(a[i]! - eye.x, a[i + 1]! - eye.y, a[i + 2]! - eye.z);
+        const d = Math.hypot(a[i]! - origin.x, a[i + 1]! - origin.y, a[i + 2]! - origin.z);
         if (d < reach) near.push({ d, x: a[i]!, y: a[i + 1]!, z: a[i + 2]! });
       }
     }
@@ -89,9 +89,9 @@ export class Lamps {
     });
   }
 
-  /** The chimney tops nearest `eye`, nearest first, at most `count` within `reach` metres. */
-  chimneysNear(eye: THREE.Vector3, count: number, reach: number): readonly THREE.Vector3Like[] {
-    this.nearest('chimneys', eye, count, reach);
-    return this.near.map(({ x, y, z }) => ({ x, y, z }));
+  /** Smoke sources follow the player's location, even when the camera orbits them. */
+  chimneysNear(player: THREE.Vector3Like, count: number) {
+    this.nearest('chimneys', player, count, SMOKE_FADE[1]);
+    return this.near.map(({ x, y, z, d }) => ({ x, y, z, r: 0.3, opacity: 1 - THREE.MathUtils.smoothstep(d, ...SMOKE_FADE) }));
   }
 }

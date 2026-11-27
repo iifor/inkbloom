@@ -81,6 +81,22 @@ export class GlowPass {
     this.glowB.setSize(Math.max(2, rw >> 2), Math.max(2, rh >> 2));
   }
 
+  async prepare(r: THREE.WebGLRenderer, camera: THREE.Camera): Promise<void> {
+    const target = r.getRenderTarget();
+    const material = this.glowQuad.material;
+    try {
+      this.glowQuad.material = this.glowBlur;
+      r.setRenderTarget(this.glowB);
+      await r.compileAsync(this.glowScene, camera);
+      this.glowQuad.material = this.glowAdd;
+      r.setRenderTarget(null);
+      await r.compileAsync(this.glowScene, camera);
+    } finally {
+      this.glowQuad.material = material;
+      r.setRenderTarget(target);
+    }
+  }
+
   /** Pick the bright parts of `src`, blur them across then down at quarter size, add them to
    * the screen. */
   render(r: THREE.WebGLRenderer, src: THREE.Texture, cam: THREE.Camera): void {

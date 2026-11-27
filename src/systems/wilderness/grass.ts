@@ -94,6 +94,7 @@ export class GrassField {
     private readonly camera: THREE.Camera,
     /** Whether a spot inside a town is lawn, where grass grows (false for anywhere unknown). */
     private readonly lawn: (x: number, z: number) => boolean = () => false,
+    private readonly cultivated: (x: number, z: number) => boolean = () => false,
   ) {
     this.windMap = makeWindMap(wilderness.seed ^ 0x714d);
     this.grids = [
@@ -152,7 +153,13 @@ export class GrassField {
     this.hues = createNoise2D(wilderness.seed ^ 0x2b1d);
   }
 
-  update(at: THREE.Vector3, flowers = 1, grass = 1, yearPhase = 0): void {
+  update(
+    at: THREE.Vector3,
+    flowers = 1,
+    grass = 1,
+    yearPhase = 0,
+    budgetMs: number = TUNING.world.grassStreaming.buildMs,
+  ): void {
     // the seas bloom on their own calendar, even where the meadow is still bare
     const b = this.seaBloom.value.set(
       ...([0, 1, 2, 3].map((k) => bloomOf(k, yearPhase)) as [number, number, number, number]),
@@ -167,7 +174,7 @@ export class GrassField {
       this.viewProjection.multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse),
     );
     for (const grid of this.grids) this.stream(grid, at);
-    this.plant();
+    this.plant(budgetMs);
     for (const grid of this.grids) {
       const width = grid.step * grid.cells;
       for (const { i, k, mesh } of grid.patches.values()) {
@@ -183,7 +190,21 @@ export class GrassField {
 
   /** Startup can finish the nearby meadow behind the loading screen, yielding between updates. */
   get ready(): boolean {
-    return !this.building && this.grids.every((grid) => grid.pending.length === 0);
+    return (
+      !this.coverRoot.visible || (!this.building && this.grids.every((grid) => grid.pending.length === 0))
+    );
+  }
+
+  get preparation(): { done: number; total: number } {
+    if (!this.coverRoot.visible) return { done: 1, total: 1 };
+    let total = 0,
+      done = 0;
+    for (const grid of this.grids)
+      for (const key of grid.wanted) {
+        total++;
+        if (grid.patches.has(key)) done++;
+      }
+    return { done, total };
   }
 
   private cancelPlanting(): void {
@@ -196,9 +217,9 @@ export class GrassField {
   }
 
   /** All four kinds share one budget. Partially filled instance buffers stay off screen. */
-  private plant(): void {
+  private plant(budgetMs: number): void {
     if (this.building && !this.building.grid.wanted.has(this.building.key)) this.cancelPlanting();
-    const until = performance.now() + TUNING.world.grassStreaming.buildMs;
+    const until = performance.now() + budgetMs;
     do {
       if (!this.building) {
         let nearest: Grid | undefined;
@@ -318,7 +339,7 @@ export class GrassField {
         if (y <= WATER_LEVEL) continue;
         // towns have paving and bare yards of their own, but their lawns grow grass like any
         // meadow; footpaths are trodden bare down the middle, the meadow spilling over their edges
-        if (w.townAt(x, z, 1) && !this.lawn(x, z)) continue;
+        if (this.cultivated(x, z) || (w.townAt(x, z, 1) && !this.lawn(x, z))) continue;
         // the meadow creeps in over a path's edges, thinning out toward the trodden middle
         const onPath = -paths.edgeDistance(x, z);
         if (onPath > 0.25 && r(11) < Math.min(1, (onPath - 0.25) / 0.7)) continue;
@@ -411,7 +432,13 @@ export class GrassField {
         const limit = thick * (0.75 + 0.25 * this.drifts(x / 7 + 13, z / 7 + 5));
         if (!sea || r(2) >= limit) continue;
         const y = w.heightAt(x, z);
-        if (y <= WATER_LEVEL + 0.2 || w.townAt(x, z, 1) || paths.edgeDistance(x, z) < 0.2) continue;
+        if (
+          y <= WATER_LEVEL + 0.2 ||
+          this.cultivated(x, z) ||
+          w.townAt(x, z, 1) ||
+          paths.edgeDistance(x, z) < 0.2
+        )
+          continue;
         const dx = (w.heightAt(x + 0.4, z) - y) / 0.4,
           dz = (w.heightAt(x, z + 0.4) - y) / 0.4;
         if (Math.max(Math.abs(dx), Math.abs(dz)) > ROCKY) continue;

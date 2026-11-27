@@ -45,6 +45,8 @@ import type { WorldState } from '@/world/state';
 import type { KeyValue, WorldStore } from '@/world/store';
 import { Homecomings } from '@/world/city/homecoming';
 import { createWilderness } from '@/world/wilderness/generator';
+import { LoadingProgress, loadingFrame } from '@/game/loading';
+import { characterModel, type Look } from '@/content/characters';
 
 type Mutable<T> = { -readonly [K in keyof T]: T[K] };
 
@@ -78,13 +80,25 @@ export async function startOpenWorld(opts: {
   /** Joined to a world server (multiplayer); absent when playing alone. */
   net?: Connection;
   onError: (e: unknown) => void;
-  loading: (progress: number, label: string) => void;
+  loading: LoadingProgress;
+  look: Look;
+  quality: 'high' | 'low';
 }): Promise<OpenWorld> {
+  const loading = opts.loading;
+  // Start the selected character request before synchronous world construction.
+  const characterReady = (
+    characterModel(opts.look.character)
+      ? loadCourier(opts.look.character, (fraction) => loading.report('character', fraction))
+      : Promise.resolve()
+  )
+    .catch((e) => console.warn('使用备用角色模型：', e))
+    .then(() => loading.report('character', 1));
   const lifetime = new AbortController();
   const ctx = {} as Mutable<GameContext>;
   ctx.state = opts.state;
   ctx.events = new EventBus<GameEvents>();
-  ctx.renderer = new InkRenderer(opts.canvas);
+  ctx.renderer = new InkRenderer(opts.canvas, loading.track('textures'));
+  ctx.renderer.setQuality(opts.quality);
   ctx.input = new Input(opts.canvas, lifetime.signal);
   ctx.wilderness = createWilderness(opts.state.seed, opts.state.legacyTowns, opts.state.terrainVersion);
   const cities = new CityRegistry(ctx);
@@ -102,7 +116,10 @@ export async function startOpenWorld(opts: {
   );
   ctx.apply = (patch) => {
     // Only the host can see every nearby player, including spectators outside the render budget.
-    if (patch.kind === 'overrun' && ctx.net) { ctx.net.sendPatch(patch); return {ok:true}; }
+    if (patch.kind === 'overrun' && ctx.net) {
+      ctx.net.sendPatch(patch);
+      return { ok: true };
+    }
     const levelBefore = levelOf(ctx.state.growth.xp);
     const pointsBefore = ctx.state.growth.points;
     const weaponsBefore = ctx.state.inventory.weapons.length;
@@ -139,6 +156,8 @@ export async function startOpenWorld(opts: {
   );
   ctx.scenes = scenes;
   const weapons = new WeaponSlot(ctx);
+  weapons.setLook(opts.look);
+  player.setLook(opts.look);
   const belt = new ToolBelt(ctx, [new Brush(ctx), weapons, new Marker(ctx)]);
   const inkDrop = new InkDropSystem(ctx);
   const save = new SaveSystem(ctx, opts.store);
@@ -241,34 +260,32 @@ export async function startOpenWorld(opts: {
     debug,
   ];
 
-  const nextFrame = (): Promise<void> => new Promise((resolve) => requestAnimationFrame(() => resolve()));
-  // Start the downloads together. Wait on them as a group before drawing the real opening frame.
-  let prepared = false;
-  let finished = 0;
-  const assets = Promise.all(
-    [
-      ctx.renderer.texturesReady,
-      loadCourier().catch((e) => console.warn('使用备用角色模型：', e)),
-      audio.preloadEffects().catch((e) => console.warn('使用备用音效：', e)),
-    ].map(async (asset) => {
-      await asset;
-      finished++;
-      if (prepared) opts.loading(2 + (2 * finished) / 3, '正在加载纹理、角色和音效…');
+  const nextFrame = loadingFrame;
+  // Every asset reports immediately, including while terrain is being generated.
+  const assets = Promise.all([
+    ctx.renderer.texturesReady,
+    characterReady,
+    audio.preloadEffects(loading.track('sounds')).catch((e) => {
+      console.warn('使用备用音效：', e);
+      loading.report('sounds', 1);
     }),
-  );
-  opts.loading(1, '正在准备附近地形…');
+  ]);
+  loading.report('world', 1);
+  loading.focus('terrain');
   await nextFrame();
   scenes.restore(opts.state.player);
-  await wild.prepareStartup(nextFrame, (done) => {
-    opts.loading(1 + done / 10, done === 9 ? '正在绘制远景…' : '正在准备附近地形…');
+  let terrainReady = false;
+  await wild.prepareStartup(nextFrame, (stage, done, total) => {
+    if (stage === 'terrain') terrainReady = done === total;
+    if (stage !== 'landscape' || terrainReady) loading.focus(stage);
+    loading.report(stage, done, total);
   });
-  prepared = true;
-  opts.loading(2 + (2 * finished) / 3, '正在加载纹理、角色和音效…');
+  loading.waitingFor(['textures', 'character', 'sounds']);
   await assets;
-  opts.loading(4, '正在绘制第一帧…');
+  loading.focus('shaders');
   await nextFrame();
   // Compile the variants a city or effect will need before they are drawn.
-  warmShaders(ctx.renderer);
+  await warmShaders(ctx.renderer, loading.track('shaders'), loadingFrame);
 
   const resize = (): void => ctx.renderer.resize();
   window.addEventListener('resize', resize, { signal: lifetime.signal });
@@ -277,7 +294,7 @@ export async function startOpenWorld(opts: {
     systems,
     () => ctx.input.update(),
     () => {
-      ctx.renderer.render();
+      ctx.renderer.render(ctx.player.position);
     },
     opts.onError,
   );

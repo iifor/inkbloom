@@ -19,7 +19,10 @@ const animalKeys = [
   'star-wing',
   'star-brute',
 ] as const;
-export type InkAnimalKey = (typeof animalKeys)[number] | WildModelKey;
+const countryAnimals = ['Fox', 'Cow', 'Donkey', 'Horse'] as const;
+type CountryAnimal = (typeof countryAnimals)[number];
+const countryKeys = new Set<string>(countryAnimals);
+export type InkAnimalKey = (typeof animalKeys)[number] | WildModelKey | CountryAnimal;
 const imported = new Set<string>(WILD_MODELS.map((m) => m.key));
 export function isInkAnimal(key: string): key is InkAnimalKey {
   return imported.has(key) || animalKeys.some((k) => k === key);
@@ -31,7 +34,11 @@ export function animalTemplate(key: InkAnimalKey): GLTF | undefined {
   const source = templates.get(key);
   if (!source && typeof window !== 'undefined' && performance.now() >= (retryAt.get(key) ?? 0)) {
     retryAt.set(key, Infinity);
-    const file = imported.has(key) ? `wild/${key}.glb` : `quaternius/ink-${key}.glb`;
+    const file = countryKeys.has(key)
+      ? `countryside/${key}.glb`
+      : imported.has(key)
+        ? `wild/${key}.glb`
+        : `quaternius/ink-${key}.glb`;
     void new GLTFLoader().loadAsync(`${import.meta.env.BASE_URL}models/${file}`).then(
       (gltf) => templates.set(key, gltf),
       () => retryAt.set(key, performance.now() + 15000),
@@ -50,6 +57,7 @@ export class InkAnimal {
   private readonly mixer: THREE.AnimationMixer;
   private readonly actions = new Map<string, THREE.AnimationAction>();
   private current?: THREE.AnimationAction;
+  private lastPoseTime?: number;
   private readonly surfaces: {
     mesh: THREE.Mesh;
     original?: Float32Array;
@@ -69,7 +77,8 @@ export class InkAnimal {
     this.root.add(model);
     this.mixer = new THREE.AnimationMixer(model);
     for (const clip of gltf.animations) {
-      this.actions.set(clip.name.slice(clip.name.lastIndexOf('_') + 1), this.mixer.clipAction(clip));
+      const divider = countryKeys.has(key) ? '|' : '_';
+      this.actions.set(clip.name.slice(clip.name.lastIndexOf(divider) + 1), this.mixer.clipAction(clip));
     }
     this.airborne = this.actions.has('Flying');
     this.idle = this.actions.has('Idle') ? 'Idle' : 'Flying';
@@ -82,7 +91,7 @@ export class InkAnimal {
     this.floor = bounds.min.y;
     this.restHeight = bounds.max.y - bounds.min.y;
     // These imports have an offset root. Centre the rest pose on the collision body.
-    if (this.airborne || key === 'star-brute' || imported.has(key)) {
+    if (this.airborne || key === 'star-brute' || imported.has(key) || countryKeys.has(key)) {
       const center = bounds.getCenter(new THREE.Vector3());
       model.position.x -= center.x;
       model.position.z -= center.z;
@@ -96,7 +105,7 @@ export class InkAnimal {
       mesh.geometry.setAttribute('aColor', pigment);
       mesh.geometry.setAttribute(
         'aSurface',
-        new THREE.BufferAttribute(new Float32Array(count).fill(ALWAYS_COLOR), 1),
+        new THREE.BufferAttribute(new Float32Array(count).fill(countryKeys.has(key) ? -1 : ALWAYS_COLOR), 1),
       );
       mesh.geometry.setAttribute('aPane', new THREE.BufferAttribute(new Float32Array(count * 2), 2));
       mesh.material = material;
@@ -140,22 +149,48 @@ export class InkAnimal {
       clip = p.air && this.actions.has('Jump') ? 'Jump' : this.moving;
       phase = clip === 'Flying' ? p.t / 0.45 : p.walk / (2 * Math.PI);
     }
-    const action = this.actions.get(clip)!;
-    if (action !== this.current) {
-      this.current?.stop();
-      action.play();
-      this.current = action;
+    if (countryKeys.has(this.key)) {
+      const gait =
+        p.stride > 1.8
+          ? 'Gallop'
+          : p.stride > 0.1
+            ? 'Walk'
+            : this.key !== 'Fox' && p.t % 15 < 6
+              ? 'Eating'
+              : 'Idle';
+      const next = this.actions.get(gait)!;
+      if (next !== this.current) {
+        next.reset().fadeIn(0.28).play();
+        this.current?.fadeOut(0.28);
+        this.current = next;
+      }
+      next.timeScale =
+        p.stride > 0.1 ? THREE.MathUtils.clamp(p.stride / (gait === 'Gallop' ? 3.5 : 0.95), 0.55, 1.5) : 0.85;
+      this.mixer.update(Math.max(0, Math.min(0.2, p.t - (this.lastPoseTime ?? p.t))));
+      this.lastPoseTime = p.t;
+    } else {
+      const action = this.actions.get(clip)!;
+      if (action !== this.current) {
+        this.current?.stop();
+        action.play();
+        this.current = action;
+      }
+      const fraction =
+        clip === 'Attack' || clip === 'Death' || clip === 'Hit' ? Math.min(0.99999, phase) : phase % 1;
+      action.time = fraction * action.getClip().duration;
+      this.mixer.update(0);
     }
-    const fraction =
-      clip === 'Attack' || clip === 'Death' || clip === 'Hit' ? Math.min(0.99999, phase) : phase % 1;
-    action.time = fraction * action.getClip().duration;
-    this.mixer.update(0);
 
     const hover = this.airborne ? height * 0.27 : 0;
     const fit = (height - hover) / this.restHeight;
     const squash = 1 - 0.94 * Math.max(0, p.dying);
     this.root.position.set(p.x, p.y + (hover - this.floor * fit) * squash, p.z);
-    this.root.rotation.set(0, p.yaw + (this.key === 'wasp' ? Math.PI / 2 : Math.PI), 0.15 * p.hurt, 'YXZ');
+    this.root.rotation.set(
+      0,
+      p.yaw + (countryKeys.has(this.key) ? 0 : this.key === 'wasp' ? Math.PI / 2 : Math.PI),
+      0.15 * p.hurt,
+      'YXZ',
+    );
     if (p.attack >= 0 && !this.actions.has('Attack')) this.root.rotateX(-0.45 * Math.sin(Math.PI * p.attack));
     this.root.scale.set(fit, fit * squash, fit);
     this.root.visible = true;

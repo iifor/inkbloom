@@ -8,6 +8,8 @@ import { prepareOffline } from './shell/offline';
 import { Menu } from './shell/menu';
 import { installDevTools } from './shell/dev-tools';
 import { CharacterPreview } from './systems/figures/preview';
+import { StartupScreen } from './shell/startup';
+import { LoadingProgress, loadingFrame } from './game/loading';
 import {
   type Connection,
   JoinRefused,
@@ -31,22 +33,15 @@ const hudRoot = document.querySelector<HTMLElement>('#hud')!;
 const overlay = document.querySelector<HTMLElement>('#overlay')!;
 const errorText = document.querySelector<HTMLElement>('#overlay-error')!;
 const startup = document.querySelector<HTMLElement>('#startup')!;
-const startupProgress = document.querySelector<HTMLProgressElement>('#startup-progress')!;
-const startupPercent = document.querySelector<HTMLElement>('#startup-percent')!;
-const startupStatus = document.querySelector<HTMLElement>('#startup-status')!;
+const startupScreen = new StartupScreen(startup);
 
-function loading(progress: number, label: string): void {
-  const percent = Math.round((progress / 5) * 100);
-  startupProgress.value = percent;
-  startupPercent.textContent = `${percent}%`;
-  if (startupStatus.textContent !== label) startupStatus.textContent = label;
-}
+const loading = new LoadingProgress((fraction, label) => startupScreen.update(fraction, label));
 
 /** Once the game has failed, the only way forward is a fresh page. */
 function showFatal(e: unknown): void {
   console.error(e);
   if (document.pointerLockElement) document.exitPointerLock();
-  startup.hidden = true;
+  startupScreen.hide();
   overlay.hidden = false;
   overlay.querySelector('.menu-body')!.innerHTML = '<h2>出错了</h2><button id="reload">重新加载</button>';
   overlay.querySelector<HTMLButtonElement>('#reload')!.onclick = () => location.reload();
@@ -79,7 +74,7 @@ const passwordKey = (url: string): string => `inkbloom:pw:${url}`;
 function showJoinFailed(kv: KeyValue, url: string, e: unknown, room?: RoomRequest): void {
   const wantsPassword = e instanceof JoinRefused && (e.password || e.roomPassword);
   const label = e instanceof JoinRefused && e.roomPassword ? '房间密码' : '服务器密码';
-  startup.hidden = true;
+  startupScreen.hide();
   overlay.hidden = false;
   overlay.querySelector('.menu-body')!.innerHTML = `<h2>没能加入联机</h2><p></p>
     ${wantsPassword ? `<label>${label} <input type="password" id="pw" maxlength="128" autocomplete="off"></label>` : ''}
@@ -96,9 +91,12 @@ function showJoinFailed(kv: KeyValue, url: string, e: unknown, room?: RoomReques
 }
 
 async function boot(): Promise<void> {
-  loading(0, '正在读取世界…');
+  loading.focus('world');
   const params = new URLSearchParams(location.search);
   const { kv, persistent } = browserKeyValue();
+  let settings = loadSettings(kv);
+  let profile = loadProfile(kv);
+  startupScreen.startMusic(settings);
   prepareOffline(persistent);
   const local = new KeyValueStore(kv);
   let store: WorldStore = local;
@@ -128,7 +126,7 @@ async function boot(): Promise<void> {
     }
     overlay.hidden = true;
     startup.hidden = false;
-    loading(0, '正在连接世界…');
+    loading.focus('world');
     // Remember the destination for retries and the direct-connect form.
     if (address) {
       kv.setItem('inkbloom:server', address);
@@ -137,7 +135,7 @@ async function boot(): Promise<void> {
       clean.searchParams.delete('room');
       history.replaceState({ address }, '', clean);
     }
-    const p = loadProfile(kv) ?? { name: DEFAULT_NAME, look: defaultLook('courier') };
+    const p = profile ?? { name: DEFAULT_NAME, look: defaultLook('courier') };
     try {
       net = await connect(url, {
         room,
@@ -189,6 +187,11 @@ async function boot(): Promise<void> {
     }
   }
 
+  if (net && !profile) {
+    profile = { name: DEFAULT_NAME, look: defaultLook('courier') };
+    saveProfile(kv, profile);
+  }
+  loading.report('world', 1, 2);
   const game: OpenWorld = await startOpenWorld({
     canvas,
     hudRoot,
@@ -198,11 +201,12 @@ async function boot(): Promise<void> {
     net,
     onError: showFatal,
     loading,
+    look: profile?.look ?? defaultLook('courier'),
+    quality: settings.quality,
   });
   installDevTools(game);
   for (const text of notices) game.ctx.events.emit('toast', { text, seconds: 8 });
 
-  let settings = loadSettings(kv);
   const apply = (s: Settings): void => {
     settings = s;
     saveSettings(kv, s);
@@ -214,22 +218,18 @@ async function boot(): Promise<void> {
   };
   apply(settings);
 
-  let profile = loadProfile(kv);
-  if (net && !profile) {
-    // The connection already used this default character; enter with the same look.
-    profile = { name: DEFAULT_NAME, look: defaultLook('courier') };
-    saveProfile(kv, profile);
-  }
   // the hands holding the weapons, and swimming, are this character's
   const dress = (look: Look): void => {
     game.weapons.setLook(look);
     game.player.setLook(look);
   };
   if (profile) dress(profile.look);
+  loading.focus('frame');
+  await loadingFrame();
   game.loop.step(0);
-  loading(5, '加载完成');
-  // Leave one paint for the completed indicator before revealing the menu.
-  await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+  loading.report('frame', 1, 3);
+  await game.ctx.renderer.waitForFrame(loadingFrame);
+  loading.report('frame', 2, 3);
   const preview = new CharacterPreview(game.ctx);
   const world = state;
   const input = game.ctx.input;
@@ -377,8 +377,10 @@ async function boot(): Promise<void> {
     void game.save.flush();
   };
   window.addEventListener('pagehide', () => void game.save.flush());
+  loading.report('frame', 3, 3);
+  if (!loading.ready) throw new Error('启动内容尚未准备完成，请重新加载');
+  await startupScreen.finish();
   canvas.inert = false;
-  startup.hidden = true;
   if (net && !previewKey) canvas.focus();
   game.loop.start();
 }

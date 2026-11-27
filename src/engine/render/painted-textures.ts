@@ -3,6 +3,7 @@
 // and load during startup. A missing image leaves a neutral placeholder.
 import * as THREE from 'three';
 import { repaintCanopy } from './canopy-brush';
+import type { WorkProgress } from '@/game/loading';
 
 /** The grey tiles of brushwork, one layer each of the paint pass's texture array. Mid-grey is
  * no change; the shader darkens and lightens the palette colour by what is either side of it. */
@@ -129,7 +130,7 @@ export class PaintedTextures {
 
   /** Fetch the baked images and fill the textures as each arrives. A missing image is
    * reported and left as its placeholder. */
-  async load(base = 'textures/'): Promise<void> {
+  async load(base = 'textures/', progress?: WorkProgress): Promise<void> {
     const jobs = SURFACE_LAYERS.map(async (name, layer) => {
       const data = await pixels(`${base}surface_${name}.webp`, TILE, TILE);
       if (this.disposed) return;
@@ -183,7 +184,11 @@ export class PaintedTextures {
         this.interiors.needsUpdate = true;
       })(),
     );
-    for (const result of await Promise.allSettled(jobs))
+    let done = 0;
+    progress?.(0, jobs.length);
+    // A settled failure has the existing neutral placeholder ready to render.
+    const reported = jobs.map((job) => job.finally(() => progress?.(++done, jobs.length)));
+    for (const result of await Promise.allSettled(reported))
       if (result.status === 'rejected') console.warn('Painted texture not loaded:', result.reason);
   }
 

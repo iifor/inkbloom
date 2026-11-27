@@ -286,24 +286,36 @@ export class AudioSystem implements System {
   }
 
   /** Decode the short effects without starting live audio. Music and ambience stream later. */
-  async preloadEffects(): Promise<void> {
+  async preloadEffects(progress?: (done: number, total: number) => void): Promise<void> {
     const Decoder = window.OfflineAudioContext;
-    if (!Decoder) return;
-    await this.loadEffects(new Decoder(1, 1, 44100));
+    if (!Decoder) {
+      progress?.(1, 1);
+      return;
+    }
+    await this.loadEffects(new Decoder(1, 1, 44100), progress);
   }
 
   private effectsLoading: Promise<void> | null = null;
 
-  private loadEffects(decoder: BaseAudioContext): Promise<void> {
+  private loadEffects(
+    decoder: BaseAudioContext,
+    progress?: (done: number, total: number) => void,
+  ): Promise<void> {
+    let done = 0;
+    const total = Object.values(SOUNDS).reduce((count, urls) => count + urls.length, 0);
+    progress?.(0, total);
     return (this.effectsLoading ??= Promise.all(
       Object.entries(SOUNDS).map(([key, urls]) =>
         this.synth.load(
           key,
           urls.map((url) => import.meta.env.BASE_URL + url),
           decoder,
+          () => progress?.(++done, total),
         ),
       ),
-    ).then(() => undefined));
+    ).then(() => undefined)).then(() => {
+      progress?.(total, total);
+    });
   }
 
   /** Start audio from a user gesture (browser rule). */

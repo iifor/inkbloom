@@ -7,6 +7,10 @@ import { springLevel } from './landmarks';
 import { PIGMENT_SOURCES } from '@/content/pigment-sources';
 
 export type AnimalSpecies =
+  | 'fox'
+  | 'cow'
+  | 'donkey'
+  | 'horse'
   | 'rabbit'
   | 'bird'
   | 'boar'
@@ -70,6 +74,17 @@ export function habitatAnimals(w: Wilderness, chunk: WildChunk): LifeSite[] {
     });
   }
   if (farm) {
+    const stock = (['cow', 'donkey', 'horse'] as const)[hashInts(farm.seed, 37) % 3]!;
+    const penZ = farm.z + farm.front * (farm.hd - 4.2);
+    for (const sign of [-1, 1]) {
+      const penX = farm.x + sign * (farm.hw - 3.8);
+      if (farm.buildings.some((b) => Math.abs(penX - b.x) < b.hw + 2 && Math.abs(penZ - b.z) < b.hd + 2))
+        continue;
+      if (lifeGround(w, penX, penZ, 1.5)) {
+        add(stock, penX, penZ, 1);
+        break;
+      }
+    }
     const gate = farm.z + farm.front * farm.hd;
     const side = farm.seed % 2 ? 1 : -1;
     add('chick', farm.x + side * 3, gate - farm.front * 2.6, 2 + (farm.seed % 3));
@@ -151,6 +166,21 @@ export function habitatAnimals(w: Wilderness, chunk: WildChunk): LifeSite[] {
     break;
   }
   const forestSeed = hashAt(w.seed, 'night-flight', cx, cz);
+  const foxSeed = hashAt(w.seed, 'fox-glade', cx, cz);
+  if (chunk.trees.length >= 4 && unit(foxSeed) < 0.3) {
+    for (const tree of chunk.trees.slice(0, 8)) {
+      const x = tree.x + tree.crown + 2,
+        z = tree.z;
+      if (
+        inside(x, z) &&
+        lifeGround(w, x, z, 2) &&
+        !chunk.trees.some((t) => Math.hypot(x - t.x, z - t.z) < 2)
+      ) {
+        add('fox', x, z, 1);
+        break;
+      }
+    }
+  }
   if (chunk.trees.length >= 5 && unit(forestSeed) < 0.48) {
     for (let i = 0; i < Math.min(chunk.trees.length, 12); i++) {
       const tree = chunk.trees[(forestSeed + i) % chunk.trees.length]!;

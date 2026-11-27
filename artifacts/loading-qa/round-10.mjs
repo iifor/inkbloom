@@ -1,0 +1,3 @@
+const task=await taskSpace(5);const page=task.page('p1');
+console.log(await page.evaluate(()=>({url:location.href,qa:window.loadingQAEvidence,startup:{hidden:document.querySelector('#startup').hidden,text:document.querySelector('#startup-status').textContent,phase:document.querySelector('#startup').dataset.phase},overlay:document.querySelector('#overlay').innerText,visibility:document.visibilityState,animations:document.getAnimations().slice(0,3).map(x=>({currentTime:x.currentTime,startTime:x.startTime,pending:x.pending,playState:x.playState})),dev:!!window.inkbloom})));
+console.log(await page.events());

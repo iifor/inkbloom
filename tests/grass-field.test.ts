@@ -13,6 +13,46 @@ function settle(field: GrassField, player: THREE.Vector3, flowers = 1, grass = 1
   throw new Error('Grass streaming did not settle');
 }
 
+it('uses a larger loading budget to finish the same meadow in fewer yields with real patch counts', () => {
+  let clock = 0;
+  const now = vi.spyOn(performance, 'now').mockImplementation(() => (clock += 0.1));
+  const run = (budget: number) => {
+    const land = {
+      ...createWilderness(42),
+      heightAt: () => 1,
+      climate: () => ({ relief: 0, moisture: 0, water: 1, wildness: 0 }),
+    };
+    const root = new THREE.Group();
+    const field = new GrassField(land, root, new THREE.PerspectiveCamera());
+    let previous = 0,
+      frames = 0;
+    do {
+      field.update(new THREE.Vector3(), 1, 1, 0, budget);
+      const { done, total } = field.preparation;
+      expect(done).toBeGreaterThanOrEqual(previous);
+      expect(done).toBeLessThanOrEqual(total);
+      previous = done;
+      if (++frames > 15000) throw new Error('Planting did not finish');
+    } while (!field.ready);
+    expect(field.preparation.done).toBe(field.preparation.total);
+    const geometry: number[][] = [];
+    root.traverse((object) => {
+      if (object instanceof THREE.InstancedMesh)
+        geometry.push(Array.from(object.instanceMatrix.array).slice(0, object.count * 16));
+    });
+    field.dispose();
+    return { frames, geometry };
+  };
+  try {
+    const ordinary = run(1.5),
+      loading = run(8);
+    expect(loading.frames).toBeLessThan(ordinary.frames / 2);
+    expect(loading.geometry).toEqual(ordinary.geometry);
+  } finally {
+    now.mockRestore();
+  }
+});
+
 it('keeps the same visible grass on an approach, a retreat and a revisit after streaming it out', () => {
   const land = {
     ...createWilderness(42),

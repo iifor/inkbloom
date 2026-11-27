@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>画笔唤醒世界 · 动画预览</title>
+    <link rel="stylesheet" href="/src/shell/style.css" />
+    <link rel="stylesheet" href="/src/shell/startup.css" />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Ma+Shan+Zheng&family=ZCOOL+XiaoWei&display=swap"
+    />
+    <style>
+      #preview-controls {
+        position: fixed;
+        z-index: 101;
+        right: 25px;
+        bottom: 20px;
+        display: flex;
+        gap: 6px;
+      }
+      #preview-controls button {
+        border: 1px solid #c4ae8b;
+        background: #faf4e8;
+        color: #66503b;
+        padding: 5px 10px;
+        border-radius: 4px;
+        cursor: pointer;
+      }
+      #preview-controls[hidden] {
+        display: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <nav id="preview-controls" aria-label="预览阶段">
+      <button data-p="0">墨点</button><button data-p="25">苏醒</button><button data-p="68">染色</button
+      ><button data-p="100">完成</button><button id="replay">播放</button>
+    </nav>
+    <script type="module">
+      import { StartupScreen } from '/src/shell/startup.ts';
+      import { loadSettings } from '/src/world/settings.ts';
+      import { browserKeyValue } from '/src/world/store.ts';
+      const text = await (await fetch('/index.html')).text();
+      const template = new DOMParser().parseFromString(text, 'text/html').querySelector('#startup');
+      let screen, timer;
+      const set = (p) => {
+        clearInterval(timer);
+        screen?.hide();
+        const root = template.cloneNode(true);
+        document.querySelector('#app').replaceChildren(root);
+        screen = new StartupScreen(root);
+        screen.startMusic(loadSettings(browserKeyValue().kv));
+        screen.update(p / 100, p === 100 ? '加载完成' : '正在加载纹理、角色和音效…');
+        if (p === 100) void screen.finish();
+        window.startupQA.screen = screen;
+        return root;
+      };
+      window.startupQA = { set, screen: null };
+      for (const button of document.querySelectorAll('[data-p]'))
+        button.onclick = () => set(Number(button.dataset.p));
+      document.querySelector('#replay').onclick = () => {
+        set(0);
+        let p = 0;
+        timer = setInterval(() => {
+          p = Math.min(100, p + 1);
+          screen.update(p / 100, p === 100 ? '加载完成' : '动画预览');
+          if (p === 100) {
+            clearInterval(timer);
+            void screen.finish();
+          }
+        }, 100);
+      };
+      const root = set(68);
+      await Promise.all([...root.querySelectorAll('img')].map((image) => image.decode()));
+      window.startupQA.ready = true;
+    </script>
+  </body>
+</html>

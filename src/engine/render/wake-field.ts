@@ -78,10 +78,35 @@ export class WakeField {
     this.latest = time;
   }
 
+  /** Allocate the water target and compile the stamp shader before the first ripple. */
+  async prepare(renderer: THREE.WebGLRenderer): Promise<void> {
+    const target = renderer.getRenderTarget();
+    try {
+      renderer.setRenderTarget(this.target);
+      await renderer.compileAsync(this.scene, this.camera);
+    } finally {
+      renderer.setRenderTarget(target);
+    }
+  }
+
+  warmUp(renderer: THREE.WebGLRenderer): void {
+    const target = renderer.getRenderTarget();
+    try {
+      renderer.setRenderTarget(this.target);
+      renderer.render(this.scene, this.camera);
+    } finally {
+      renderer.setRenderTarget(target);
+    }
+  }
+
   render(renderer: THREE.WebGLRenderer, eye: THREE.Vector3, time: number): boolean {
     if (time - this.latest > 2.4) return false;
     const cell = RANGE / RESOLUTION;
-    this.bounds.set(Math.floor((eye.x - RANGE / 2) / cell) * cell, Math.floor((eye.z - RANGE / 2) / cell) * cell, RANGE);
+    this.bounds.set(
+      Math.floor((eye.x - RANGE / 2) / cell) * cell,
+      Math.floor((eye.z - RANGE / 2) / cell) * cell,
+      RANGE,
+    );
     this.material.uniforms.uTime!.value = time;
     renderer.setRenderTarget(this.target);
     renderer.render(this.scene, this.camera);

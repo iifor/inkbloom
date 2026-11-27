@@ -69,6 +69,17 @@ float foamThreads(vec2 p, float age) {
 /** What the water throws back and what the sun throws through it: bankPaint, a quick painting
  * of something seen in the water's mirror, and sunWeb, the web of light on a shallow bed. */
 export const mirrorGLSL = /* glsl */ `
+vec3 naturalWaterTint(float clear, float sediment) {
+  vec3 clean = mix(vec3(0.28, 0.36, 0.30), vec3(0.49, 0.53, 0.43), clear);
+  vec3 ochre = mix(vec3(0.44, 0.40, 0.28), vec3(0.61, 0.54, 0.37), clear);
+  return mix(clean, ochre, sediment * 0.68);
+}
+// Soften blue skylight while keeping warm reflections at sunrise and dusk.
+vec3 naturalWaterSky(vec3 sky) {
+  float blueCast = smoothstep(0.0, 0.24, sky.b - sky.r);
+  float gray = dot(sky, vec3(0.2126, 0.7152, 0.0722));
+  return mix(sky, vec3(gray) * vec3(1.0, 1.02, 0.95), blueCast * 0.64);
+}
 /** The colour of what the G-buffer holds at one pixel, painted quickly (its pigment in the
  * season's colour, in sun or in shade): enough for a reflection broken up by ripples. */
 vec3 bankPaint(vec4 g, vec3 at) {
@@ -195,6 +206,12 @@ export const waterGLSL = /* glsl */ `
       vec3 flow = riverFlow(rp);
       float speed = length(flow.xy);
       float rapids = smoothstep(0.68, 2.3, speed);
+      float sediment = 0.0;
+      if (submerged && speed > 0.07) {
+        // Stable in world space, with broad stretches that stay clear between silty reaches.
+        float siltReach = smoothstep(0.52, 0.74, vnoise(rp * 0.024 + vec2(43.4, 17.2)));
+        sediment = siltReach * smoothstep(0.07, 0.31, speed) * mix(1.0, 0.45, rapids);
+      }
       vec2 along = speed > 0.001 ? flow.xy / speed : vec2(0.0, 1.0);
       vec2 across = vec2(along.y, -along.x);
       float ph0 = fract(uTime / ${FLOW_CYCLE.toFixed(1)} + vnoise(rp * 0.075) * 0.45);
@@ -252,6 +269,7 @@ export const waterGLSL = /* glsl */ `
       vec3 rdir = reflect(rd, normalize(vec3(surfaceSlope.x, 1.0, surfaceSlope.y)));
       float grazing = 1.0 - clamp(-rd.y, 0.0, 1.0);
       vec3 reflected = skyPaint(rdir);
+      if (submerged) reflected = naturalWaterSky(reflected);
       // What stands on the bank is mirrored too: follow the reflected ray out over the water
       // in lengthening strides, and where it passes behind something the frame holds above
       // the waterline, paint that. (Only what is on screen can be mirrored; the rest is sky.)
@@ -284,17 +302,19 @@ export const waterGLSL = /* glsl */ `
       }
       vec3 water;
       float opacity;
+      float clear = exp(-max(0.0, waterDepth) * 0.82);
+      vec3 waterPigment = paletteColor(float(uWater));
+      vec3 naturalTint = naturalWaterTint(clear, sediment);
       if (fish) {
         // Looking down, the reflection belongs to the lake surface, independent
         // of the fish's orientation. Below the surface only the water tint remains.
         float surface = smoothstep(-0.02, 0.06, eye.y - ${WATER_LEVEL});
-        vec3 tint = paletteColor(float(uWater)) * mix(uShade, uSunColor, 0.62);
+        vec3 tint = (submerged ? naturalTint : waterPigment) * mix(uShade, uSunColor, 0.62);
         water = mix(tint, reflected, surface * (0.12 + 0.60 * grazing * grazing));
         opacity = mix(0.16, 0.37, smoothstep(0.2, 1.4, waterDepth)) + surface * grazing * 0.16;
       } else {
         float fres = 0.2 + 0.7 * pow(grazing, 4.0);
-        float clear = exp(-max(0.0, waterDepth) * 0.82);
-        vec3 tint = paletteColor(float(uWater)) * light * mix(vec3(0.47, 0.74, 0.84), vec3(1.0), clear);
+        vec3 tint = light * (submerged ? naturalTint : waterPigment * mix(vec3(0.47, 0.74, 0.84), vec3(1.0), clear));
         water = mix(tint, reflected, fres * mix(0.68, 1.0, clear));
         water += vec3(0.92, 0.96, 1.0) * smoothstep(0.76, 0.85, rip) * 0.09 * lit * (1.0 - uNight);
         float glint = pow(max(0.0, dot(rdir, uSun)), 120.0) * smoothstep(0.52, 0.75, rip);
@@ -302,7 +322,7 @@ export const waterGLSL = /* glsl */ `
         float rippleShade = clamp(dot(rainRipples.xy, vec2(0.09, -0.07)), -0.1, 0.1);
         water *= 1.0 + rippleShade;
         water = mix(water, vec3(0.82, 0.9, 0.98) * mix(light, vec3(1.0), 0.45), rainRipples.z * 0.42);
-        opacity = submerged ? smoothstep(0.0, 0.15, waterDepth) * mix(0.94, 0.27, clear) : 1.0;
+        opacity = submerged ? smoothstep(0.0, 0.15, waterDepth) * mix(0.94, 0.20, clear) : 1.0;
         // seen at a glancing angle even shallow water is a mirror: the bed shows only when
         // one looks down into it
         // (only partly: a river seen from its bank is nearly all at a glancing angle, and a
@@ -310,15 +330,16 @@ export const waterGLSL = /* glsl */ `
         if (submerged) opacity = max(opacity, smoothstep(0.0, 0.12, waterDepth) * pow(grazing, 5.0) * 0.5);
         // A thin sheet still reads as water when seen from above, even over sand.
         float wash = bankRange * (1.0 - smoothstep(0.18, 0.45, abs(meanDepth)));
-        opacity = max(opacity, wash * smoothstep(0.0, 0.055, waterDepth) * mix(0.20, 0.55, bankStrength));
+        opacity = max(opacity, wash * smoothstep(0.0, 0.055, waterDepth) * mix(0.17, 0.46, bankStrength));
         // the swimmer's own arms lie only just under the surface, yet should read as under it
         if (figure && d < ${OWN_ARMS.toFixed(1)}) opacity = max(opacity, 0.4 * smoothstep(0.0, 0.015, waterDepth));
       }
+      opacity += (1.0 - opacity) * sediment * smoothstep(0.08, 0.85, waterDepth) * 0.19;
       // the sun's web of light on the bed, where the water is shallow enough to see it
       if (submerged && !fish) {
         float shallow = smoothstep(0.03, 0.25, waterDepth) * (1.0 - smoothstep(0.7, 2.2, waterDepth));
         // (a close thing: from across the river the web is finer than a brush could draw)
-        shallow *= 1.0 - smoothstep(7.0, 24.0, d);
+        shallow *= (1.0 - smoothstep(7.0, 24.0, d)) * (1.0 - 0.45 * sediment);
         col += col * uSunColor * sunWeb(wpos.xz) * shallow * lit * 0.3 * (1.0 - uNight) * (1.0 - uOvercast);
       }
       if (!fish || eye.y > ${WATER_LEVEL})
@@ -327,7 +348,7 @@ export const waterGLSL = /* glsl */ `
       // Composite the moving surface detail over the bed, where transparency would hide it.
       if (!fish && !figure && eye.y > surfaceY && flow.z > 0.0) {
         float detail = flow.z * smoothstep(0.01, 0.18, waterDepth) * (1.0 - smoothstep(58.0, 130.0, d));
-        vec3 crest = mix(vec3(0.60, 0.77, 0.79), vec3(0.89, 0.97, 0.99), rapids);
+        vec3 crest = mix(vec3(0.66, 0.74, 0.71), vec3(0.89, 0.97, 0.99), rapids);
         crest *= mix(light, vec3(1.0), 0.38) * (1.0 - 0.47 * uNight);
         col *= 1.0 - detail * (1.0 - smoothstep(0.2, 0.46, flowing.x)) * 0.13;
         col = mix(col, mix(drainedAt(crest), crest, sat), detail * streak * mix(0.37, 0.55, rapids));

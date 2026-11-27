@@ -5,6 +5,7 @@ import type { OpenWorld } from '@/modes/open-world';
 import { CityScene } from '@/systems/city/city-scene';
 import { FigureLineup, type LineupAct } from '@/systems/figures/lineup';
 import type { Brush } from '@/systems/tools/brush';
+import { profileLoop } from './profile-loop';
 
 export function installDevTools(game: OpenWorld): void {
   if (!import.meta.env.DEV) return;
@@ -105,44 +106,11 @@ export function installDevTools(game: OpenWorld): void {
     /** Where a frame's time goes, averaged over `seconds`: each system's update on the CPU and
      * each render pass on the GPU (timer queries), in milliseconds per frame. */
     async profile(seconds = 4) {
-      const loop = game.loop;
-      const cpu = new Map<string, number>();
-      const gpu = new Map<string, number>();
-      let frames = 0;
-      let calls = 0;
-      let triangles = 0;
-      loop.profile = cpu;
-      ctx.renderer.passTimes = gpu;
-      ctx.renderer.gpuFrames = 0;
-      const info = ctx.renderer.renderer.info;
-      // a hidden page (or a hidden browser pane) gets few or no animation frames: then step the
-      // game here, as fast as it goes
-      const ticking = await new Promise<boolean>((done) => {
-        const t = setTimeout(() => done(false), 300);
-        requestAnimationFrame(() => {
-          clearTimeout(t);
-          done(true);
-        });
-      });
-      const hidden = document.hidden || !ticking;
-      if (hidden) loop.stop();
-      const start = performance.now();
-      await new Promise<void>((done) => {
-        const count = (): void => {
-          if (hidden) loop.step(1 / 60);
-          frames++;
-          calls += info.render.calls;
-          triangles += info.render.triangles;
-          if (performance.now() - start >= seconds * 1000) done();
-          else if (hidden) setTimeout(count, 0);
-          else requestAnimationFrame(count);
-        };
-        if (hidden) setTimeout(count, 0);
-        else requestAnimationFrame(count);
-      });
-      if (hidden) loop.start();
-      loop.profile = null;
-      ctx.renderer.passTimes = null;
+      const { cpu, gpu, frames, calls, triangles, manual, elapsedMs } = await profileLoop(
+        game.loop,
+        ctx.renderer,
+        seconds,
+      );
       const per = (m: Map<string, number>, n: number) =>
         Object.fromEntries(
           [...m]
@@ -151,8 +119,10 @@ export function installDevTools(game: OpenWorld): void {
         );
       const size = ctx.renderer.renderer.getDrawingBufferSize(new THREE.Vector2());
       return {
-        hidden,
-        fps: Math.round(frames / seconds),
+        hidden: manual,
+        mode: manual ? 'paced-60hz' : 'animation-frame',
+        fps: Math.round((frames * 1000) / elapsedMs),
+        elapsedMs: Math.round(elapsedMs),
         frames,
         drawingBuffer: `${size.x}x${size.y}`,
         calls: Math.round(calls / frames),

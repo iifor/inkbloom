@@ -10,6 +10,8 @@ import { TUNING } from '@/content/tuning';
 import { PhysicsWorld } from '@/engine/physics/world';
 import { GeometryBuilder } from '@/engine/render/geometry-builder';
 import { makeInkMaterial, shared } from '@/engine/render/ink-material';
+import { countrysideSites } from '@/world/wilderness/countryside';
+import { CountrysideProps } from './countryside';
 import { disposeTree } from '@/engine/resources';
 import type { GameContext, GameScene } from '@/game/types';
 import { calendarAt, calendarClock, grassCoverAt, seasonBlend } from '@/world/climate/calendar';
@@ -69,6 +71,7 @@ export class WildScene implements GameScene {
   readonly root = new THREE.Group();
   readonly physics = new PhysicsWorld(8);
   private readonly material = makeInkMaterial();
+  private readonly countryside = new CountrysideProps(this.root, this.material, this.physics);
   private readonly trees = new WildTrees(this.root);
   private readonly landscape: DistantTerrain;
   private readonly households = new Set<Residents>();
@@ -113,7 +116,13 @@ export class WildScene implements GameScene {
     this.landscape = new DistantTerrain(ctx.wilderness, this.root);
     // rolling hills: bodies stand on the height function itself, not on colliders
     this.physics.ground = (x, z) => ctx.wilderness.heightAt(x, z);
-    this.grass = new GrassField(ctx.wilderness, this.root, ctx.renderer.camera, (x, z) => this.lawnAt(x, z));
+    this.grass = new GrassField(
+      ctx.wilderness,
+      this.root,
+      ctx.renderer.camera,
+      (x, z) => this.lawnAt(x, z),
+      (x, z) => this.countryside.cultivated(x, z),
+    );
     this.sources = new WildSources(ctx, this.material, this.root, this.grass.windMap);
     this.flags = new WindFlags(this.root, ctx.wilderness.seed, this.grass.windMap);
     this.monsters = new WildMonsterCamps(ctx, this.physics, this.root, this.material);
@@ -178,42 +187,55 @@ export class WildScene implements GameScene {
   }
 
   /** Populate the detailed neighbourhood and the first visual terrain beyond it. */
-  async prepareStartup(nextFrame: () => Promise<void>, progress: (done: number) => void): Promise<void> {
+  async prepareStartup(
+    nextFrame: () => Promise<void>,
+    progress: (stage: 'terrain' | 'landscape' | 'grass', done: number, total: number) => void,
+  ): Promise<void> {
     const p = this.ctx.player.position;
     const cx = Math.floor(p.x / W.chunkSize);
     const cz = Math.floor(p.z / W.chunkSize);
     let done = 0;
+    const startupBudget = 8;
+    const landscape = () => {
+      const { done, total } = this.landscape.startupProgress;
+      progress('landscape', done, total);
+    };
+    progress('terrain', 0, 9);
     for (let dz = -1; dz <= 1; dz++)
       for (let dx = -1; dx <= 1; dx++) {
         const x = cx + dx,
           z = cz + dz;
         if (!this.loaded.has(chunkKey(x, z))) {
           const steps = this.loadSteps(x, z);
-          let until = performance.now() + BUILD_MS;
+          let until = performance.now() + startupBudget;
           while (!steps.next().done) {
             if (performance.now() < until) continue;
             this.landscape.update(p, this.loaded);
+            landscape();
             await nextFrame();
-            until = performance.now() + BUILD_MS;
+            until = performance.now() + startupBudget;
           }
         }
-        progress(++done);
+        progress('terrain', ++done, 9);
       }
     do {
-      this.landscape.update(p, this.loaded);
+      this.landscape.update(p, this.loaded, startupBudget);
+      landscape();
       if (!this.landscape.startupReady) await nextFrame();
     } while (!this.landscape.startupReady);
     do {
-      this.updateGrass(p);
+      this.updateGrass(p, startupBudget);
+      const { done, total } = this.grass.preparation;
+      progress('grass', done, total);
       if (!this.grass.ready) await nextFrame();
     } while (!this.grass.ready);
   }
 
-  private updateGrass(p: THREE.Vector3): void {
+  private updateGrass(p: THREE.Vector3, budgetMs?: number): void {
     const phase = calendarAt(calendarClock(this.ctx.state, !!this.ctx.net)).yearPhase;
     const year = seasonBlend(phase);
     const flowers = SEASONS[year.from]!.flowers * (1 - year.t) + SEASONS[year.to]!.flowers * year.t;
-    this.grass.update(p, flowers, grassCoverAt(phase), phase);
+    this.grass.update(p, flowers, grassCoverAt(phase), phase, budgetMs);
   }
 
   update(dt: number): void {
@@ -289,6 +311,7 @@ export class WildScene implements GameScene {
     }
     this.updateRivers(p);
     this.sources.update(dt);
+    this.countryside.update(this.ctx.state.clock);
     this.flags.update(dt);
     this.monsters.update(dt);
     this.ruins.update(dt);
@@ -405,6 +428,14 @@ export class WildScene implements GameScene {
       release.push(this.trees.add(chunk, this.ctx.player.position));
       for (const l of chunk.lookouts) release.push(this.flags.add(lookoutFlag(l, this.ctx.wilderness)));
       for (const r of chunk.ruins) buildRuin(r, g, this.physics, group);
+      release.push(
+        this.countryside.add(
+          countrysideSites(this.ctx.wilderness, chunk),
+          group,
+          g,
+          this.ctx.wilderness.heightAt,
+        ),
+      );
       yield;
       release.push(this.ruins.add(chunk.ruins));
       release.push(this.sources.add(chunk.sources));

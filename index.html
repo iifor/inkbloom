@@ -5,6 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>重彩 Inkbloom</title>
     <link rel="stylesheet" href="./src/shell/style.css" />
+    <link rel="stylesheet" href="./src/shell/startup.css" />
+    <link rel="preload" href="/ui/loading/village.webp" as="image" fetchpriority="high" />
     <!-- brush calligraphy for titles, a handwritten serif for labels; system fonts if offline -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -24,25 +26,127 @@
         <div id="offline" hidden><span role="status"></span> <button type="button" hidden>重试</button></div>
         <p id="overlay-error"></p>
       </div>
-      <section id="startup" aria-labelledby="startup-title">
-        <div class="startup-paint" aria-hidden="true"></div>
-        <h1 id="startup-title">重彩</h1>
-        <div class="startup-meter">
-          <progress id="startup-progress" aria-label="加载进度" max="100" value="0"></progress>
-          <span id="startup-percent" aria-hidden="true">0%</span>
+      <section id="startup" data-phase="ink" aria-labelledby="startup-title" aria-busy="true">
+        <button id="startup-sound" type="button" aria-pressed="false" hidden>开启音乐</button>
+        <div class="startup-layout">
+          <header class="startup-brand">
+            <h1 id="startup-title">重彩</h1>
+            <span class="startup-wordmark" aria-hidden="true">INKBLOOM</span>
+          </header>
+          <div class="startup-scene" aria-hidden="true">
+            <img
+              class="startup-village startup-village-grey"
+              src="/ui/loading/village.webp"
+              alt=""
+              width="1440"
+              height="720"
+              fetchpriority="high"
+              draggable="false"
+            />
+            <img
+              class="startup-village startup-village-colour"
+              src="/ui/loading/village.webp"
+              alt=""
+              width="1440"
+              height="720"
+              draggable="false"
+            />
+            <div class="startup-altar"><i></i><i></i></div>
+            <div class="startup-inkling">
+              <img src="/ui/loading/inkling.webp" alt="" width="360" height="240" draggable="false" /><span
+                class="startup-sneeze"
+                ><i></i><i></i><i></i><i></i
+              ></span>
+            </div>
+            <div class="startup-brush">
+              <div class="startup-brush-stroke">
+                <img src="/ui/loading/brush.webp" alt="" width="480" height="320" draggable="false" /><span
+                  class="startup-spray"
+                  ><i></i><i></i><i></i><i></i><i></i
+                ></span>
+              </div>
+            </div>
+            <div class="startup-inkdrop"><i></i><span></span></div>
+            <svg class="startup-plane" viewBox="0 0 44 36" fill="none">
+              <path
+                d="m3 13 37-9-14 28-7-13-16-6Z"
+                fill="#fff8e9"
+                stroke="currentColor"
+                stroke-width="1.4"
+                stroke-linejoin="round"
+              />
+              <path
+                d="M19 19 40 4 13 25l6-6Z"
+                fill="#dfd1b5"
+                stroke="currentColor"
+                stroke-width="1.2"
+                stroke-linejoin="round"
+              />
+            </svg>
+          </div>
+          <div class="startup-copy">
+            <p id="startup-message">一滴墨，落在纸上…</p>
+            <div class="startup-meter">
+              <progress id="startup-progress" aria-label="加载进度" max="100" value="0"></progress>
+              <div class="startup-trail" aria-hidden="true">
+                <svg viewBox="0 0 460 38" fill="none">
+                  <path
+                    d="M8 27C65-7 104 37 165 22S266 5 322 15s85 19 130 3"
+                    stroke="#cbbba2"
+                    stroke-width="8"
+                    stroke-linecap="round"
+                    opacity=".38"
+                  />
+                </svg>
+                <svg class="startup-trail-colour" viewBox="0 0 460 38" fill="none">
+                  <path
+                    d="M8 27C65-7 104 37 165 22"
+                    stroke="#686e9b"
+                    stroke-width="8"
+                    stroke-linecap="round"
+                  />
+                  <path
+                    d="M155 24C220 8 266 5 322 15"
+                    stroke="#62988d"
+                    stroke-width="8"
+                    stroke-linecap="round"
+                  />
+                  <path
+                    d="M315 14c49 8 92 22 137 4"
+                    stroke="#d9886c"
+                    stroke-width="8"
+                    stroke-linecap="round"
+                  />
+                  <path
+                    d="M11 20c63-29 99 18 151 3s110-20 157-9 90 18 134 3"
+                    stroke="#f8f0df"
+                    stroke-width="1.5"
+                    opacity=".55"
+                  />
+                </svg>
+              </div>
+              <span id="startup-percent" aria-hidden="true">0%</span>
+            </div>
+            <p id="startup-status" role="status" aria-live="polite">正在启动…</p>
+            <button id="startup-reload" type="button" hidden>重新加载</button>
+            <p class="startup-tip">小小一笔，也能唤醒一座村庄</p>
+          </div>
         </div>
-        <p id="startup-status" role="status">正在启动…</p>
-        <button id="startup-reload" type="button" hidden>重新加载</button>
       </section>
     </div>
     <script type="module">
       import('./src/main.ts').catch((error) => {
         console.error(error);
+        const startup = document.querySelector('#startup');
+        startup.dataset.phase = 'error';
+        startup.setAttribute('aria-busy', 'false');
         document.querySelector('.startup-meter').hidden = true;
+        document.querySelector('#startup-message').textContent = '暂时没能唤醒世界';
         document.querySelector('#startup-status').textContent = '游戏启动失败';
         const retry = document.querySelector('#startup-reload');
         retry.hidden = false;
         retry.onclick = () => location.reload();
+        retry.focus();
       });
     </script>
   </body>

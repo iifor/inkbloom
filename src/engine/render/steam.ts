@@ -9,6 +9,8 @@ import { OVERLAY_DEPTH } from './precipitation';
 /** Springs steaming at once (the nearest ones). */
 export const STEAM_SPRINGS = 3;
 const PUFFS = 70;
+export const SMOKE_CHIMNEYS = 10;
+const SMOKE_PUFFS = 22;
 /** Metres a puff rises before it is gone, and seconds that takes. */
 const RISE = 4;
 const LIFE = 7;
@@ -19,12 +21,14 @@ export interface SteamSource {
   readonly z: number;
   /** Pool radius. */
   readonly r: number;
+  readonly opacity?: number;
 }
 
-const vert = /* glsl */ `
+const steamVertex = (sourceCount: number) => /* glsl */ `
 attribute vec4 aSeed;
 uniform float uTime;
-uniform vec4 uSprings[${STEAM_SPRINGS}];
+uniform vec4 uSprings[${sourceCount}];
+uniform float uOpacity[${sourceCount}];
 uniform vec2 uWind;
 uniform float uScale;
 varying float vDepth;
@@ -33,7 +37,8 @@ void main() {
   int k = int(aSeed.w);
   vec4 s = uSprings[k];
   // each puff loops: wells up at a random spot on the water, rises, swells, drifts and fades
-  float age = fract(uTime / ${LIFE.toFixed(1)} + aSeed.z);
+  float offset = fract(dot(s.xz, vec2(0.1031, 0.11369)));
+  float age = fract(uTime / ${LIFE.toFixed(1)} + aSeed.z + offset);
   float a = aSeed.x * 6.2832;
   float d = sqrt(aSeed.y) * s.w * 0.8;
   vec3 p = vec3(s.x + cos(a) * d, s.y, s.z + sin(a) * d);
@@ -42,7 +47,7 @@ void main() {
   vec4 view = modelViewMatrix * vec4(p, 1.0);
   vDepth = -view.z;
   // in quickly, out slowly; nothing for an empty slot (radius 0)
-  vAlpha = smoothstep(0.0, 0.15, age) * (1.0 - smoothstep(0.45, 1.0, age)) * step(0.01, s.w);
+  vAlpha = smoothstep(0.0, 0.15, age) * (1.0 - smoothstep(0.45, 1.0, age)) * uOpacity[k];
   gl_Position = projectionMatrix * view;
   gl_PointSize = clamp(uScale * (0.9 + age * 1.6) / max(vDepth, 0.1), 2.0, 160.0);
 }`;
@@ -68,7 +73,9 @@ export class Steam {
   private strength = 0;
   private any = false;
 
-  constructor(depth: THREE.Texture) {
+  constructor(depth: THREE.Texture, chimneySmoke = false) {
+    const sourceCount = chimneySmoke ? SMOKE_CHIMNEYS : STEAM_SPRINGS;
+    const puffs = chimneySmoke ? SMOKE_PUFFS : PUFFS;
     this.uniforms = {
       uDepth: { value: depth },
       uRes: { value: new THREE.Vector2(2, 2) },
@@ -76,22 +83,25 @@ export class Steam {
       uFar: { value: 500 },
       uReversedDepth: shared.uReversedDepth,
       uTime: { value: 0 },
-      uSprings: { value: Array.from({ length: STEAM_SPRINGS }, () => new THREE.Vector4()) },
+      uSprings: { value: Array.from({ length: sourceCount }, () => new THREE.Vector4()) },
+      uOpacity: { value: new Float32Array(sourceCount) },
       uWind: { value: new THREE.Vector2() },
       uScale: { value: 600 },
       uStrength: { value: 0 },
       uLight: { value: 1 },
     };
-    const n = PUFFS * STEAM_SPRINGS;
+    const n = puffs * sourceCount;
     const seeds = new Float32Array(n * 4);
     let s = 0x1b873593;
     const rand = (): number => (s = (Math.imul(s, 1664525) + 1013904223) >>> 0) / 4294967296;
-    for (let i = 0; i < n; i++) seeds.set([rand(), rand(), rand(), Math.floor(i / PUFFS)], i * 4);
+    // Reuse each slot's particle seeds so a chimney does not restart when its rank changes.
+    const seed = Array.from({ length: puffs }, () => [rand(), rand(), rand()] as const);
+    for (let i = 0; i < n; i++) seeds.set([...seed[i % puffs]!, Math.floor(i / puffs)], i * 4);
     this.geometry.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(n * 3), 3));
     this.geometry.setAttribute('aSeed', new THREE.Float32BufferAttribute(seeds, 4));
     this.material = new THREE.ShaderMaterial({
       uniforms: this.uniforms,
-      vertexShader: vert,
+      vertexShader: steamVertex(sourceCount),
       fragmentShader: frag,
       transparent: true,
       depthTest: false,
@@ -103,15 +113,16 @@ export class Steam {
   }
 
   /**
-   * The springs to steam (nearest first, at most STEAM_SPRINGS), how thick the steam is (0..1:
-   * colder is thicker), and the wind it drifts on.
+   * The nearby sources, how thick the steam is (colder is thicker), and the wind it drifts on.
    */
   set(springs: readonly SteamSource[], strength: number, windX: number, windZ: number): void {
     const slots = this.uniforms.uSprings!.value as THREE.Vector4[];
+    const opacity = this.uniforms.uOpacity!.value as Float32Array;
     slots.forEach((v, i) => {
       const s = springs[i];
       if (s) v.set(s.x, s.y, s.z, s.r);
       else v.set(0, 0, 0, 0);
+      opacity[i] = s && s.r > 0.01 ? (s.opacity ?? 1) : 0;
     });
     this.any = springs.length > 0;
     this.strength = strength;
@@ -120,6 +131,16 @@ export class Steam {
 
   setSize(width: number, height: number): void {
     (this.uniforms.uRes!.value as THREE.Vector2).set(width, height);
+  }
+
+  /** Compile and upload while the loading screen is up, even without a nearby source.
+   * The initial zero strength/opacity keeps the throwaway draw invisible. */
+  async prepare(r: THREE.WebGLRenderer, camera: THREE.PerspectiveCamera): Promise<void> {
+    await r.compileAsync(this.scene, camera);
+  }
+
+  warmUp(r: THREE.WebGLRenderer, camera: THREE.PerspectiveCamera): void {
+    r.render(this.scene, camera);
   }
 
   render(r: THREE.WebGLRenderer, camera: THREE.PerspectiveCamera, time: number, night: number): void {

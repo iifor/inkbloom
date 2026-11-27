@@ -16,6 +16,10 @@ export class Loop {
     private readonly onError: (e: unknown) => void,
   ) {}
 
+  get isRunning(): boolean {
+    return this.running;
+  }
+
   start(): void {
     if (this.running) return;
     this.running = true;

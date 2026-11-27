@@ -19,6 +19,10 @@ import { spiderWeb } from './spider-web';
 import type { Box } from '@/engine/physics/world';
 
 const ANIMALS: Record<string, { key: InkAnimalKey; height: number; speed: number }> = {
+  fox: { key: 'Fox', height: 0.53, speed: 3.8 },
+  cow: { key: 'Cow', height: 1.45, speed: 1.15 },
+  donkey: { key: 'Donkey', height: 1.42, speed: 1.4 },
+  horse: { key: 'Horse', height: 1.83, speed: 1.7 },
   rabbit: { key: 'big/Bunny', height: 0.52, speed: 3.5 },
   bird: { key: 'blob/Pigeon', height: 0.38, speed: 2.8 },
   boar: { key: 'cute/Pig', height: 0.85, speed: 2.6 },
@@ -42,7 +46,28 @@ const ANIMALS: Record<string, { key: InkAnimalKey; height: number; speed: number
   silkSpider: { key: 'spider', height: 0.14, speed: 0 },
   ruinGhost: { key: 'cute/Ghost', height: 0.78, speed: 0 },
 };
+const stockCoat = {
+  Hair: color('bark'),
+  Hooves: color('charcoal'),
+  Muzzle: color('sand'),
+  Main_Dark: color('bark'),
+  Main_Light: color('cream'),
+  Horns: color('sand'),
+  Eye_Black: color('ink'),
+  Eye_Dark: color('ink'),
+  Eye_White: color('cream'),
+};
 const LOCAL_COATS: Record<string, Record<string, number>> = {
+  fox: {
+    Main: color('clayTile'),
+    Main_Light: color('cream'),
+    Grey: color('sand'),
+    Black: color('bark'),
+    Eyes: color('ink'),
+  },
+  cow: { ...stockCoat, Main: color('brown') },
+  donkey: { ...stockCoat, Main: color('rock') },
+  horse: { ...stockCoat, Main: color('clayTile') },
   fieldMouse: { Grey: color('brown'), Pink: color('skinWarm') },
   grassSnake: {
     DarkGreen: color('forest'),
@@ -246,11 +271,13 @@ export class WildAmbientLife {
         panda = a.site.kind === 'panda',
         penguin = a.site.kind === 'penguin';
       const watching = dog && distance < 4 && Math.abs(player.position.y - a.at.y) < 2.5;
+      const stock = a.site.kind === 'cow' || a.site.kind === 'horse' || a.site.kind === 'donkey';
       const forager = a.site.kind === 'chick' || a.site.kind === 'berrybird';
       const burrowing = a.site.kind === 'fieldMouse' || a.site.kind === 'grassSnake';
       const flee =
         !!a.animal &&
         !dog &&
+        !stock &&
         !panda &&
         distance < (crab || penguin ? 3 : player.speed > 5 ? 13 : 7) &&
         !player.flying &&
@@ -263,7 +290,7 @@ export class WildAmbientLife {
           const h = hashInts(a.site.seed, Math.floor(clock / 7), Math.round(a.walk));
           const angle = unit(h) * Math.PI * 2;
           const radius =
-            forager || burrowing ? 2.5 : dog || crab || panda || penguin || a.site.person ? 3 : 9;
+            forager || burrowing ? 2.5 : stock || dog || crab || panda || penguin || a.site.person ? 3 : 9;
           const x = a.site.x + Math.sin(angle) * radius * unit(hashInts(h, 1));
           const z =
             a.site.z + Math.cos(angle) * (a.site.kind === 'fieldMouse' ? 0.3 : radius) * unit(hashInts(h, 1));
@@ -328,7 +355,7 @@ export class WildAmbientLife {
             z: a.at.z,
             yaw: dog || panda || penguin || a.site.kind === 'berrybird' ? a.yaw + Math.PI : a.yaw,
             walk: a.walk,
-            stride: speed ? 1 : 0,
+            stride: stock || a.site.kind === 'fox' ? speed : speed ? 1 : 0,
             attack: -1,
             hurt: 0,
             air: false,

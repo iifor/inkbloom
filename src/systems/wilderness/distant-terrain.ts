@@ -1,7 +1,6 @@
 // A continuous landscape between playable chunks and the painted mountain backdrop.
 // Only height/soil are sampled: no towns, actors, physics or grass are instantiated here.
 import * as THREE from 'three';
-import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { TUNING } from '@/content/tuning';
 import { makeInkMaterial, NO_SHADOW_LAYER } from '@/engine/render/ink-material';
 import { riverbedMeadow, type Wilderness } from '@/world/wilderness/generator';
@@ -97,14 +96,52 @@ interface Built {
   tile: LandscapeTile;
   mesh: THREE.Mesh;
 }
+
+/** Copy one tile at a time so a large LOD block cannot exceed the streaming budget
+ * by merging all its vertex/index arrays in a single step. Attribute order and index
+ * offsets match mergeGeometries; no GPU resource is published until copying completes. */
+export function* mergeLandscapeSteps(
+  geometries: readonly THREE.BufferGeometry[],
+): Generator<void, THREE.BufferGeometry> {
+  const vertexCount = geometries.reduce((n, g) => n + g.getAttribute('position').count, 0);
+  const indexCount = geometries.reduce((n, g) => n + g.index!.count, 0);
+  const attributes = Object.entries(geometries[0]!.attributes).map(([name, a]) => ({
+    name,
+    size: a.itemSize,
+    array: new Float32Array(vertexCount * a.itemSize),
+  }));
+  const indices = vertexCount > 65535 ? new Uint32Array(indexCount) : new Uint16Array(indexCount);
+  let vertexOffset = 0,
+    indexOffset = 0;
+  for (const source of geometries) {
+    for (const { name, size, array } of attributes)
+      array.set(source.getAttribute(name).array, vertexOffset * size);
+    const index = source.index!;
+    for (let i = 0; i < index.count; i++) indices[indexOffset + i] = index.getX(i) + vertexOffset;
+    vertexOffset += source.getAttribute('position').count;
+    indexOffset += index.count;
+    yield;
+  }
+  const geometry = new THREE.BufferGeometry();
+  for (const { name, size, array } of attributes)
+    geometry.setAttribute(name, new THREE.BufferAttribute(array, size));
+  geometry.setIndex(new THREE.BufferAttribute(indices, 1));
+  geometry.computeBoundingSphere();
+  return geometry;
+}
+
 /** One draw per large landscape block. Mask a detailed chunk by collapsing only its indices,
  * without rebuilding the terrain or uploading its vertex buffers when chunks stream. */
 class LandscapeBatch {
   readonly mesh: THREE.Mesh;
   private readonly indices: Uint16Array | Uint32Array;
   private readonly parts: { tile: LandscapeTile; offset: number; count: number; shown: boolean }[] = [];
-  constructor(tiles: LandscapeTile[], built: ReadonlyMap<string, Built>, material: THREE.Material) {
-    const geometry = mergeGeometries(tiles.map((t) => built.get(t.key)!.mesh.geometry))!;
+  constructor(
+    tiles: LandscapeTile[],
+    built: ReadonlyMap<string, Built>,
+    material: THREE.Material,
+    geometry: THREE.BufferGeometry,
+  ) {
     this.mesh = new THREE.Mesh(geometry, material);
     this.mesh.name = 'landscape-batch';
     this.mesh.layers.set(NO_SHADOW_LAYER);
@@ -116,7 +153,6 @@ class LandscapeBatch {
       this.parts.push({ tile, offset, count, shown: true });
       offset += count;
     }
-    geometry.computeBoundingSphere();
   }
   update(detailed: ReadonlyMap<string, unknown>): void {
     const size = TUNING.world.chunkSize,
@@ -151,6 +187,11 @@ export class DistantTerrain {
   private publishedCell = '';
   private groups = new Map<string, LandscapeTile[]>();
   private readonly batches = new Map<string, LandscapeBatch>();
+  private pendingBatch: {
+    key: string;
+    tiles: LandscapeTile[];
+    steps: Generator<void, THREE.BufferGeometry>;
+  } | null = null;
   private activeBatches = new Set<string>();
   private detailedKeys = new Set<string>();
   constructor(
@@ -160,11 +201,20 @@ export class DistantTerrain {
 
   /** The nearest visual tiles cover the edge of the first detailed chunks. */
   get startupReady(): boolean {
-    const near = (2 * TUNING.world.loadRadius + 1) ** 2;
-    return this.wanted.length > 0 && this.wanted.slice(0, near).every(({ key }) => this.built.has(key));
+    const { done, total } = this.startupProgress;
+    return total > 0 && done === total;
   }
 
-  update(p: THREE.Vector3Like, detailed: ReadonlyMap<string, unknown>): void {
+  get startupProgress(): { done: number; total: number } {
+    const tiles = this.wanted.slice(0, (2 * TUNING.world.loadRadius + 1) ** 2);
+    return { done: tiles.filter(({ key }) => this.built.has(key)).length, total: tiles.length };
+  }
+
+  update(
+    p: THREE.Vector3Like,
+    detailed: ReadonlyMap<string, unknown>,
+    budgetMs = this.initial ? 4 : 1.5,
+  ): void {
     const size = TUNING.world.chunkSize;
     const cell = `${Math.floor(p.x / size)},${Math.floor(p.z / size)}`;
     // Once published, movement within a chunk changes neither geometry nor LOD masks.
@@ -194,6 +244,7 @@ export class DistantTerrain {
           return [tiles.map((t) => t.key).join('|'), tiles];
         }),
       );
+      if (this.pendingBatch && !this.groups.has(this.pendingBatch.key)) this.pendingBatch = null;
       for (const [key, batch] of this.batches)
         if (!this.groups.has(key) && !this.activeBatches.has(key)) {
           batch.dispose();
@@ -205,17 +256,30 @@ export class DistantTerrain {
       for (const [key, item] of this.built)
         if (!keep.has(key) && !this.visible.has(key)) this.remove(key, item);
     }
-    const until = performance.now() + (this.initial ? 4 : 1.5);
+    const until = performance.now() + budgetMs;
     while (performance.now() < until) {
+      if (this.pendingBatch) {
+        const next = this.pendingBatch.steps.next();
+        if (next.done) {
+          const { key, tiles } = this.pendingBatch;
+          const batch = new LandscapeBatch(tiles, this.built, this.material, next.value);
+          this.root.add(batch.mesh);
+          this.batches.set(key, batch);
+          this.pendingBatch = null;
+        }
+        continue;
+      }
       if (!this.pending) {
         const tile = this.wanted.find((t) => !this.built.has(t.key));
         if (!tile) {
-          // Merge at most one block before checking the construction budget again.
+          // Merging is budgeted too: nearby blocks can contain dozens of tiles.
           const group = [...this.groups].find(([key]) => !this.batches.has(key));
           if (!group) break;
-          const batch = new LandscapeBatch(group[1], this.built, this.material);
-          this.root.add(batch.mesh);
-          this.batches.set(group[0], batch);
+          this.pendingBatch = {
+            key: group[0],
+            tiles: group[1],
+            steps: mergeLandscapeSteps(group[1].map((t) => this.built.get(t.key)!.mesh.geometry)),
+          };
           continue;
         }
         this.pending = { tile, steps: landscapeGeometry(this.w, tile) };
@@ -263,6 +327,7 @@ export class DistantTerrain {
   }
   dispose(): void {
     this.pending = null;
+    this.pendingBatch = null;
     for (const [key, item] of this.built) this.remove(key, item);
     for (const batch of this.batches.values()) batch.dispose();
     this.batches.clear();

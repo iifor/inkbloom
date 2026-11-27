@@ -128,6 +128,25 @@ export class SunShadows {
     this.draw(gl, scene, cam);
   }
 
+  /** compileAsync does not use scene.overrideMaterial, so substitute it only during preparation. */
+  async prepare(gl: THREE.WebGLRenderer, scene: THREE.Scene): Promise<void> {
+    const target = gl.getRenderTarget();
+    const materials = new Map<THREE.Mesh, THREE.Material | THREE.Material[]>();
+    scene.traverse((object) => {
+      if (object instanceof THREE.Mesh) {
+        materials.set(object, object.material);
+        object.material = this.material;
+      }
+    });
+    try {
+      gl.setRenderTarget(this.rt);
+      await gl.compileAsync(scene, this.cam);
+    } finally {
+      for (const [mesh, material] of materials) mesh.material = material;
+      gl.setRenderTarget(target);
+    }
+  }
+
   /** Draw the map from where the sun's camera stands now. */
   draw(gl: THREE.WebGLRenderer, scene: THREE.Scene, cam: THREE.Camera): void {
     // the held tool hangs off the camera; it should not throw a shadow

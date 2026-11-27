@@ -1,0 +1,22 @@
+const task=await taskSpace(5);const page=task.page('p1');
+await page.click('#startup-sound',{label:'Play loading music'});
+await page.waitForFunction(()=>window.loadingAudio[0].currentTime>0.2&&!window.loadingAudio[0].paused,undefined,{timeout:10000});
+const evidence={};
+evidence.play=await page.evaluate(()=>({time:loadingAudio[0].currentTime,paused:loadingAudio[0].paused,volume:loadingAudio[0].volume,duration:loadingAudio[0].duration,button:document.querySelector('#startup-sound').textContent}));
+await page.click('#startup-sound',{label:'Mute loading music'});
+evidence.mute=await page.evaluate(()=>({paused:loadingAudio[0].paused,button:document.querySelector('#startup-sound').textContent}));
+await page.click('#startup-sound',{label:'Resume loading music'});
+await page.evaluate(()=>{loadingAudio[0].currentTime=loadingAudio[0].duration-0.25;});
+await page.waitForFunction(()=>loadingAudio[0].currentTime<1.5&&!loadingAudio[0].paused,undefined,{timeout:10000});
+evidence.loop=await page.evaluate(()=>({time:loadingAudio[0].currentTime,loop:loadingAudio[0].loop,paused:loadingAudio[0].paused}));
+await page.evaluate(()=>{window.startupQA.screen.finish();});
+await page.waitForFunction(()=>document.querySelector('#startup').hidden&&loadingAudio[0].paused&&!loadingAudio[0].hasAttribute('src'),undefined,{timeout:3000});
+evidence.finish=await page.evaluate(()=>({hidden:document.querySelector('#startup').hidden,paused:loadingAudio[0].paused,src:loadingAudio[0].getAttribute('src'),volume:loadingAudio[0].volume}));
+await (await import('node:fs/promises')).writeFile('C:/Users/Administrator/Desktop/inkbloom/artifacts/loading-audio-qa/browser-results.json',JSON.stringify(evidence,null,2));
+console.log(evidence);
+await page.evaluate(()=>{window.startupQA.set(68);});
+// Leave the result ready for the user to play, without music running after the test.
+await page.waitForFunction(()=>document.querySelector('#startup-sound')&&!document.querySelector('#startup-sound').hidden);
+const wants=await page.evaluate(()=>document.querySelector('#startup-sound').getAttribute('aria-pressed')==='true');
+if(wants)await page.click('#startup-sound',{label:'Leave preview paused'});
+console.log(await page.snapshot());

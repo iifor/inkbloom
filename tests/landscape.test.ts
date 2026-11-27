@@ -1,9 +1,10 @@
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { expect, it, vi } from 'vitest';
 import { TUNING } from '@/content/tuning';
 import { landscapeTiles, type LandscapeTile } from '@/world/wilderness/landscape';
 import { createWilderness } from '@/world/wilderness/generator';
-import { DistantTerrain, landscapeGeometry } from '@/systems/wilderness/distant-terrain';
+import { DistantTerrain, landscapeGeometry, mergeLandscapeSteps } from '@/systems/wilderness/distant-terrain';
 
 const geometry = (tile: LandscapeTile) => {
   const steps = landscapeGeometry(createWilderness(42), tile);
@@ -76,6 +77,47 @@ it('stitches different terrain resolutions to the exact same world edge with upw
   }
 });
 
+it('merges landscape tiles incrementally with identical attributes, indices and bounds', () => {
+  const tiles = [
+    geometry({ x: 0, z: 0, size: 128, key: 'a' }),
+    geometry({ x: 128, z: 0, size: 256, key: 'b' }),
+    geometry({ x: -1024, z: 0, size: 1024, key: 'c' }),
+  ];
+  const expected = mergeGeometries(tiles)!;
+  expected.computeBoundingSphere();
+  const work = mergeLandscapeSteps(tiles);
+  for (const _tile of tiles) expect(work.next().done).toBe(false);
+  const next = work.next();
+  expect(next.done).toBe(true);
+  const actual = next.value!;
+  for (const name of Object.keys(expected.attributes))
+    expect(actual.getAttribute(name).array).toEqual(expected.getAttribute(name).array);
+  expect(actual.index!.array).toEqual(expected.index!.array);
+  expect(actual.boundingSphere).toEqual(expected.boundingSphere);
+  actual.dispose();
+  expected.dispose();
+  for (const tile of tiles) tile.dispose();
+});
+
+it('retains 32-bit indices in large batches and can abandon a partial merge', () => {
+  const tile = new THREE.BufferGeometry();
+  tile.setAttribute('position', new THREE.BufferAttribute(new Float32Array(40000 * 3), 3));
+  tile.setIndex([0, 1, 39999]);
+  const work = mergeLandscapeSteps([tile, tile]);
+  work.next();
+  work.next();
+  const merged = work.next().value!;
+  expect(merged.index!.array).toBeInstanceOf(Uint32Array);
+  expect([...merged.index!.array]).toEqual([0, 1, 39999, 40000, 40001, 79999]);
+  const cancelled = mergeLandscapeSteps([tile, tile]);
+  cancelled.next();
+  cancelled.return(tile);
+  expect(cancelled.next().done).toBe(true);
+  expect([...tile.index!.array]).toEqual([0, 1, 39999]);
+  merged.dispose();
+  tile.dispose();
+});
+
 it('hands off loaded chunks, keeps old coverage during rebuild, and releases obsolete GPU geometry', () => {
   // A synthetic clock gives a reproducible per-update construction budget.
   let time = 0;
@@ -117,6 +159,11 @@ it('hands off loaded chunks, keeps old coverage during rebuild, and releases obs
     land.update(p, detail);
     expect(triangles()).toBeGreaterThan(hidden);
     p.x = 2048;
+    land.update(p, detail);
+    expect(old.filter((o) => o.visible).length).toBe(expected);
+    // Change the destination again before its replacement can be published.
+    for (let i = 0; i < 5; i++) land.update(p, detail);
+    p.set(-8192, 30, -4096);
     land.update(p, detail);
     expect(old.filter((o) => o.visible).length).toBe(expected);
     for (let i = 0; i < 400; i++) land.update(p, detail);

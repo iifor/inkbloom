@@ -32,13 +32,19 @@ const paletteSlots = new Map<string, number>(PALETTE.map((p, i) => [p.key, i]));
 export const COURIER_PALM_OFFSET = 0.15;
 
 /** One download shared by selection previews, the world lineup and remote players. */
-export function loadCourier(character: CharacterKey = 'courier'): Promise<THREE.Group> {
+export function loadCourier(
+  character: CharacterKey = 'courier',
+  progress?: (fraction: number) => void,
+): Promise<THREE.Group> {
   const file = characterModelPath(character);
   if (!file) return Promise.reject(new Error(`No imported model for ${character}`));
   let request = pending.get(character);
   if (!request) {
     request = new GLTFLoader()
-      .loadAsync(`${import.meta.env.BASE_URL}${file}`)
+      .loadAsync(`${import.meta.env.BASE_URL}${file}`, (event) => {
+        // Reserve the last part for GLTF parsing, skinning data and embedded textures.
+        if (event.total > 0) progress?.(0.9 * Math.min(1, event.loaded / event.total));
+      })
       .then((gltf) => {
         templates.set(character, gltf.scene);
         return gltf.scene;
@@ -49,7 +55,10 @@ export function loadCourier(character: CharacterKey = 'courier'): Promise<THREE.
       });
     pending.set(character, request);
   }
-  return request;
+  return request.then((source) => {
+    progress?.(1);
+    return source;
+  });
 }
 
 const MAP = {

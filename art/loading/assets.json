@@ -1,0 +1,26 @@
+{
+  "concept": "画笔唤醒世界",
+  "reference": "concept.png",
+  "generator": "OpenAI imagegen",
+  "transparentBackground": true,
+  "assets": [
+    {
+      "output": "public/ui/loading/village.webp",
+      "source": "exec-eaf1fee4-3601-4aee-8612-c5d9329f1080.png",
+      "size": [1440, 720],
+      "recreationPrompt": "Using the approved concept board, create the fully coloured isolated watercolor village as one transparent layer, 2:1 composition. Large leafy tree on the left, warm ochre and coral cottages with indigo tile roofs, central covered well, four-post circular teleport altar at lower right, winding paths and soft watercolor edges. Hand painted paper-grain storybook look. No brush, ink creature, typography, loading bar, UI or opaque background."
+    },
+    {
+      "output": "public/ui/loading/brush.webp",
+      "source": "exec-32759278-b247-417b-baa1-0126f76b8b24.png",
+      "size": [480, 320],
+      "recreationPrompt": "An isolated watercolor wooden calligraphy brush matching the approved village concept. Diagonal from lower-left bristle tip to upper-right handle, ivory bristles dipped in muted teal paint, warm wooden handle, small turquoise bead and coral tassel. Soft hand-painted shading, transparent background, no text or other objects."
+    },
+    {
+      "output": "public/ui/loading/inkling.webp",
+      "source": "exec-d043174a-111b-46f6-838a-40d2002000ac.png",
+      "size": [360, 240],
+      "recreationPrompt": "An isolated tiny curious ink creature for the approved watercolor game loading scene. Round charcoal ink body with irregular soft paint edges and a few wispy strokes, two large ivory eyes looking right, friendly mischievous expression. Transparent background, no text or other objects."
+    }
+  ]
+}

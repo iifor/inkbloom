@@ -52,3 +52,7 @@ The seven music/inkbloom-*.mp3 files were supplied by the project owner on 2026-
 | M07.mp3 | music/inkbloom-ink-tide.mp3      | Ink tide                       |
 
 The previous Komiku tracks are preserved outside the shipped assets in art/audio/legacy-komiku/, with their original source information alongside them.
+
+## Loading music
+
+`music/inkbloom-loading.mp3`: **Tiptoe on Parchment**, supplied by the project owner on 2026-11-28 for the loading screen. The 60.865-second MP3 is copied unchanged from `Tiptoe_on_Parchment.mp3`; playback volume and the exit fade are applied in the game. Source service and licence were not specified. This track is separate from the CC0 recordings above.

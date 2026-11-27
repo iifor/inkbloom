@@ -1,0 +1,11 @@
+const task=await taskSpace(5);const page=task.page('p1');
+await page.cdp('Emulation.setDeviceMetricsOverride',{width:1440,height:900,deviceScaleFactor:1,mobile:false,scale:1});
+await page.cdp('Network.enable');
+await page.cdp('Network.setBlockedURLs',{urls:['http://127.0.0.1:5192/src/main.ts']});
+await page.goto('http://127.0.0.1:5192/?world=loading-qa-20261128&seed=4242',{waitUntil:'domcontentloaded'});
+await page.waitForFunction(()=>document.querySelector('#startup-reload')?.hidden===false,undefined,{timeout:15000});
+console.log({error:await page.evaluate(()=>({phase:document.querySelector('#startup').dataset.phase,busy:document.querySelector('#startup').getAttribute('aria-busy'),retryFocus:document.activeElement?.id,message:document.querySelector('#startup-status').textContent,meterHidden:document.querySelector('.startup-meter').hidden}))});
+await page.cdp('Network.setBlockedURLs',{urls:[]});
+await page.cdp('Page.addScriptToEvaluateOnNewDocument',{source:"window.loadingQAEvidence={errors:[],progress:[],started:performance.now()};window.addEventListener('error',e=>window.loadingQAEvidence.errors.push(e.message));window.addEventListener('unhandledrejection',e=>window.loadingQAEvidence.errors.push(String(e.reason)));window.addEventListener('DOMContentLoaded',()=>{const root=document.querySelector('#startup');new MutationObserver(()=>{const p=document.querySelector('#startup-progress').value;const last=window.loadingQAEvidence.progress.at(-1);if(last?.p!==p||last?.hidden!==root.hidden)window.loadingQAEvidence.progress.push({p,hidden:root.hidden,t:Math.round(performance.now())});}).observe(root,{attributes:true,subtree:true});});"});
+await page.click('#startup-reload',{label:'Retry game startup'});
+console.log(await page.snapshot());

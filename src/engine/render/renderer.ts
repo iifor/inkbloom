@@ -12,12 +12,14 @@
 // The passes live beside it: paint-shader.ts / paint-pass.ts (the paint pass, with its sky and
 // water chunks in sky-paint.ts and water-paint.ts), brush-pass.ts, glow.ts and sun-shadows.ts.
 import * as THREE from 'three';
+import type { WorkProgress } from '@/game/loading';
+import { waitForGpuFrame } from './frame-ready';
 import { TUNING } from '@/content/tuning';
 import { FXAAShader } from 'three/examples/jsm/shaders/FXAAShader.js';
 import { type Daylight, daylightAt } from './daylight';
 import { ResolutionGovernor } from './resolution';
 import { Critters } from './critters';
-import { STEAM_SPRINGS, Steam } from './steam';
+import { SMOKE_CHIMNEYS, Steam } from './steam';
 import { Birds } from './birds';
 import { Precipitation } from './precipitation';
 import { makeCanopyBrush } from './canopy-brush';
@@ -140,6 +142,7 @@ export class InkRenderer {
    * nearest windows light the street at night, the nearest chimneys smoke. */
   readonly lamps = new Lamps();
   private readonly smoke: Steam;
+  private readonly smokeAnchor = new THREE.Vector3();
   private lampFrame = 0;
   /** Flocks of birds wheeling high over the land (moved by the atmosphere system). */
   readonly birds: Birds;
@@ -154,7 +157,7 @@ export class InkRenderer {
   /** GPU time per pass while profiling (see passTimes). */
   private readonly timer = new PassTimer();
 
-  constructor(canvas: HTMLCanvasElement) {
+  constructor(canvas: HTMLCanvasElement, textureProgress?: (done: number, total: number) => void) {
     this.renderer = new THREE.WebGLRenderer({
       canvas,
       antialias: false,
@@ -214,7 +217,7 @@ export class InkRenderer {
       this.canopyBrush,
     );
     shared.uPlants.value = this.painted.plants;
-    this.texturesReady = this.painted.load();
+    this.texturesReady = this.painted.load(undefined, textureProgress);
     this.paintRt = new THREE.WebGLRenderTarget(2, 2, {
       minFilter: THREE.LinearFilter,
       magFilter: THREE.LinearFilter,
@@ -248,7 +251,7 @@ export class InkRenderer {
     this.steam = new Steam(depthTexture);
     this.spray = new WaterSpray(depthTexture);
     this.brushSpray = new BrushSpray(depthTexture);
-    this.smoke = new Steam(depthTexture);
+    this.smoke = new Steam(depthTexture, true);
     this.birds = new Birds(depthTexture);
     // the eye sees grass; the sun's shadow camera (default layer only) does not
     this.camera.layers.enable(NO_SHADOW_LAYER);
@@ -293,6 +296,10 @@ export class InkRenderer {
       this.post.needsUpdate = true;
     }
     this.resize();
+  }
+
+  waitForFrame(yieldFrame: () => Promise<void>): Promise<void> {
+    return waitForGpuFrame(this.renderer.getContext() as WebGL2RenderingContext, yieldFrame);
   }
 
   /** A quality setting's resolution: start at its start ratio (or the screen's own, if less)
@@ -485,7 +492,53 @@ export class InkRenderer {
     return out;
   }
 
-  render(): void {
+  /** Conditional effects may first appear long after the initial scene has loaded. */
+  warmEffects(): void {
+    this.steam.warmUp(this.renderer, this.camera);
+    this.smoke.warmUp(this.renderer, this.camera);
+    this.wakes.warmUp(this.renderer);
+  }
+
+  /** Compile off the main thread where supported, yielding between actual completed passes. */
+  async prepareShaders(progress: WorkProgress, yieldFrame: () => Promise<void>): Promise<void> {
+    const r = this.renderer;
+    const target = r.getRenderTarget();
+    const compile = async (scene: THREE.Scene, camera: THREE.Camera, to: THREE.WebGLRenderTarget | null) => {
+      r.setRenderTarget(to);
+      await r.compileAsync(scene, camera);
+    };
+    const jobs = [
+      () => compile(this.scene, this.camera, this.rt),
+      () => this.shadows.prepare(r, this.scene),
+      () => compile(this.postScene, this.postCam, this.paintRt),
+      () => compile(this.brushScene, this.postCam, this.brushRt),
+      () => compile(this.fxaaScene, this.postCam, null),
+      () => this.glow.prepare(r, this.postCam),
+      async () => {
+        r.setRenderTarget(this.brushRt);
+        await this.steam.prepare(r, this.camera);
+        await this.smoke.prepare(r, this.camera);
+      },
+      () => this.wakes.prepare(r),
+      () => {
+        this.render();
+        this.warmEffects();
+      },
+    ];
+    progress(0, jobs.length);
+    try {
+      for (let i = 0; i < jobs.length; i++) {
+        await yieldFrame();
+        await jobs[i]!();
+        progress(i + 1, jobs.length);
+      }
+    } finally {
+      r.setRenderTarget(target);
+    }
+  }
+
+  render(playerPosition?: THREE.Vector3Like): void {
+    if (playerPosition) this.smokeAnchor.copy(playerPosition);
     const now = performance.now();
     const dt = Math.min(0.1, (now - this.lastFrame) / 1000);
     this.lastFrame = now;
@@ -549,11 +602,11 @@ export class InkRenderer {
       const eye = this.camera.getWorldPosition(_eye);
       this.lamps.lampsNear(eye, u.uLamps!.value as THREE.Vector4[]);
       // hearths are lit where the town has its colour back; more smoke in the cold and at dusk
-      const chimneys = this.lamps.chimneysNear(eye, STEAM_SPRINGS, 90).map((c) => ({ ...c, r: 0.3 }));
+      const chimneys = this.lamps.chimneysNear(this.smokeAnchor, SMOKE_CHIMNEYS);
       const cold = THREE.MathUtils.smoothstep(this.atmosphere.seaTemp, 22, 4);
       this.smoke.set(
         chimneys,
-        this.atmosphere.colour * (0.45 + 0.35 * cold + 0.2 * this.day.night),
+        this.atmosphere.colour * (0.45 + 0.35 * cold + 0.2 * this.day.night) * 1.4,
         w.windX,
         w.windZ,
       );
@@ -587,6 +640,7 @@ export class InkRenderer {
   }
 
   dispose(): void {
+    this.timer.dispose();
     this.canopyBrush.dispose();
     this.noise.dispose();
     this.painted.dispose();
