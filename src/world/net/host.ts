@@ -9,7 +9,7 @@
 // A client is not trusted beyond what it may do (messages are checked in protocol.ts and
 // validate.ts first): it may only act near where it stands, only a town's keeper may drain it or
 // claim its tide, and a patch that fails leaves nothing behind.
-import { areaKey, inInfectionArea, sameScene } from '../infection';
+import { areaKey, inInfectionArea } from '../infection';
 import { pathsOf } from '../wilderness/paths';
 import { journeyOn, travellerPose } from '../wilderness/travellers';
 import { travelOptions, commitTravellerStop, decisionDue } from '../wilderness/traveller-talk';
@@ -352,7 +352,8 @@ export class WorldHost {
     const city = 'city' in patch ? this.state.cities.get(patch.city) : undefined;
     const fix: { -readonly [K in keyof Fix]?: Fix[K] } = {};
     if (patch.kind === 'overrun') fix.inkArea = [areaKey(patch.site), this.state.inkAreas.get(areaKey(patch.site)) ?? null];
-    if (patch.kind === 'infectNpc') fix.infectedPerson = [patch.person, this.state.infectedPeople.get(patch.person) ?? null];
+    if (patch.kind === 'infectNpc' || patch.kind === 'defeatInfected')
+      fix.infectedPerson = [patch.person, this.state.infectedPeople.get(patch.person) ?? null];
     if (city && 'city' in patch) fix.city = cityFix(patch.city, undefined, city);
     if (patch.kind === 'harvest' && this.state.harvested.has(patch.source))
       fix.harvested = [[patch.source, this.state.harvested.get(patch.source)!]];
@@ -374,13 +375,20 @@ export class WorldHost {
     });
     const m = this.members.get(id);
     if (!m) return fail('不在这个世界里');
-    if (patch.kind === 'infectNpc' || patch.kind === 'overrun' || (patch.kind === 'death' && patch.inkMonster)) {
-      const site = patch.kind === 'death' ? patch : patch.site;
-      if (this.arena.has(id) || !m.motion || !m.slice.player || !sameScene(m.slice.player.scene, site.scene) ||
-          Math.hypot(m.motion.p[0]-site.x, m.motion.p[2]-site.z) > (patch.kind === 'death' ? 12 : 110))
+    if (
+      patch.kind === 'infectNpc' || patch.kind === 'overrun' || patch.kind === 'defeatInfected' ||
+      (patch.kind === 'death' && patch.inkMonster)
+    ) {
+      const site = patch.kind === 'death' ? patch
+        : patch.kind === 'defeatInfected' ? this.state.infectedPeople.get(patch.person) : patch.site;
+      // Towns and wilderness share world coordinates; a border is not a combat boundary.
+      if (
+        !site || this.arena.has(id) || !m.motion || !m.slice.player ||
+        Math.hypot(m.motion.p[0] - site.x, m.motion.p[2] - site.z) > (patch.kind === 'death' ? 12 : 110)
+      )
         return fail('不在感染现场');
       if (patch.kind === 'overrun' && [...this.members.values()].some(p => !this.arena.has(p.id) && !p.slice.infectedAt && p.slice.player &&
-          sameScene(p.slice.player.scene, site.scene) && inInfectionArea(site,p.slice.player))) return fail('附近还有未感染的玩家');
+          inInfectionArea(site,p.slice.player))) return fail('附近还有未感染的玩家');
     }
     if (!this.near(m.motion, patch)) return fail('离那里太远了');
     if ('city' in patch && !this.townAllowed(m, patch.city)) return fail('一下子去了太多城');
@@ -418,7 +426,8 @@ export class WorldHost {
     if (patch.kind === 'harvest') fix.harvested = [[patch.source, this.state.harvested.get(patch.source)!]];
     if (patch.kind === 'hunt') fix.hunted = [[patch.monster, this.state.hunted.get(patch.monster)!]];
     if (patch.kind === 'cleanse') fix.cleansed = [[patch.well, this.state.cleansed.get(patch.well)!]];
-    if (patch.kind === 'overrun' || patch.kind === 'infectNpc') Object.assign(fix, this.truth(patch));
+    if (patch.kind === 'overrun' || patch.kind === 'infectNpc' || patch.kind === 'defeatInfected')
+      Object.assign(fix, this.truth(patch));
     return { ok: true, shared: SHARED_KINDS.has(patch.kind), fix: Object.keys(fix).length ? fix : null };
   }
 

@@ -7,14 +7,14 @@ import (
 )
 
 func TestSupportedSaveVersions(t *testing.T) {
-	for _, version := range []int{9, 10, 11, 12, 13} {
+	for _, version := range []int{9, 10, 11, 12, 13, 14} {
 		world, _ := json.Marshal(map[string]any{"id": "version-check", "version": version})
 		personal, _ := json.Marshal(map[string]any{"id": "player", "version": version})
 		data, _ := json.Marshal(legacySave{V: 1, World: string(world), Players: map[string]legacyPlayer{
 			"player-key": {Name: "player", Look: json.RawMessage(`{"character":"courier"}`), Slice: string(personal)},
 		}})
 		_, _, err := decode(data)
-		if supported := version >= 10 && version <= 12; supported != (err == nil) {
+		if supported := version >= 10 && version <= 13; supported != (err == nil) {
 			t.Fatalf("version %d: unexpected result %v", version, err)
 		}
 	}

@@ -5,6 +5,7 @@
 // the sender included; each client sets them. Whatever the order things arrived in, everyone
 // ends on the server's values.
 import type { CitySave, WorldState } from '../state';
+import type { InkSite, InfectedPerson } from '../infection';
 
 /** Index -> value pairs. */
 type Pairs = [number, number][];
@@ -22,10 +23,8 @@ export interface CityFix {
   readonly altarGuards?: number;
 }
 
-import type { InkSite } from '../infection';
-
 export interface Fix {
-  readonly infectedPerson?: [string, InkSite | null];
+  readonly infectedPerson?: [string, InfectedPerson | null];
   readonly inkArea?: [string, InkSite | null];
   readonly city?: CityFix;
   /** Wilderness source / monster id -> clock time it was harvested / hunted (for a monster,

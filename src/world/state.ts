@@ -13,9 +13,9 @@ import { type CitySkeleton, monsterFingerprint, stainFingerprint } from './city/
 
 import { TERRAIN_VERSION, type TerrainVersion } from './wilderness/terrain-version';
 
-import { type InkSite, validInkSite } from './infection';
+import { type InkSite, type InfectedPerson, validInkSite } from './infection';
 
-export const SAVE_VERSION = 12;
+export const SAVE_VERSION = 13;
 
 export type SceneRef = { readonly kind: 'wild' } | { readonly kind: 'city'; readonly id: string };
 
@@ -71,7 +71,7 @@ export interface WorldState {
   calendarOffset: number;
   /** Wilderness source id -> clock time it was last harvested. */
   infectedAt: InkSite | null;
-  infectedPeople: Map<string, InkSite>;
+  infectedPeople: Map<string, InfectedPerson>;
   inkAreas: Map<string, InkSite>;
   harvested: Map<string, number>;
   /** At most one drop at a time; dying again loses the old one. */
@@ -378,7 +378,7 @@ interface WorldJson {
   harvested?: Record<string, number>;
   drop?: InkDrop | null;
   infectedAt?: InkSite | null;
-  infectedPeople?: Record<string, InkSite>;
+  infectedPeople?: Record<string, InfectedPerson>;
   inkAreas?: Record<string, InkSite>;
   hunted?: Record<string, number>;
   cleansed?: Record<string, number>;
@@ -488,6 +488,7 @@ export function deserializeWorld(text: string): WorldState {
     json.version !== 9 &&
     json.version !== 10 &&
     json.version !== 11 &&
+    json.version !== 12 &&
     json.version !== SAVE_VERSION
   )
     throw new SaveError(`不支持的存档版本 ${json.version}`);

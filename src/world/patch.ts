@@ -25,6 +25,7 @@ import type { AltarSite } from './city/travel-altar';
 
 export type Patch =
   | { readonly kind: 'infectNpc' | 'overrun'; readonly person: string; readonly site: InkSite }
+  | { readonly kind: 'defeatInfected'; readonly person: string }
   | { readonly kind: 'restore'; readonly city: string; readonly surface: number }
   | { readonly kind: 'paint'; readonly city: string; readonly surface: number; readonly color: number }
   | { readonly kind: 'drain'; readonly city: string; readonly surface: number }
@@ -240,7 +241,16 @@ function applyRules(state: WorldState, patch: Patch, ctx: PatchContext): PatchRe
       if (!state.infectedPeople.has(patch.person)) state.infectedPeople.set(patch.person, patch.site);
       return OK;
     }
+    case 'defeatInfected': {
+      const person = state.infectedPeople.get(patch.person);
+      if (!person) return fail('没有这名感染者');
+      if (person.defeated) return fail('已经打败了');
+      state.infectedPeople.set(patch.person, { ...person, defeated: true });
+      return OK;
+    }
     case 'overrun': {
+      if (patch.person !== 'player' && state.infectedPeople.get(patch.person)?.defeated)
+        return fail('感染源已被打败');
       const site = patch.person === 'player' ? state.infectedAt : state.infectedPeople.get(patch.person);
       if (!site || !sameScene(site.scene, patch.site.scene) || site.x !== patch.site.x || site.z !== patch.site.z) return fail('此处没有感染源');
       state.inkAreas.set(areaKey(site), site);

@@ -11,7 +11,7 @@ import type { TravelLeg } from '../wilderness/travellers';
 import type { Fix } from './fix';
 import { validCity, validPatch, validScene } from './validate';
 
-export const PROTOCOL = 12;
+export const PROTOCOL = 13;
 export const DEFAULT_PORT = 5195;
 export const DEFAULT_MAX_PLAYERS = 10;
 /** Motion updates per second, each way. */
@@ -256,6 +256,7 @@ export const SHARED_KINDS: ReadonlySet<Patch['kind']> = new Set([
   'hunt',
   'cleanse',
   'infectNpc',
+  'defeatInfected',
   'overrun',
   'collectStock',
   'complete',

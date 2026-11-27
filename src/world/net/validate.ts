@@ -25,6 +25,7 @@ const RUIN_ID = /^r-?\d{1,5}_-?\d{1,5}$/;
 const MARK_ID = /^[\w-]{1,24}$/;
 /** An ink well: its chunk ("w<cx>_<cz>"). */
 const WELL_ID = /^w-?\d{1,6}_-?\d{1,6}$/;
+const PERSON_ID = /^(resident|outing|traveller):[\w,:.-]{1,100}$/;
 
 const isIndex = (v: unknown, max = MAX_INDEX): v is number =>
   Number.isInteger(v) && (v as number) >= 0 && (v as number) < max;
@@ -127,9 +128,13 @@ export function validPatch(raw: unknown): Patch | null {
       return typeof p.well === 'string' && WELL_ID.test(p.well) ? { kind: 'cleanse', well: p.well } : null;
     case 'discover':
       return typeof p.ruin === 'string' && RUIN_ID.test(p.ruin) ? { kind: 'discover', ruin: p.ruin } : null;
+    case 'defeatInfected':
+      return typeof p.person === 'string' && PERSON_ID.test(p.person)
+        ? { kind: 'defeatInfected', person: p.person }
+        : null;
     case 'infectNpc':
     case 'overrun': {
-      if (!validInkSite(p.site) || typeof p.person !== 'string' || !(/^(resident|outing|traveller):[\w,:.-]{1,100}$/.test(p.person) || (p.kind === 'overrun' && p.person === 'player'))) return null;
+      if (!validInkSite(p.site) || typeof p.person !== 'string' || !(PERSON_ID.test(p.person) || (p.kind === 'overrun' && p.person === 'player'))) return null;
       const {x,y,z,scene} = p.site;
       if (!validScene(scene)) return null;
       return {kind:p.kind,person:p.person,site:{x,y,z,scene:validScene(scene)!}};

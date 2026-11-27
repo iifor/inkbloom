@@ -63,6 +63,21 @@ const ctx: PatchContext = {
 };
 const withSurfaces = (surfaces: SurfaceInfo[]): CitySkeleton => ({ ...SKEL, surfaces });
 
+it('records infected defeats once without reviving the resident or accepting a stale spread', () => {
+  const state = createWorldState('infection-patch', 1);
+  const site = { scene: { kind: 'wild' as const }, x: 0, y: 0, z: 0 };
+  const person = 'resident:7';
+  const defeat = { kind: 'defeatInfected', person } as const;
+  expect(applyPatch(state, defeat, ctx).ok).toBe(false);
+  expect(applyPatch(state, { kind: 'infectNpc', person, site }, ctx).ok).toBe(true);
+  expect(applyPatch(state, defeat, ctx).ok).toBe(true);
+  expect(applyPatch(state, defeat, ctx).ok).toBe(false);
+  expect(applyPatch(state, { kind: 'infectNpc', person, site }, ctx).ok).toBe(true);
+  expect(state.infectedPeople.get(person)?.defeated).toBe(true);
+  expect(applyPatch(state, { kind: 'overrun', person, site }, ctx).ok).toBe(false);
+  expect(state.inkAreas.size).toBe(0);
+});
+
 describe('patches', () => {
   it('restores a drained surface for one generic pigment', () => {
     const s = createWorldState('w', 1);

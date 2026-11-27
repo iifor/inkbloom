@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { ENEMIES } from '@/content/enemies';
 import { makeInkMaterial, shared } from '@/engine/render/ink-material';
 import type { GameContext, GameScene, System } from '@/game/types';
-import { areaKey, inInfectionArea, sameScene, type InkSite } from '@/world/infection';
+import { areaKey, inInfectionArea, type InkSite } from '@/world/infection';
 import { MonsterFigures } from './monster-figure';
 import { MonsterGroup } from './monsters';
 import { npcBattles, type NpcEnemy } from './npc-combat';
@@ -10,6 +10,7 @@ import { npcBattles, type NpcEnemy } from './npc-combat';
 export class InfectionSystem implements System {
   readonly id = 'infection';
   private scene?: GameScene;
+  private readonly root = new THREE.Group();
   private readonly material = makeInkMaterial();
   private group?: MonsterGroup;
   private avatar?: MonsterFigures;
@@ -23,6 +24,11 @@ export class InfectionSystem implements System {
 
   constructor(private readonly ctx: GameContext) {
     this.release = ctx.events.on('patch:applied', ({ patch, remote }) => {
+      if (patch.kind === 'defeatInfected') {
+        this.group?.dismiss(patch.person);
+        this.spawned.delete(patch.person);
+        this.refresh = 0;
+      }
       if (remote) return;
       const person = patch.kind === 'infectNpc' ? patch.person : 'player';
       const site =
@@ -44,7 +50,7 @@ export class InfectionSystem implements System {
       if (event.at > state.clock) continue;
       this.pending.delete(key);
       const { site, person } = event;
-      if (!sameScene(site.scene, scene.ref) || state.inkAreas.has(key)) continue;
+      if (state.inkAreas.has(key) || state.infectedPeople.get(person)?.defeated) continue;
       if (!state.infectedAt && inInfectionArea(site, player.position)) continue;
       if (
         Array.from(battles.people).some(
@@ -62,16 +68,19 @@ export class InfectionSystem implements System {
   private syncScene(): void {
     const { state, player, scenes } = this.ctx;
     const scene = scenes.active;
-    const near = (p: InkSite) =>
-      sameScene(p.scene, scene.ref) && Math.hypot(p.x - player.position.x, p.z - player.position.z) < 105;
+    const near = (p: InkSite) => Math.hypot(p.x - player.position.x, p.z - player.position.z) < 105;
     const present = new Set<string>();
     if (!this.ctx.arena?.inside)
       for (const [id, site] of state.infectedPeople) {
-        if (!near(site)) continue;
+        if (site.defeated || !near(site)) continue;
         present.add(id);
-        if (this.spawned.has(id)) continue;
-        this.group ??= new MonsterGroup(this.ctx, scene.physics, scene.root, this.material);
-        this.group.spawn(0, new THREE.Vector3(site.x, site.y, site.z), { tag: 'infected', key: id });
+        if (this.group?.has(id)) continue;
+        this.group ??= new MonsterGroup(this.ctx, scene.physics, this.root, this.material);
+        this.group.spawn(0, new THREE.Vector3(site.x, site.y, site.z), {
+          tag: 'infected',
+          key: id,
+          onDefeat: () => this.ctx.apply({ kind: 'defeatInfected', person: id }),
+        });
         this.spawned.add(id);
       }
     for (const id of this.spawned)
@@ -80,7 +89,6 @@ export class InfectionSystem implements System {
         this.spawned.delete(id);
       }
     const nearest = [...state.inkAreas.values()]
-      .filter((p) => sameScene(p.scene, scene.ref))
       .sort(
         (a, b) =>
           Math.hypot(a.x - player.position.x, a.z - player.position.z) -
@@ -106,7 +114,10 @@ export class InfectionSystem implements System {
     const { player, combat, scenes, state } = this.ctx,
       scene = scenes.active;
     if (scene !== this.scene) {
-      this.reset();
+      // Crossing a town edge shares the same physics world. Preserve HP and attacks,
+      // and keep the figures under a system-owned root even if a town is unloaded.
+      if (scene.physics !== this.scene?.physics) this.reset();
+      (this.ctx.renderer?.scene ?? scene.root).add(this.root);
       this.scene = scene;
       this.refresh = 0;
     }
@@ -152,7 +163,7 @@ export class InfectionSystem implements System {
         victim?.damage(ENEMIES[0].attack.damage);
       }
       if (!this.avatar) {
-        this.avatar = new MonsterFigures(scene.root, this.material);
+        this.avatar = new MonsterFigures(this.root, this.material);
         this.avatar.begin();
       }
       this.walk += player.speed * dt * 2.5;
@@ -180,6 +191,7 @@ export class InfectionSystem implements System {
   dispose(): void {
     this.release();
     this.reset();
+    this.root.removeFromParent();
     this.material.dispose();
   }
 }

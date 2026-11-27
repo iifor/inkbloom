@@ -7,6 +7,11 @@ export interface InkSite {
   readonly z: number;
 }
 
+/** Keep the infected identity after its monster dies, so the resident stays absent. */
+export interface InfectedPerson extends InkSite {
+  readonly defeated?: boolean;
+}
+
 export const INFECTION_RADIUS = 36;
 export function sameScene(a: SceneRef, b: SceneRef): boolean {
   return a.kind === b.kind && (a.kind === 'wild' || (b.kind === 'city' && a.id === b.id));

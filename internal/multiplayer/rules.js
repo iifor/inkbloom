@@ -3057,7 +3057,7 @@ var Rules = (() => {
   }
 
   // src/world/state.ts
-  var SAVE_VERSION = 12;
+  var SAVE_VERSION = 13;
   var newTide = () => ({ nextIn: TUNING.tide.firstDelay, wave: null });
   function validTide(t) {
     const j = t;
@@ -3282,7 +3282,7 @@ var Rules = (() => {
     } catch (e) {
       throw new SaveError(`\u5B58\u6863\u4E0D\u662F\u6709\u6548\u7684 JSON\uFF1A${e.message}`);
     }
-    if (json.version !== 1 && json.version !== 2 && json.version !== 3 && json.version !== 4 && json.version !== 5 && json.version !== 6 && json.version !== 7 && json.version !== 8 && json.version !== 9 && json.version !== 10 && json.version !== 11 && json.version !== SAVE_VERSION)
+    if (json.version !== 1 && json.version !== 2 && json.version !== 3 && json.version !== 4 && json.version !== 5 && json.version !== 6 && json.version !== 7 && json.version !== 8 && json.version !== 9 && json.version !== 10 && json.version !== 11 && json.version !== 12 && json.version !== SAVE_VERSION)
       throw new SaveError(`\u4E0D\u652F\u6301\u7684\u5B58\u6863\u7248\u672C ${json.version}`);
     if (json.version >= 6 && ![1, 2, 3, 4, 5, 6].some((version) => version === json.terrainVersion))
       throw new SaveError(`\u4E0D\u652F\u6301\u7684\u5730\u5F62\u7248\u672C ${json.terrainVersion}`);
@@ -3980,7 +3980,7 @@ var Rules = (() => {
     return fresh;
   }
   function applyRules(state, patch, ctx) {
-    var _a2, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p;
+    var _a2, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p, _q;
     const inv = state.inventory;
     switch (patch.kind) {
       case "grant": {
@@ -4029,7 +4029,16 @@ var Rules = (() => {
         if (!state.infectedPeople.has(patch.person)) state.infectedPeople.set(patch.person, patch.site);
         return OK;
       }
+      case "defeatInfected": {
+        const person = state.infectedPeople.get(patch.person);
+        if (!person) return fail("\u6CA1\u6709\u8FD9\u540D\u611F\u67D3\u8005");
+        if (person.defeated) return fail("\u5DF2\u7ECF\u6253\u8D25\u4E86");
+        state.infectedPeople.set(patch.person, __spreadProps(__spreadValues({}, person), { defeated: true }));
+        return OK;
+      }
       case "overrun": {
+        if (patch.person !== "player" && ((_g = state.infectedPeople.get(patch.person)) == null ? void 0 : _g.defeated))
+          return fail("\u611F\u67D3\u6E90\u5DF2\u88AB\u6253\u8D25");
         const site = patch.person === "player" ? state.infectedAt : state.infectedPeople.get(patch.person);
         if (!site || !sameScene(site.scene, patch.site.scene) || site.x !== patch.site.x || site.z !== patch.site.z) return fail("\u6B64\u5904\u6CA1\u6709\u611F\u67D3\u6E90");
         state.inkAreas.set(areaKey(site), site);
@@ -4049,8 +4058,8 @@ var Rules = (() => {
         return OK;
       }
       case "spend": {
-        const g = Math.max(0, (_g = patch.generic) != null ? _g : 0);
-        const k = Math.max(0, (_h = patch.ink) != null ? _h : 0);
+        const g = Math.max(0, (_h = patch.generic) != null ? _h : 0);
+        const k = Math.max(0, (_i = patch.ink) != null ? _i : 0);
         if (inv.generic < g) return fail("\u989C\u6599\u4E0D\u8DB3");
         if (inv.ink < k) return fail("\u58A8\u4E0D\u8DB3");
         inv.generic -= g;
@@ -4097,7 +4106,7 @@ var Rules = (() => {
         state.harvested.set(src.id, state.clock);
         inv.generic += src.amount;
         inv.ink += src.ink;
-        if (((_i = PALETTE[src.color]) == null ? void 0 : _i.paintable) && !state.unlocked.includes(src.color))
+        if (((_j = PALETTE[src.color]) == null ? void 0 : _j.paintable) && !state.unlocked.includes(src.color))
           state.unlocked.push(src.color);
         if (PAINTABLE.every((c) => state.unlocked.includes(c)))
           milestone(state.growth, "all-colors", MILESTONES.allColors);
@@ -4115,13 +4124,13 @@ var Rules = (() => {
       case "defeatAltarGuard": {
         const saved = state.cities.get(patch.city);
         if (saved.completed) return fail("\u6751\u5E84\u5DF2\u7ECF\u6062\u590D");
-        if (!((_j = ctx.altarOf) == null ? void 0 : _j.call(ctx, patch.city))) return fail("\u8FD9\u91CC\u6CA1\u6709\u796D\u575B\u5927\u672C\u8425");
+        if (!((_k = ctx.altarOf) == null ? void 0 : _k.call(ctx, patch.city))) return fail("\u8FD9\u91CC\u6CA1\u6709\u796D\u575B\u5927\u672C\u8425");
         const type = ALTAR_GUARDS[patch.guard];
         if (!Number.isInteger(patch.guard) || type === void 0) return fail("\u6CA1\u6709\u8FD9\u540D\u9A7B\u5B88\u58A8\u602A");
         if (!liberation(skel, saved).unlocked) return fail("\u5148\u6E05\u9664\u81F3\u5C11 50% \u7684\u6751\u5E84\u58A8\u602A");
         const bit = 1 << patch.guard;
-        if (((_k = saved.altarGuards) != null ? _k : 0) & bit) return fail("\u5DF2\u7ECF\u6253\u8D25\u4E86");
-        saved.altarGuards = ((_l = saved.altarGuards) != null ? _l : 0) | bit;
+        if (((_l = saved.altarGuards) != null ? _l : 0) & bit) return fail("\u5DF2\u7ECF\u6253\u8D25\u4E86");
+        saved.altarGuards = ((_m = saved.altarGuards) != null ? _m : 0) | bit;
         if (!patch.npc) {
           inv.ink += ENEMIES[type].ink;
           state.growth.xp += XP.monster;
@@ -4135,7 +4144,7 @@ var Rules = (() => {
         if (state.growth.milestones.includes(restored)) return fail("\u8FD9\u5EA7\u57CE\u5DF2\u7ECF\u6062\u590D\u4E86");
         if (patch.kind === "restoreAltar") {
           if (saved.completed) return fail("\u796D\u575B\u5DF2\u7ECF\u6062\u590D");
-          if (!((_m = ctx.altarOf) == null ? void 0 : _m.call(ctx, patch.city))) return fail("\u8FD9\u91CC\u6CA1\u6709\u796D\u575B\u5927\u672C\u8425");
+          if (!((_n = ctx.altarOf) == null ? void 0 : _n.call(ctx, patch.city))) return fail("\u8FD9\u91CC\u6CA1\u6709\u796D\u575B\u5927\u672C\u8425");
           const progress = liberation(skel, saved);
           if (!progress.unlocked) return fail("\u5148\u6E05\u9664\u81F3\u5C11 50% \u7684\u6751\u5E84\u58A8\u602A");
           if (!progress.captured) return fail("\u5148\u51FB\u8D25\u796D\u575B\u5927\u672C\u8425\u7684\u5168\u90E8\u9A7B\u5B88\u58A8\u602A");
@@ -4149,7 +4158,7 @@ var Rules = (() => {
           const blocks = blockStates(states, skel.surfaces, skel.chunks);
           if (!blocks.every((b) => b === "colored" || b === "thriving")) return fail("\u8FD8\u6709\u8857\u533A\u6CA1\u6709\u989C\u8272");
         }
-        (_n = saved.restoredAt) != null ? _n : saved.restoredAt = state.clock;
+        (_o = saved.restoredAt) != null ? _o : saved.restoredAt = state.clock;
         saved.completed = true;
         inv.generic += TUNING.city.completeReward.generic;
         inv.ink += TUNING.city.completeReward.ink;
@@ -4170,7 +4179,7 @@ var Rules = (() => {
         if (!m) return fail("\u6CA1\u6709\u8FD9\u53EA\u58A8\u602A");
         if (defeated[patch.monster]) return fail("\u5DF2\u7ECF\u6253\u8D25\u4E86");
         defeated[patch.monster] = 1;
-        if (!patch.npc) inv.ink += (_p = (_o = ENEMIES[m.type]) == null ? void 0 : _o.ink) != null ? _p : 0;
+        if (!patch.npc) inv.ink += (_q = (_p = ENEMIES[m.type]) == null ? void 0 : _p.ink) != null ? _q : 0;
         if (!patch.npc) state.growth.xp += XP.monster;
         release(state, patch.city, skel, states, coloredOnce, m.x, m.z, TUNING.release.monster, !patch.npc);
         return OK;
@@ -5620,6 +5629,7 @@ var Rules = (() => {
   var RUIN_ID = /^r-?\d{1,5}_-?\d{1,5}$/;
   var MARK_ID = /^[\w-]{1,24}$/;
   var WELL_ID = /^w-?\d{1,6}_-?\d{1,6}$/;
+  var PERSON_ID = /^(resident|outing|traveller):[\w,:.-]{1,100}$/;
   var isIndex = (v, max = MAX_INDEX) => Number.isInteger(v) && v >= 0 && v < max;
   var isCoord = (v) => typeof v === "number" && Number.isFinite(v) && Math.abs(v) <= MAX_COORD;
   var isAmount = (v) => typeof v === "number" && Number.isFinite(v) && v >= 0 && v <= MAX_AMOUNT;
@@ -5692,9 +5702,11 @@ var Rules = (() => {
         return typeof p.well === "string" && WELL_ID.test(p.well) ? { kind: "cleanse", well: p.well } : null;
       case "discover":
         return typeof p.ruin === "string" && RUIN_ID.test(p.ruin) ? { kind: "discover", ruin: p.ruin } : null;
+      case "defeatInfected":
+        return typeof p.person === "string" && PERSON_ID.test(p.person) ? { kind: "defeatInfected", person: p.person } : null;
       case "infectNpc":
       case "overrun": {
-        if (!validInkSite(p.site) || typeof p.person !== "string" || !(/^(resident|outing|traveller):[\w,:.-]{1,100}$/.test(p.person) || p.kind === "overrun" && p.person === "player")) return null;
+        if (!validInkSite(p.site) || typeof p.person !== "string" || !(PERSON_ID.test(p.person) || p.kind === "overrun" && p.person === "player")) return null;
         const { x, y, z, scene } = p.site;
         if (!validScene(scene)) return null;
         return { kind: p.kind, person: p.person, site: { x, y, z, scene: validScene(scene) } };
@@ -5725,7 +5737,7 @@ var Rules = (() => {
   }
 
   // src/world/net/protocol.ts
-  var PROTOCOL = 12;
+  var PROTOCOL = 13;
   var DEFAULT_MAX_PLAYERS = 10;
   var VIEW_RANGE = 300;
   var GLIDING = 2;
@@ -5768,6 +5780,7 @@ var Rules = (() => {
     "hunt",
     "cleanse",
     "infectNpc",
+    "defeatInfected",
     "overrun",
     "collectStock",
     "complete"
@@ -7166,7 +7179,7 @@ var Rules = (() => {
       const city = "city" in patch ? this.state.cities.get(patch.city) : void 0;
       const fix = {};
       if (patch.kind === "overrun") fix.inkArea = [areaKey(patch.site), (_a2 = this.state.inkAreas.get(areaKey(patch.site))) != null ? _a2 : null];
-      if (patch.kind === "infectNpc") fix.infectedPerson = [patch.person, (_b = this.state.infectedPeople.get(patch.person)) != null ? _b : null];
+      if (patch.kind === "infectNpc" || patch.kind === "defeatInfected") fix.infectedPerson = [patch.person, (_b = this.state.infectedPeople.get(patch.person)) != null ? _b : null];
       if (city && "city" in patch) fix.city = cityFix(patch.city, void 0, city);
       if (patch.kind === "harvest" && this.state.harvested.has(patch.source))
         fix.harvested = [[patch.source, this.state.harvested.get(patch.source)]];
@@ -7185,11 +7198,11 @@ var Rules = (() => {
       });
       const m = this.members.get(id);
       if (!m) return fail2("\u4E0D\u5728\u8FD9\u4E2A\u4E16\u754C\u91CC");
-      if (patch.kind === "infectNpc" || patch.kind === "overrun" || patch.kind === "death" && patch.inkMonster) {
-        const site = patch.kind === "death" ? patch : patch.site;
-        if (this.arena.has(id) || !m.motion || !m.slice.player || !sameScene(m.slice.player.scene, site.scene) || Math.hypot(m.motion.p[0] - site.x, m.motion.p[2] - site.z) > (patch.kind === "death" ? 12 : 110))
+      if (patch.kind === "infectNpc" || patch.kind === "overrun" || patch.kind === "defeatInfected" || patch.kind === "death" && patch.inkMonster) {
+        const site = patch.kind === "death" ? patch : patch.kind === "defeatInfected" ? this.state.infectedPeople.get(patch.person) : patch.site;
+        if (!site || this.arena.has(id) || !m.motion || !m.slice.player || Math.hypot(m.motion.p[0] - site.x, m.motion.p[2] - site.z) > (patch.kind === "death" ? 12 : 110))
           return fail2("\u4E0D\u5728\u611F\u67D3\u73B0\u573A");
-        if (patch.kind === "overrun" && [...this.members.values()].some((p) => !this.arena.has(p.id) && !p.slice.infectedAt && p.slice.player && sameScene(p.slice.player.scene, site.scene) && inInfectionArea(site, p.slice.player))) return fail2("\u9644\u8FD1\u8FD8\u6709\u672A\u611F\u67D3\u7684\u73A9\u5BB6");
+        if (patch.kind === "overrun" && [...this.members.values()].some((p) => !this.arena.has(p.id) && !p.slice.infectedAt && p.slice.player && inInfectionArea(site, p.slice.player))) return fail2("\u9644\u8FD1\u8FD8\u6709\u672A\u611F\u67D3\u7684\u73A9\u5BB6");
       }
       if (!this.near(m.motion, patch)) return fail2("\u79BB\u90A3\u91CC\u592A\u8FDC\u4E86");
       if ("city" in patch && !this.townAllowed(m, patch.city)) return fail2("\u4E00\u4E0B\u5B50\u53BB\u4E86\u592A\u591A\u57CE");
@@ -7224,7 +7237,7 @@ var Rules = (() => {
       if (patch.kind === "harvest") fix.harvested = [[patch.source, this.state.harvested.get(patch.source)]];
       if (patch.kind === "hunt") fix.hunted = [[patch.monster, this.state.hunted.get(patch.monster)]];
       if (patch.kind === "cleanse") fix.cleansed = [[patch.well, this.state.cleansed.get(patch.well)]];
-      if (patch.kind === "overrun" || patch.kind === "infectNpc") Object.assign(fix, this.truth(patch));
+      if (patch.kind === "overrun" || patch.kind === "infectNpc" || patch.kind === "defeatInfected") Object.assign(fix, this.truth(patch));
       return { ok: true, shared: SHARED_KINDS.has(patch.kind), fix: Object.keys(fix).length ? fix : null };
     }
     /** Whether this player may act in this town now (see TOWN_BUDGET); remembers it if so. */
