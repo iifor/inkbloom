@@ -12,6 +12,8 @@ import { TUNING } from '@/content/tuning';
 import { hashAt, hashInts, unit } from '../math/hash';
 import { smoothstep } from '../math/noise';
 import { type Wilderness, WATER_LEVEL } from './generator';
+import { pathsOf } from './paths';
+import { finishSteps, StepCache } from '../math/steps';
 
 export interface Patch {
   /** `b<gx>_<gz>` for a grove, `f<gx>_<gz>` for a flower sea. */
@@ -69,7 +71,7 @@ export function bloomOf(kind: number, yearPhase: number): number {
 }
 
 /** Whether a patch of radius r round (x, z) is clear of towns and on dry, gentle land. */
-function open(w: Wilderness, x: number, z: number, r: number, steep: number): boolean {
+function* open(w: Wilderness, x: number, z: number, r: number, steep: number): Generator<void, boolean> {
   if (Math.hypot(x - SIZE / 2, z - SIZE / 2) < 120) return false;
   if (w.townAt(x, z, r + 15)) return false;
   let lo = Infinity;
@@ -77,7 +79,10 @@ function open(w: Wilderness, x: number, z: number, r: number, steep: number): bo
   for (let k = 0; k < 9; k++) {
     const a = (k * Math.PI * 2) / 8;
     const f = k === 8 ? 0 : 0.7;
-    const g = w.heightAt(x + Math.cos(a) * r * f, z + Math.sin(a) * r * f);
+    const px = x + Math.cos(a) * r * f,
+      pz = z + Math.sin(a) * r * f;
+    yield* pathsOf(w).prepareGround(px - 4, pz - 4, px + 4, pz + 4);
+    const g = w.heightAt(px, pz);
     if (g < WATER_LEVEL + 0.6) return false;
     lo = Math.min(lo, g);
     hi = Math.max(hi, g);
@@ -91,6 +96,10 @@ const lobesOf = (h: number): [number, number] => [roll(h, 4) * 6.283, roll(h, 5)
 
 /** The bamboo grove of a cell, if it has one: in damp woodland. */
 export function groveInCell(w: Wilderness, gx: number, gz: number): Grove | null {
+  return finishSteps(groveSteps(w, gx, gz));
+}
+
+function* groveSteps(w: Wilderness, gx: number, gz: number): Generator<void, Grove | null> {
   if (unit(hashAt(w.seed, 'grove', gx, gz)) >= GROVE_CHANCE) return null;
   const span = GROVE_GRID * SIZE;
   for (let a = 0; a < 16; a++) {
@@ -100,7 +109,7 @@ export function groveInCell(w: Wilderness, gx: number, gz: number): Grove | null
     const c = w.climate(x, z);
     if (c.moisture < 0.12 || c.relief > 0.3) continue;
     const r = 20 + roll(h, 2) * 16;
-    if (!open(w, x, z, r, 9)) continue;
+    if (!(yield* open(w, x, z, r, 9))) continue;
     return { id: `b${gx}_${gz}`, x, z, r, lobes: lobesOf(h), seed: h };
   }
   return null;
@@ -108,6 +117,10 @@ export function groveInCell(w: Wilderness, gx: number, gz: number): Grove | null
 
 /** The flower sea of a cell, if it has one: out on open, gently rolling grassland. */
 export function seaInCell(w: Wilderness, gx: number, gz: number): FlowerSea | null {
+  return finishSteps(seaSteps(w, gx, gz));
+}
+
+function* seaSteps(w: Wilderness, gx: number, gz: number): Generator<void, FlowerSea | null> {
   const h0 = hashAt(w.seed, 'flower-sea', gx, gz);
   if (unit(h0) >= SEA_CHANCE) return null;
   const span = SEA_GRID * SIZE;
@@ -118,27 +131,27 @@ export function seaInCell(w: Wilderness, gx: number, gz: number): FlowerSea | nu
     const c = w.climate(x, z);
     if (c.moisture > 0.15 || c.relief > 0.25) continue;
     const r = 22 + roll(h, 2) * 20;
-    if (!open(w, x, z, r, 5)) continue;
+    if (!(yield* open(w, x, z, r, 5))) continue;
     const kind = Math.floor(roll(h0, 3) * SEA_FLOWERS.length);
     return { id: `f${gx}_${gz}`, x, z, r, lobes: lobesOf(h), seed: h, kind };
   }
   return null;
 }
 
-const groves = new WeakMap<Wilderness, Map<string, Grove | null>>();
-const seas = new WeakMap<Wilderness, Map<string, FlowerSea | null>>();
+const groves = new WeakMap<Wilderness, StepCache<string, Grove | null>>();
+const seas = new WeakMap<Wilderness, StepCache<string, FlowerSea | null>>();
 
-function near<T extends Patch>(
-  store: WeakMap<Wilderness, Map<string, T | null>>,
-  make: (w: Wilderness, gx: number, gz: number) => T | null,
+function* near<T extends Patch>(
+  store: WeakMap<Wilderness, StepCache<string, T | null>>,
+  make: (w: Wilderness, gx: number, gz: number) => Generator<void, T | null>,
   grid: number,
   w: Wilderness,
   x: number,
   z: number,
   reach: number,
-): T[] {
+): Generator<void, T[]> {
   let m = store.get(w);
-  if (!m) store.set(w, (m = new Map()));
+  if (!m) store.set(w, (m = new StepCache()));
   const cell = (v: number): number => Math.floor(v / (grid * SIZE));
   const out: T[] = [];
   // a patch reaches out up to 1.3 of its radius (42 m at most) past its centre
@@ -146,8 +159,7 @@ function near<T extends Patch>(
   for (let gx = cell(x - pad); gx <= cell(x + pad); gx++)
     for (let gz = cell(z - pad); gz <= cell(z + pad); gz++) {
       const key = `${gx},${gz}`;
-      if (!m.has(key)) m.set(key, make(w, gx, gz));
-      const p = m.get(key);
+      const p = yield* m.prepare(key, () => make(w, gx, gz));
       if (p && Math.hypot(p.x - x, p.z - z) <= reach + p.r * 1.3) out.push(p);
     }
   return out.sort((a, b) => Math.hypot(a.x - x, a.z - z) - Math.hypot(b.x - x, b.z - z));
@@ -155,8 +167,17 @@ function near<T extends Patch>(
 
 /** Bamboo groves reaching within `reach` metres of (x, z), nearest first. */
 export const grovesNear = (w: Wilderness, x: number, z: number, reach: number): Grove[] =>
-  near(groves, groveInCell, GROVE_GRID, w, x, z, reach);
+  finishSteps(near(groves, groveSteps, GROVE_GRID, w, x, z, reach));
 
 /** Flower seas reaching within `reach` metres of (x, z), nearest first. */
 export const seasNear = (w: Wilderness, x: number, z: number, reach: number): FlowerSea[] =>
-  near(seas, seaInCell, SEA_GRID, w, x, z, reach);
+  finishSteps(seasNearSteps(w, x, z, reach));
+
+/** Distant flower colour is optional scenery; let its survey run over several frames too. */
+export const seasNearSteps = (w: Wilderness, x: number, z: number, reach: number) =>
+  near(seas, seaSteps, SEA_GRID, w, x, z, reach);
+
+export function* prepareGroves(w: Wilderness, x: number, z: number, reach: number): Generator<void, void> {
+  yield* near(groves, groveSteps, GROVE_GRID, w, x, z, reach);
+  yield* near(seas, seaSteps, SEA_GRID, w, x, z, reach);
+}

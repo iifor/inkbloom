@@ -32,6 +32,11 @@ export function warmShaders(renderer: InkRenderer): void {
   // a city's surfaces read their colour state from a small texture of their own; the first
   // such texture also costs a one-off setup, so give it one here
   const state = new SurfaceStateTexture(new Uint8Array(4));
+  // A summit flag can be the first cloth in view long after spawn. Compile its distinct
+  // fragment shader here too, instead of pausing movement when that summit streams in.
+  const cloth = makeInkMaterial({ cloth: true, side: THREE.DoubleSide });
+  materials.push(cloth);
+  group.add(new THREE.Mesh(geometry, cloth));
   for (const side of [THREE.FrontSide, THREE.DoubleSide]) {
     const material = makeInkMaterial({ side, state });
     materials.push(material);

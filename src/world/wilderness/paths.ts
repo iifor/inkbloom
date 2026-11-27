@@ -14,6 +14,7 @@ import { type Entrance, townDistance, WATER_LEVEL, type Wilderness } from './gen
 import { ruinInCell } from './ruins';
 import { SPAWN_CENTER as SPAWN, SPAWN_STONE_RADIUS, spawnStoneDistance } from './spawn-circle';
 import { createSettlementLinks } from './settlement-links';
+import { StepCache } from '../math/steps';
 
 /** A plank bridge carrying a path over a river: a deck along x from x0 to x1 at z. */
 export interface Bridge {
@@ -42,6 +43,8 @@ export interface Trail {
 export interface PathNetwork {
   /** Prewarm route searches one at a time before streaming terrain samples. */
   prepare(x0: number, z0: number, x1: number, z1: number): Generator<void, readonly Trail[], void>;
+  /** Prepare the distance/earthwork buckets before a distant landmark samples ground there. */
+  prepareGround(x0: number, z0: number, x1: number, z1: number): Generator<void, void>;
   /** Paths whose bounds overlap the box. */
   trailsNear(x0: number, z0: number, x1: number, z1: number): readonly Trail[];
   /** Metres from (x, z) to the edge of the nearest path: negative on it, Infinity far off. */
@@ -99,7 +102,7 @@ const cityCell = (v: number): number => Math.floor((v / SIZE + Math.floor(S.city
 
 function createNetwork(w: Wilderness): PathNetwork {
   const linksOf = createSettlementLinks(w);
-  const trails = new Map<string, Trail | null>();
+  const trails = new StepCache<string, Trail | null>();
   const gates = new Map<string, WorldGate[]>();
   const buckets = new Map<number, number[]>();
   const bridgesBy = new Map<number, Bridge[]>();
@@ -139,7 +142,7 @@ function createNetwork(w: Wilderness): PathNetwork {
    * waded at a price (a ford), and deep water is crossed only straight east–west and at a
    * heavy price, so the way goes round lakes and over rivers at a bridge.
    */
-  const route = (a: Pt, b: Pt, gateA: boolean, gateB: boolean): Pt[] | null => {
+  const route = function* (a: Pt, b: Pt, gateA: boolean, gateB: boolean): Generator<void, Pt[] | null> {
     // (on the one grid every path searches, so two paths can come to the same crossing)
     const x0 = Math.floor((Math.min(a.x, b.x) - CORRIDOR) / GRID) * GRID;
     const z0 = Math.floor((Math.min(a.z, b.z) - CORRIDOR) / GRID) * GRID;
@@ -198,6 +201,7 @@ function createNetwork(w: Wilderness): PathNetwork {
     const channel = WATER_LEVEL - DEEP;
     let pops = 0;
     while (heap.size && pops++ < n * 2) {
+      if (pops % 32 === 0) yield;
       const i = heap.pop();
       if (i === goal) break;
       const ix = i % nx;
@@ -263,12 +267,12 @@ function createNetwork(w: Wilderness): PathNetwork {
    * A path from `from` to `to`. A gate end leaves straight out of its gate; a plain end (a
    * ruin, spawn) is reached directly.
    */
-  const build = (
+  const build = function* (
     id: string,
     width: number,
     from: { x: number; z: number; outX?: number; outZ?: number },
     to: { x: number; z: number; outX?: number; outZ?: number },
-  ): Trail | null => {
+  ): Generator<void, Trail | null> {
     const lead = (p: typeof from): { x: number; z: number }[] =>
       p.outX === undefined
         ? [{ x: p.x, z: p.z }]
@@ -280,7 +284,7 @@ function createNetwork(w: Wilderness): PathNetwork {
     const tail = lead(to).reverse();
     const a = head[head.length - 1]!;
     const b = tail[0]!;
-    const way = route(a, b, from.outX !== undefined, to.outX !== undefined);
+    const way = yield* route(a, b, from.outX !== undefined, to.outX !== undefined);
     if (!way) return null;
     const curve = smooth(smooth([...head.slice(0, -1), ...way, ...tail.slice(1)]));
     // a point every 2.5 m or closer, so the ribbon hugs the ground and no dip into deep water
@@ -309,6 +313,7 @@ function createNetwork(w: Wilderness): PathNetwork {
       return true;
     };
     for (let i = 0; i < pts.length; i++) {
+      if (i % 16 === 0) yield;
       if (!deep(pts[i]!.x, pts[i]!.z)) continue;
       let j = i;
       while (j + 1 < pts.length && wet(pts[j + 1]!.x, pts[j + 1]!.z)) j++;
@@ -390,23 +395,25 @@ function createNetwork(w: Wilderness): PathNetwork {
     return { id, width, pts: dense, bridges, minX, maxX, minZ, maxZ };
   };
 
-  const trail = (id: string, make: () => Trail | null): Trail | null => {
-    if (!trails.has(id)) trails.set(id, make());
-    return trails.get(id)!;
-  };
+  const trail = (id: string, make: () => Generator<void, Trail | null>) => trails.prepare(id, make);
 
   /** The road from town cell (gx, gz) to the next cell east (dx 1) or south (dz 1). */
-  const road = (gx: number, gz: number, dx: number, dz: number): Trail | null =>
-    trail(`t${gx}_${gz}${dx ? 'e' : 's'}`, () => {
+  const road = (gx: number, gz: number, dx: number, dz: number) =>
+    trail(`t${gx}_${gz}${dx ? 'e' : 's'}`, function* () {
       const a = w.entranceInCell(gx, gz);
       const b = w.entranceInCell(gx + dx, gz + dz);
       if (!a || !b) return null;
-      return build(`t${gx}_${gz}${dx ? 'e' : 's'}`, ROAD, gateToward(a, b.x, b.z), gateToward(b, a.x, a.z));
+      return yield* build(
+        `t${gx}_${gz}${dx ? 'e' : 's'}`,
+        ROAD,
+        gateToward(a, b.x, b.z),
+        gateToward(b, a.x, a.z),
+      );
     });
 
   /** The track from a ruin to its nearest town. */
-  const ruinTrack = (rx: number, rz: number): Trail | null =>
-    trail(`r${rx}_${rz}`, () => {
+  const ruinTrack = (rx: number, rz: number) =>
+    trail(`r${rx}_${rz}`, function* () {
       const r = ruinInCell(w, rx, rz);
       if (!r) return null;
       const towns = w.entrancesNear(r.x, r.z, 1);
@@ -417,19 +424,19 @@ function createNetwork(w: Wilderness): PathNetwork {
       // stop at the ruin's edge, not in the middle of its stones
       const g = gateToward(town, r.x, r.z);
       const d = Math.hypot(g.x - r.x, g.z - r.z) || 1;
-      return build(`r${rx}_${rz}`, TRACK, g, {
+      return yield* build(`r${rx}_${rz}`, TRACK, g, {
         x: r.x + ((g.x - r.x) / d) * 9,
         z: r.z + ((g.z - r.z) / d) * 9,
       });
     });
 
   /** From spawn to the first town, over the first river. */
-  const firstPath = (): Trail | null =>
-    trail('spawn', () => {
+  const firstPath = () =>
+    trail('spawn', function* () {
       const [cx, cz] = S.firstCityChunk;
       const town = w.entrancesNear((cx + 0.5) * SIZE, (cz + 0.5) * SIZE, 0)[0];
       if (!town) return null;
-      const road = build('spawn', ROAD, { x: SPAWN + 6, z: SPAWN }, gateToward(town, SPAWN, SPAWN));
+      const road = yield* build('spawn', ROAD, { x: SPAWN + 6, z: SPAWN }, gateToward(town, SPAWN, SPAWN));
       if (!road) return null;
       // Run the dirt a little under the paving so its tapered end is hidden.
       const join = SPAWN + SPAWN_STONE_RADIUS - 0.8;
@@ -460,7 +467,7 @@ function createNetwork(w: Wilderness): PathNetwork {
                 Math.min(a.z, b.z) - pad > z1
               )
                 continue;
-              add(trail(id, () => build(id, ROAD, gateToward(a, b.x, b.z), gateToward(b, a.x, a.z))));
+              add(yield* trail(id, () => build(id, ROAD, gateToward(a, b.x, b.z), gateToward(b, a.x, a.z))));
               yield;
             }
           yield;
@@ -468,9 +475,9 @@ function createNetwork(w: Wilderness): PathNetwork {
     } else
       for (let gx = cityCell(x0) - 1; gx <= cityCell(x1) + 1; gx++)
         for (let gz = cityCell(z0) - 1; gz <= cityCell(z1) + 1; gz++) {
-          add(road(gx, gz, 1, 0));
+          add(yield* road(gx, gz, 1, 0));
           yield;
-          add(road(gx, gz, 0, 1));
+          add(yield* road(gx, gz, 0, 1));
           yield;
         }
     // a ruin's track can reach most of a town cell from it
@@ -484,10 +491,10 @@ function createNetwork(w: Wilderness): PathNetwork {
         rz <= Math.floor((z1 + CITY_SPAN) / RUIN_SPAN);
         rz++
       ) {
-        add(ruinTrack(rx, rz));
+        add(yield* ruinTrack(rx, rz));
         yield;
       }
-    if (x0 < CITY_SPAN && z0 < CITY_SPAN && x1 > -CITY_SPAN && z1 > -CITY_SPAN) add(firstPath());
+    if (x0 < CITY_SPAN && z0 < CITY_SPAN && x1 > -CITY_SPAN && z1 > -CITY_SPAN) add(yield* firstPath());
     return out;
   }
   const trailsNear = (x0: number, z0: number, x1: number, z1: number): Trail[] => {
@@ -558,6 +565,17 @@ function createNetwork(w: Wilderness): PathNetwork {
 
   return {
     prepare,
+    *prepareGround(x0, z0, x1, z1) {
+      for (let bx = Math.floor(x0 / BUCKET); bx <= Math.floor(x1 / BUCKET); bx++)
+        for (let bz = Math.floor(z0 / BUCKET); bz <= Math.floor(z1 / BUCKET); bz++) {
+          if (buckets.has((bx + 32768) * 65536 + bz + 32768)) continue;
+          const x = bx * BUCKET,
+            z = bz * BUCKET;
+          yield* prepare(x - 24, z - 24, x + BUCKET + 24, z + BUCKET + 24);
+          bucket(bx, bz);
+          yield;
+        }
+    },
     trailsNear,
     groundAt(x, z, natural) {
       const bx = Math.floor(x / BUCKET),

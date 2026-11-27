@@ -10,6 +10,7 @@ import type { WildChunk } from '@/world/wilderness/chunk';
 import { WATER_LEVEL, type Wilderness } from '@/world/wilderness/generator';
 import { type Bridge, pathsOf } from '@/world/wilderness/paths';
 import { BOULDER } from './stone-shape';
+import { finishSteps } from '@/world/math/steps';
 
 /** How high the trodden middle of a path stands over the ground, metres. Its edges lie just on
  * the ground and are marked as edges (GeometryBuilder.pathEdge): the material breaks them up, so
@@ -38,6 +39,14 @@ const speck = (x: number, z: number, k: number): number => {
 /** The paths crossing a chunk, laid onto `g`. Each stretch is drawn by the chunk holding its
  * middle, so neighbouring chunks never draw the same piece twice. */
 export function appendPaths(chunk: WildChunk, w: Wilderness, g: GeometryBuilder): void {
+  finishSteps(appendPathsSteps(chunk, w, g));
+}
+
+export function* appendPathsSteps(
+  chunk: WildChunk,
+  w: Wilderness,
+  g: GeometryBuilder,
+): Generator<void, void> {
   const size = chunk.n * chunk.cell;
   const { x0, z0 } = chunk;
   const net = pathsOf(w);
@@ -85,6 +94,7 @@ export function appendPaths(chunk: WildChunk, w: Wilderness, g: GeometryBuilder)
       });
     };
     for (let k = 0; k < count - 1; k++) {
+      if (k % 8 === 0) yield;
       const mx = (p[k * 2]! + p[k * 2 + 2]!) / 2;
       const mz = (p[k * 2 + 1]! + p[k * 2 + 3]!) / 2;
       if (mx < x0 || mx >= x0 + size || mz < z0 || mz >= z0 + size) continue;
@@ -126,7 +136,10 @@ export function appendPaths(chunk: WildChunk, w: Wilderness, g: GeometryBuilder)
       }
     }
   }
-  for (const b of chunk.bridges) appendBridge(b, w, g);
+  for (const b of chunk.bridges) {
+    appendBridge(b, w, g);
+    yield;
+  }
 }
 
 /** Planks across the deck, roughly one every PLANK metres, with a sliver between them. */

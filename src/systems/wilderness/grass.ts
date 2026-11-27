@@ -6,6 +6,7 @@
 import * as THREE from 'three';
 import { climateBiome } from '@/content/biomes';
 import { color, type ColorKey } from '@/content/palette';
+import { TUNING } from '@/content/tuning';
 import { NO_SHADOW_LAYER, makeInkMaterial } from '@/engine/render/ink-material';
 import { makeWindMap } from '@/engine/render/wind-map';
 import { hashInts, unit } from '@/world/math/hash';
@@ -39,9 +40,18 @@ interface Patch {
   mesh: THREE.InstancedMesh;
 }
 
+interface Planting {
+  key: string;
+  i: number;
+  k: number;
+  distance: number;
+}
+
 class Grid {
   readonly patches = new Map<string, Patch>();
   readonly spare: Patch[] = [];
+  wanted = new Set<string>();
+  pending: Planting[] = [];
   lastI = Infinity;
   lastK = Infinity;
   constructor(
@@ -71,6 +81,12 @@ export class GrassField {
   readonly windMap: THREE.DataTexture;
   private readonly drifts: Noise2D;
   private readonly hues: Noise2D;
+  private building: {
+    grid: Grid;
+    key: string;
+    patch: Patch;
+    steps: Generator<void, void>;
+  } | null = null;
 
   constructor(
     private readonly wilderness: Wilderness,
@@ -150,8 +166,9 @@ export class GrassField {
     this.frustum.setFromProjectionMatrix(
       this.viewProjection.multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse),
     );
+    for (const grid of this.grids) this.stream(grid, at);
+    this.plant();
     for (const grid of this.grids) {
-      this.stream(grid, at);
       const width = grid.step * grid.cells;
       for (const { i, k, mesh } of grid.patches.values()) {
         const dx = Math.max(i * width - at.x, at.x - (i + 1) * width, 0);
@@ -164,15 +181,58 @@ export class GrassField {
     }
   }
 
+  /** Startup can finish the nearby meadow behind the loading screen, yielding between updates. */
+  get ready(): boolean {
+    return !this.building && this.grids.every((grid) => grid.pending.length === 0);
+  }
+
+  private cancelPlanting(): void {
+    if (!this.building) return;
+    const { grid, patch, steps } = this.building;
+    steps.return();
+    patch.mesh.visible = false;
+    grid.spare.push(patch);
+    this.building = null;
+  }
+
+  /** All four kinds share one budget. Partially filled instance buffers stay off screen. */
+  private plant(): void {
+    if (this.building && !this.building.grid.wanted.has(this.building.key)) this.cancelPlanting();
+    const until = performance.now() + TUNING.world.grassStreaming.buildMs;
+    do {
+      if (!this.building) {
+        let nearest: Grid | undefined;
+        for (const grid of this.grids)
+          if (grid.pending.length && (!nearest || grid.pending[0]!.distance < nearest.pending[0]!.distance))
+            nearest = grid;
+        if (!nearest) return;
+        const { key, i, k } = nearest.pending.shift()!;
+        const patch = nearest.spare.pop() ?? this.createPatch(nearest);
+        patch.i = i;
+        patch.k = k;
+        patch.mesh.visible = false;
+        this.building = { grid: nearest, key, patch, steps: this.fill(nearest, patch) };
+      }
+      const job = this.building;
+      if (job.steps.next().done) {
+        job.grid.patches.set(job.key, job.patch);
+        this.building = null;
+      }
+    } while (performance.now() < until);
+  }
+
   /** Lay every patch afresh as it next streams in (a town nearby has just been laid out, and
    * its lawns can now grow grass). */
   invalidate(): void {
+    this.cancelPlanting();
     for (const grid of this.grids) {
       for (const patch of grid.patches.values()) {
         patch.mesh.visible = false;
         grid.spare.push(patch);
       }
       grid.patches.clear();
+      grid.pending = [];
+      grid.wanted.clear();
       grid.lastI = grid.lastK = Infinity;
     }
   }
@@ -187,7 +247,7 @@ export class GrassField {
     // Include the whole player cell so no tuft enters the circular field before its patch exists.
     const x = (ci + 0.5) * grid.step,
       z = (ck + 0.5) * grid.step;
-    const reach = RADIUS + grid.step;
+    const reach = RADIUS + TUNING.world.grassStreaming.ahead + grid.step;
     const minI = Math.floor((x - reach) / width),
       maxI = Math.floor((x + reach) / width);
     const minK = Math.floor((z - reach) / width),
@@ -198,20 +258,21 @@ export class GrassField {
       patch.mesh.visible = false;
       grid.spare.push(patch);
     }
+    grid.wanted.clear();
+    grid.pending = [];
     for (let i = minI; i <= maxI; i++) {
       const dx = Math.max(i * width - x, x - (i + 1) * width, 0);
       for (let k = minK; k <= maxK; k++) {
         const dz = Math.max(k * width - z, z - (k + 1) * width, 0);
         if (dx * dx + dz * dz > reach * reach) continue;
         const key = `${i},${k}`;
+        grid.wanted.add(key);
         if (grid.patches.has(key)) continue;
-        const patch = grid.spare.pop() ?? this.createPatch(grid);
-        patch.i = i;
-        patch.k = k;
-        this.fill(grid, patch);
-        grid.patches.set(key, patch);
+        if (this.building?.grid === grid && this.building.key === key) continue;
+        grid.pending.push({ key, i, k, distance: dx * dx + dz * dz });
       }
     }
+    grid.pending.sort((a, b) => a.distance - b.distance);
   }
 
   private createPatch(grid: Grid): Patch {
@@ -221,6 +282,8 @@ export class GrassField {
       grid.kind
     ];
     mesh.layers.set(NO_SHADOW_LAYER);
+    mesh.count = 0;
+    mesh.visible = false;
     // A flat patch's sphere reaches far above its grass. Cull against its wind-padded box instead.
     mesh.frustumCulled = false;
     mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
@@ -231,7 +294,7 @@ export class GrassField {
     return { i: 0, k: 0, mesh };
   }
 
-  private fill(grid: Grid, { mesh, i: pi, k: pk }: Patch): void {
+  private *fill(grid: Grid, { mesh, i: pi, k: pk }: Patch): Generator<void, void> {
     const matrices = mesh.instanceMatrix.array as Float32Array;
     const colors = mesh.instanceColor!.array as Float32Array;
     const seed =
@@ -242,7 +305,7 @@ export class GrassField {
     if (grid.kind === 'sea') {
       const width = grid.cells * grid.step;
       const seas = seasNear(w, (pi + 0.5) * width, (pk + 0.5) * width, width * 0.71);
-      if (seas.length) count = this.fillSea(grid, pi, pk, seas, matrices, colors);
+      if (seas.length) count = yield* this.fillSea(grid, pi, pk, seas, matrices, colors);
       return this.finish(mesh, count);
     }
     for (let i = pi * grid.cells; i < (pi + 1) * grid.cells; i++) {
@@ -314,25 +377,26 @@ export class GrassField {
         colors[count * 3 + 2] = r(10);
         count++;
       }
+      yield;
     }
     this.finish(mesh, count);
   }
 
   /** A flower sea's share of a patch: packed close where the sea is thick, each flower with its
    * sea's kind and its place in the bloom (green channel: kind + 0.9 × place). */
-  private fillSea(
+  private *fillSea(
     grid: Grid,
     pi: number,
     pk: number,
     seas: readonly FlowerSea[],
     matrices: Float32Array,
     colors: Float32Array,
-  ): number {
+  ): Generator<void, number> {
     const w = this.wilderness;
     const paths = pathsOf(w);
     const seed = w.seed ^ 0x3c71;
     let count = 0;
-    for (let i = pi * grid.cells; i < (pi + 1) * grid.cells; i++)
+    for (let i = pi * grid.cells; i < (pi + 1) * grid.cells; i++) {
       for (let k = pk * grid.cells; k < (pk + 1) * grid.cells; k++) {
         const r = (n: number) => unit(hashInts(seed, i, k, n));
         const x = (i - 0.25 + r(0) * 1.5) * grid.step,
@@ -371,6 +435,8 @@ export class GrassField {
         colors[count * 3 + 2] = r(10);
         count++;
       }
+      yield;
+    }
     return count;
   }
 
@@ -394,6 +460,7 @@ export class GrassField {
   }
 
   dispose(): void {
+    this.cancelPlanting();
     this.windMap.dispose();
     this.coverRoot.removeFromParent();
     for (const grid of this.grids) {
@@ -404,6 +471,8 @@ export class GrassField {
       grid.geometry.dispose();
       grid.material.dispose();
       grid.patches.clear();
+      grid.pending = [];
+      grid.wanted.clear();
       grid.spare.length = 0;
     }
   }

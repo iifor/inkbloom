@@ -61,7 +61,7 @@ const LAWN_CLEAR = [
   [0, -0.6],
 ] as const;
 /** Milliseconds a frame spent building the next chunk. */
-const BUILD_MS = 2;
+const BUILD_MS = W.streaming.chunkMs;
 
 export class WildScene implements GameScene {
   readonly ref = { kind: 'wild' } as const;
@@ -74,7 +74,14 @@ export class WildScene implements GameScene {
   private readonly households = new Set<Residents>();
   private readonly loaded = new Map<string, Loaded>();
   /** The chunk being built a little each frame, if any; see update(). */
-  private building: { readonly key: string; readonly steps: Generator<void, void, void> } | null = null;
+  private building: {
+    readonly key: string;
+    readonly cx: number;
+    readonly cz: number;
+    readonly steps: Generator<void, void, void>;
+  } | null = null;
+  private lastX = NaN;
+  private lastZ = NaN;
   private drainT = 0;
   private readonly sources: WildSources;
   readonly monsters: WildMonsterCamps;
@@ -92,9 +99,6 @@ export class WildScene implements GameScene {
   private nextWake = 0;
   /** Towns near by that were laid out when the grass was last laid (see update). */
   private lawns = '';
-  /** Where the renderer's river table was last made for (see updateRivers). */
-  private riverX = NaN;
-  private riverZ = NaN;
   private readonly offStroke: () => void;
   private readonly offWaterLand: () => void;
   private readonly riverSpray: RiverSpray;
@@ -199,12 +203,37 @@ export class WildScene implements GameScene {
       this.landscape.update(p, this.loaded);
       if (!this.landscape.startupReady) await nextFrame();
     } while (!this.landscape.startupReady);
+    do {
+      this.updateGrass(p);
+      if (!this.grass.ready) await nextFrame();
+    } while (!this.grass.ready);
+  }
+
+  private updateGrass(p: THREE.Vector3): void {
+    const phase = calendarAt(calendarClock(this.ctx.state, !!this.ctx.net)).yearPhase;
+    const year = seasonBlend(phase);
+    const flowers = SEASONS[year.from]!.flowers * (1 - year.t) + SEASONS[year.to]!.flowers * year.t;
+    this.grass.update(p, flowers, grassCoverAt(phase), phase);
   }
 
   update(dt: number): void {
     const p = this.ctx.player.position;
     const pcx = Math.floor(p.x / W.chunkSize);
     const pcz = Math.floor(p.z / W.chunkSize);
+    const vx = p.x - this.lastX,
+      vz = p.z - this.lastZ;
+    const distance = Math.hypot(vx, vz);
+    const moving = Number.isFinite(distance) && distance > 0.001;
+    this.lastX = p.x;
+    this.lastZ = p.z;
+    // A fast turn or teleport must not finish a chunk already outside the retained neighbourhood.
+    if (
+      this.building &&
+      Math.max(Math.abs(this.building.cx - pcx), Math.abs(this.building.cz - pcz)) > W.unloadRadius
+    ) {
+      this.building.steps.return();
+      this.building = null;
+    }
     // keep building the chunk under way, a couple of milliseconds a frame
     if (this.building) {
       const until = performance.now() + BUILD_MS;
@@ -223,24 +252,31 @@ export class WildScene implements GameScene {
         const cz = pcz + dz;
         const k = chunkKey(cx, cz);
         if (this.loaded.has(k) || this.building?.key === k) continue;
-        const d = dx * dx + dz * dz;
+        // Keep the nearest ring first; within it, put detail in the direction of travel first.
+        const d = dx * dx + dz * dz - (moving ? (0.6 * (dx * vx + dz * vz)) / distance : 0);
         if (d < bestD) {
           bestD = d;
           best = [cx, cz];
         }
       }
     if (best && !this.building)
-      this.building = { key: chunkKey(best[0], best[1]), steps: this.loadSteps(best[0], best[1]) };
+      this.building = {
+        key: chunkKey(best[0], best[1]),
+        cx: best[0],
+        cz: best[1],
+        steps: this.loadSteps(best[0], best[1]),
+      };
+    let removed = 0;
     for (const [key, item] of this.loaded) {
       const [cx, cz] = key.split(',').map(Number) as [number, number];
-      if (Math.max(Math.abs(cx - pcx), Math.abs(cz - pcz)) > W.unloadRadius) this.unload(key, item);
+      if (Math.max(Math.abs(cx - pcx), Math.abs(cz - pcz)) > W.unloadRadius) {
+        this.unload(key, item);
+        if (++removed >= W.streaming.unloads) break;
+      }
     }
-    const phase = calendarAt(calendarClock(this.ctx.state, !!this.ctx.net)).yearPhase;
     this.landscape.update(p, this.loaded);
-    const year = seasonBlend(phase);
     this.trees.update(p);
-    const flowers = SEASONS[year.from]!.flowers * (1 - year.t) + SEASONS[year.to]!.flowers * year.t;
-    this.grass.update(p, flowers, grassCoverAt(phase), phase);
+    this.updateGrass(p);
     const t = this.ctx.state.clock;
     this.fish.update(t, p, dt);
     this.weed.update(p);
@@ -284,11 +320,13 @@ export class WildScene implements GameScene {
   private updateRivers(p: THREE.Vector3): void {
     const x0 = Math.floor(p.x / RIVER_BAND) * RIVER_BAND - RIVER_BAND * 2;
     const z0 = Math.floor(p.z / RIVER_BAND) * RIVER_BAND - RIVER_BAND * 2;
-    if (x0 === this.riverX && z0 === this.riverZ) return;
-    this.riverX = x0;
-    this.riverZ = z0;
     const currents = waterCurrentsOf(this.ctx.wilderness);
-    this.ctx.renderer.setRivers(x0, z0, (x, z) => currents.surfaceAt(x, z), (x, z) => currents.at(x, z));
+    this.ctx.renderer.setRivers(
+      x0,
+      z0,
+      (x, z) => currents.surfaceAt(x, z),
+      (x, z) => currents.at(x, z),
+    );
   }
 
   /** Push nearby cities' progress into the shader so the wilderness greys around them. */
@@ -326,51 +364,75 @@ export class WildScene implements GameScene {
     yield* buildTerrainSteps(chunk, this.ctx.wilderness, g);
     if (this.loaded.has(key)) return;
     const group = `chunk:${key}`;
-    addChunkColliders(chunk, this.physics, group);
     const release: (() => void)[] = [];
-    if (chunk.farmstead) {
-      const household = new Residents(
-        this.ctx,
-        farmPopulation(this.ctx, chunk.farmstead, this.homecomings),
-        this.root,
-        () => farmActivities(this.ctx.wilderness, chunk, chunk.farmstead!),
-        this.physics,
-      );
-      this.households.add(household);
-      release.push(() => {
-        this.households.delete(household);
-        household.dispose();
-      });
-      let index = 0;
-      buildFarmstead(
-        g,
-        this.ctx.wilderness,
-        chunk.farmstead,
-        (min, max, data) => this.physics.addBox(group, min, max, data),
-        (door) =>
-          release.push(
-            mountFarmDoor(this.ctx, this.root, this.material, this.physics, `${group}:door:${index++}`, door),
-          ),
-      );
+    let mesh: THREE.Mesh | undefined;
+    let committed = false;
+    try {
+      addChunkColliders(chunk, this.physics, group);
+      if (chunk.farmstead) {
+        const household = new Residents(
+          this.ctx,
+          farmPopulation(this.ctx, chunk.farmstead, this.homecomings),
+          this.root,
+          () => farmActivities(this.ctx.wilderness, chunk, chunk.farmstead!),
+          this.physics,
+        );
+        this.households.add(household);
+        release.push(() => {
+          this.households.delete(household);
+          household.dispose();
+        });
+        let index = 0;
+        buildFarmstead(
+          g,
+          this.ctx.wilderness,
+          chunk.farmstead,
+          (min, max, data) => this.physics.addBox(group, min, max, data),
+          (door) =>
+            release.push(
+              mountFarmDoor(
+                this.ctx,
+                this.root,
+                this.material,
+                this.physics,
+                `${group}:door:${index++}`,
+                door,
+              ),
+            ),
+        );
+        yield;
+      }
+      release.push(this.trees.add(chunk, this.ctx.player.position));
+      for (const l of chunk.lookouts) release.push(this.flags.add(lookoutFlag(l, this.ctx.wilderness)));
+      for (const r of chunk.ruins) buildRuin(r, g, this.physics, group);
       yield;
+      release.push(this.ruins.add(chunk.ruins));
+      release.push(this.sources.add(chunk.sources));
+      release.push(this.monsters.add(chunk));
+      release.push(this.wells.add(chunk));
+      yield;
+      release.push(this.fish.add(chunk, this.ctx.wilderness));
+      release.push(this.weed.add(chunk, this.ctx.wilderness));
+      yield;
+      mesh = new THREE.Mesh(g.build(), this.material);
+      release.push(this.ctx.renderer.lamps.add(mesh.geometry));
+      mesh.name = group;
+      this.root.add(mesh);
+      this.loaded.set(key, {
+        mesh,
+        release,
+        trails: chunk.trails,
+        fauna: habitatAnimals(this.ctx.wilderness, chunk),
+      });
+      committed = true;
+    } finally {
+      if (!committed) {
+        this.physics.removeGroup(group);
+        for (const dispose of release) dispose();
+        mesh?.geometry.dispose();
+        mesh?.removeFromParent();
+      }
     }
-    release.push(this.trees.add(chunk, this.ctx.player.position));
-    for (const l of chunk.lookouts) release.push(this.flags.add(lookoutFlag(l, this.ctx.wilderness)));
-    for (const r of chunk.ruins) buildRuin(r, g, this.physics, group);
-    yield;
-    release.push(this.ruins.add(chunk.ruins));
-    release.push(this.sources.add(chunk.sources));
-    release.push(this.monsters.add(chunk));
-    release.push(this.wells.add(chunk));
-    yield;
-    release.push(this.fish.add(chunk, this.ctx.wilderness));
-    release.push(this.weed.add(chunk, this.ctx.wilderness));
-    yield;
-    const mesh = new THREE.Mesh(g.build(), this.material);
-    release.push(this.ctx.renderer.lamps.add(mesh.geometry));
-    mesh.name = group;
-    this.root.add(mesh);
-    this.loaded.set(key, { mesh, release, trails: chunk.trails, fauna: habitatAnimals(this.ctx.wilderness, chunk) });
   }
 
   private unload(key: string, item: Loaded): void {
@@ -391,8 +453,8 @@ export class WildScene implements GameScene {
   }
 
   dispose(): void {
-    // a chunk half built has already registered things; finish it so it unloads cleanly
-    if (this.building) while (!this.building.steps.next().done);
+    // Closing the generator rolls back anything it registered before its last yield.
+    this.building?.steps.return();
     this.building = null;
     this.offStroke();
     this.offWaterLand();

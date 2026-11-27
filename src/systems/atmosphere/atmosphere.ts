@@ -15,15 +15,20 @@ import { type WeatherAt, boltsAt, createWeather } from '@/world/climate/weather'
 import { smoothstep } from '@/world/math/noise';
 import { influenceOf, saturationAt } from '@/world/wilderness/drain';
 import { WATER_LEVEL } from '@/world/wilderness/generator';
-import { bloomOf, SEA_FLOWERS, seasNear } from '@/world/wilderness/groves';
+import { bloomOf, SEA_FLOWERS, seasNearSteps, type FlowerSea } from '@/world/wilderness/groves';
 import { cleansedNear } from '@/world/wilderness/ink-wells';
-import { springLevel, springsNear } from '@/world/wilderness/landmarks';
+import { springLevel, springsNearSteps, type Spring } from '@/world/wilderness/landmarks';
 
 /** Gloom while a tide is announced, and while it rolls. */
 const WARNING_GLOOM = 0.35;
 const TIDE_GLOOM = 1;
 /** Lightning within this many metres is seen and heard. */
 const BOLT_REACH = 900;
+
+interface NearbyScenery {
+  seas: FlowerSea[];
+  springs: Spring[];
+}
 
 /** The weather as the renderer and audio take it (see `InkRenderer.atmosphere.weather`). */
 interface WeatherLook {
@@ -73,6 +78,7 @@ export class AtmosphereSystem implements System {
   private flash = 0;
   private litterSeason = 0;
   private springT = 0;
+  private scenery: { x: number; z: number; steps: Generator<void, NearbyScenery> } | null = null;
 
   constructor(private readonly ctx: GameContext) {
     this.weather = createWeather(ctx.wilderness);
@@ -191,15 +197,12 @@ export class AtmosphereSystem implements System {
   }
 
   /** Flower seas in bloom within sight, for the paint pass's far wash of colour. */
-  private seas(year: number): void {
-    const { player, scenes, wilderness, renderer } = this.ctx;
-    const near =
-      scenes.active.ref.kind === 'wild'
-        ? seasNear(wilderness, player.position.x, player.position.z, 450)
-            .map((s) => ({ s, bloom: bloomOf(s.kind, year) }))
-            .filter((o) => o.bloom > 0.02)
-            .slice(0, SEA_SLOTS)
-        : [];
+  private seas(year: number, seas: FlowerSea[]): void {
+    const { renderer } = this.ctx;
+    const near = seas
+      .map((s) => ({ s, bloom: bloomOf(s.kind, year) }))
+      .filter((o) => o.bloom > 0.02)
+      .slice(0, SEA_SLOTS);
     renderer.flowerSeas.forEach((v, i) => {
       const o = near[i];
       v.set(o?.s.x ?? 0, o?.s.z ?? 0, o?.s.r ?? 0, o ? SEA_FLOWERS[o.s.kind]!.colour + o.bloom * 0.9 : 0);
@@ -214,13 +217,30 @@ export class AtmosphereSystem implements System {
   private springs(dt: number, hour: number, w: WeatherLook): void {
     const { player, scenes, wilderness, renderer } = this.ctx;
     this.springT -= dt;
-    if (this.springT > 0) return;
-    this.springT = 0.5;
-    this.seas(renderer.atmosphere.year);
     const wild = scenes.active.ref.kind === 'wild';
-    const near = wild
-      ? springsNear(wilderness, player.position.x, player.position.z, 220).slice(0, STEAM_SPRINGS)
-      : [];
+    const { x, z } = player.position;
+    if (this.scenery && (!wild || Math.hypot(x - this.scenery.x, z - this.scenery.z) > 128)) {
+      this.scenery.steps.return({ seas: [], springs: [] });
+      this.scenery = null;
+      this.springT = 0;
+    }
+    let scenery: NearbyScenery = { seas: [], springs: [] };
+    if (wild) {
+      if (!this.scenery) {
+        if (this.springT > 0) return;
+        this.scenery = { x, z, steps: this.surveyScenery(x, z) };
+      }
+      const until = performance.now() + TUNING.world.streaming.sceneryMs;
+      let next = this.scenery.steps.next();
+      while (!next.done && performance.now() < until) next = this.scenery.steps.next();
+      // Keep the last complete set while surveying distant cells beyond streamed terrain.
+      if (!next.done) return;
+      scenery = next.value;
+      this.scenery = null;
+    } else if (this.springT > 0) return;
+    this.springT = 0.5;
+    this.seas(renderer.atmosphere.year, scenery.seas);
+    const near = scenery.springs.slice(0, STEAM_SPRINGS);
     const sources = near.map((s) => ({ x: s.x, y: springLevel(s, wilderness), z: s.z, r: s.r }));
     const nearest = near[0];
     renderer.warmSpot.set(nearest?.x ?? 0, nearest?.z ?? 0, nearest?.r ?? 0, 0);
@@ -229,6 +249,12 @@ export class AtmosphereSystem implements System {
       TUNING.season.lapse * (sources[0]?.y ?? 0) +
       4 * Math.sin((2 * Math.PI * (hour - 9)) / 24);
     renderer.steam.set(sources, 0.3 + 0.7 * smoothstep(20, 2, air), w.windX, w.windZ);
+  }
+
+  private *surveyScenery(x: number, z: number): Generator<void, NearbyScenery> {
+    const seas = yield* seasNearSteps(this.ctx.wilderness, x, z, 450);
+    const springs = yield* springsNearSteps(this.ctx.wilderness, x, z, 220);
+    return { seas, springs };
   }
 
   /** Fireflies on warm nights, butterflies on fair days, both only in coloured wild land; and
@@ -272,6 +298,8 @@ export class AtmosphereSystem implements System {
   }
 
   dispose(): void {
+    this.scenery?.steps.return({ seas: [], springs: [] });
+    this.scenery = null;
     for (const r of this.release) r();
   }
 }

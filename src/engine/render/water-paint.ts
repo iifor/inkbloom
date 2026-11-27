@@ -367,23 +367,77 @@ export const waterGLSL = /* glsl */ `
 /** The surface velocity field around the player, as a texture for the paint pass. */
 export class RiverTable {
   private readonly data = new Uint16Array(RIVER_SAMPLES * RIVER_SAMPLES * 2);
+  readonly grid = new THREE.Vector4(0, 0, CURRENT_STEP, RIVER_SAMPLES);
+  private published = false;
+  private pending: { x: number; z: number; steps: Generator<void, Uint16Array> } | null = null;
   readonly texture = Object.assign(
     new THREE.DataTexture(this.data, RIVER_SAMPLES, RIVER_SAMPLES, THREE.RGFormat, THREE.HalfFloatType),
     { magFilter: THREE.LinearFilter, minFilter: THREE.LinearFilter },
   );
 
-  set(x0: number, z0: number, at: (x: number, z: number) => { x: number; z: number }): void {
-    for (let row = 0; row < RIVER_SAMPLES; row++)
-      for (let column = 0; column < RIVER_SAMPLES; column++) {
-        const v = at(x0 + column * CURRENT_STEP, z0 + row * CURRENT_STEP);
-        const i = (row * RIVER_SAMPLES + column) * 2;
-        this.data[i] = THREE.DataUtils.toHalfFloat(v.x);
-        this.data[i + 1] = THREE.DataUtils.toHalfFloat(v.z);
+  /** Keep the last complete field visible while preparing a new one. */
+  request(x0: number, z0: number, at: (x: number, z: number) => { x: number; z: number }): void {
+    if (this.pending?.x === x0 && this.pending.z === z0) return;
+    this.pending?.steps.return(this.data);
+    this.pending = null;
+    if (this.published && this.grid.x === x0 && this.grid.y === z0) return;
+    this.pending = { x: x0, z: z0, steps: this.sample(x0, z0, at) };
+  }
+
+  update(budgetMs: number): void {
+    const job = this.pending;
+    if (!job || budgetMs <= 0) return;
+    const until = performance.now() + budgetMs;
+    do {
+      const next = job.steps.next();
+      if (next.done) {
+        this.data.set(next.value);
+        this.grid.set(job.x, job.z, CURRENT_STEP, RIVER_SAMPLES);
+        this.texture.needsUpdate = true;
+        this.published = true;
+        this.pending = null;
+        return;
       }
-    this.texture.needsUpdate = true;
+    } while (performance.now() < until);
+  }
+
+  get ready(): boolean {
+    return this.pending === null;
+  }
+
+  private *sample(
+    x0: number,
+    z0: number,
+    at: (x: number, z: number) => { x: number; z: number },
+  ): Generator<void, Uint16Array> {
+    const next = new Uint16Array(this.data.length);
+    const dx = (x0 - this.grid.x) / CURRENT_STEP;
+    const dz = (z0 - this.grid.y) / CURRENT_STEP;
+    const reuse = this.published && Number.isInteger(dx) && Number.isInteger(dz);
+    for (let row = 0; row < RIVER_SAMPLES; row++) {
+      for (let column = 0; column < RIVER_SAMPLES; column++) {
+        const i = (row * RIVER_SAMPLES + column) * 2;
+        const oldX = column + dx,
+          oldZ = row + dz;
+        if (reuse && oldX >= 0 && oldX < RIVER_SAMPLES && oldZ >= 0 && oldZ < RIVER_SAMPLES) {
+          const old = (oldZ * RIVER_SAMPLES + oldX) * 2;
+          next[i] = this.data[old]!;
+          next[i + 1] = this.data[old + 1]!;
+        } else {
+          const v = at(x0 + column * CURRENT_STEP, z0 + row * CURRENT_STEP);
+          next[i] = THREE.DataUtils.toHalfFloat(v.x);
+          next[i + 1] = THREE.DataUtils.toHalfFloat(v.z);
+        }
+        if (column % 32 === 31) yield;
+      }
+      yield;
+    }
+    return next;
   }
 
   dispose(): void {
+    this.pending?.steps.return(this.data);
+    this.pending = null;
     this.texture.dispose();
   }
 }

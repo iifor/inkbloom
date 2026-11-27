@@ -31,8 +31,7 @@ import { PaintedTextures } from './painted-textures';
 import { SEA_SLOTS } from './paint-shader';
 import { PassTimer } from './pass-timer';
 import { SunShadows } from './sun-shadows';
-import { CURRENT_STEP } from '@/world/wilderness/water-current';
-import { RIVER_SAMPLES, RiverTable } from './water-paint';
+import { RiverTable } from './water-paint';
 import { WakeField } from './wake-field';
 import { WaterSpray } from './water-spray';
 import { BrushSpray } from './brush-spray';
@@ -243,6 +242,7 @@ export class InkRenderer {
       seaLobes: this.flowerSeaLobes,
     });
     this.postScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this.post));
+    this.post.uniforms.uRiverGrid!.value = this.rivers.grid;
     this.precipitation = new Precipitation(depthTexture);
     this.critters = new Critters(depthTexture);
     this.steam = new Steam(depthTexture);
@@ -389,8 +389,8 @@ export class InkRenderer {
     currentAt: (x: number, z: number) => { x: number; z: number },
   ): void {
     this.riverVelocity = currentAt;
-    this.rivers.set(x0, z0, surfaceAt);
-    this.post.uniforms.uRiverGrid!.value.set(x0, z0, CURRENT_STEP, RIVER_SAMPLES);
+    this.rivers.request(x0, z0, surfaceAt);
+    this.rivers.update(TUNING.world.streaming.riverMs);
   }
 
   setWildWater(enabled: boolean): void {
@@ -402,7 +402,14 @@ export class InkRenderer {
     this.wakes.add(x, z, performance.now() / 1000, fromPlayer, strength, v?.x, v?.z);
   }
 
-  waterSplash(x: number, z: number, strength: number, flowX: number, flowZ: number, bankNormal?: { x: number; z: number }): void {
+  waterSplash(
+    x: number,
+    z: number,
+    strength: number,
+    flowX: number,
+    flowZ: number,
+    bankNormal?: { x: number; z: number },
+  ): void {
     this.spray.add(x, z, performance.now() / 1000, strength, flowX, flowZ, bankNormal);
   }
 
@@ -498,7 +505,8 @@ export class InkRenderer {
     const r = this.renderer;
     r.info.reset();
     this.pass('wake');
-    this.post.uniforms.uHasWakes!.value = this.post.uniforms.uWildWater!.value &&
+    this.post.uniforms.uHasWakes!.value =
+      this.post.uniforms.uWildWater!.value &&
       this.wakes.render(r, this.camera.getWorldPosition(_eye), now / 1000);
     this.pass('shadows');
     this.shadows.update(r, this.scene, this.camera, this.day.dir);

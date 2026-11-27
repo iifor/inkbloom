@@ -7,7 +7,7 @@
 import * as THREE from 'three';
 import { TUNING } from '@/content/tuning';
 import { addLandmarkColliders, appendLandmarks } from './build-landmarks';
-import { addBridgeColliders, appendPaths } from './build-paths';
+import { addBridgeColliders, appendPathsSteps } from './build-paths';
 import { appendTree, treeMatrix, treePalette } from './tree-geometry';
 import { GeometryBuilder } from '@/engine/render/geometry-builder';
 import type { PhysicsWorld, Vec3Like } from '@/engine/physics/world';
@@ -134,13 +134,18 @@ export function* buildTerrainSteps(
     skirt(steps, k + 1, 0, -1);
     skirt(k + 1, 0, -1, 0);
     skirt(k, steps, 1, 0);
+    if (k % 8 === 7) yield;
   }
   // footpaths over the ground, and their bridges
-  appendPaths(chunk, w, g);
+  yield* appendPathsSteps(chunk, w, g);
   if (chunk.cx === 0 && chunk.cz === 0) appendSpawnCircle(w, g);
   // hot springs and summit lookouts
   appendLandmarks(chunk, w, g);
-  for (const prop of chunk.groundProps) appendGroundProp(g, prop, w.heightAt);
+  yield;
+  for (const prop of chunk.groundProps) {
+    appendGroundProp(g, prop, w.heightAt);
+    yield;
+  }
 }
 
 export function addChunkColliders(chunk: WildChunk, physics: PhysicsWorld, group: string): void {

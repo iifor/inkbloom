@@ -4,9 +4,9 @@ import { color } from '@/content/palette';
 import { TUNING } from '@/content/tuning';
 import { hashAt, hashInts, unit } from '../math/hash';
 import { type Wilderness, WATER_LEVEL } from './generator';
-import { grovesNear, patchMask, seasNear } from './groves';
+import { grovesNear, patchMask, seasNear, prepareGroves } from './groves';
 import { inkWellInChunk } from './ink-wells';
-import { type Lookout, lookoutsInChunk, type Spring, springsInChunk } from './landmarks';
+import { type Lookout, lookoutsInChunk, type Spring, springsInChunk, prepareLandmarks } from './landmarks';
 import { type Bridge, type Trail, pathsOf } from './paths';
 import { type PigmentSource, sourcesInChunk } from './sources';
 import { type Ruin, ruinsInChunk } from './ruins';
@@ -101,6 +101,7 @@ export function* generateWildChunkSteps(
   const trees: Tree[] = [];
   // bamboo stands in place of the trees in a grove; a flower sea is open ground
   const mid = { x: x0 + size / 2, z: z0 + size / 2 };
+  yield* prepareGroves(w, mid.x, mid.z, size * 0.75);
   const groves = grovesNear(w, mid.x, mid.z, size * 0.75);
   const seas = seasNear(w, mid.x, mid.z, size * 0.75);
   const at = (ix: number, iz: number): number =>
@@ -240,11 +241,20 @@ export function* ruralSites(w: Wilderness, cx: number, cz: number, isPeaceful?: 
   const great = greatTreeIn(w, cx, cz, sources, ruins);
   yield;
   // springs and lookouts here and next door: trees near a chunk's edge give them room too
+  yield* prepareLandmarks(w, cx, cz);
   const springs = springsInChunk(w, cx, cz);
   const lookouts = lookoutsInChunk(w, cx, cz);
   const marks: { x: number; z: number; room: number }[] = [];
   for (let dz = -1; dz <= 1; dz++)
     for (let dx = -1; dx <= 1; dx++) {
+      yield* prepareLandmarks(w, cx + dx, cz + dz);
+      const size = TUNING.world.chunkSize;
+      yield* pathsOf(w).prepareGround(
+        (cx + dx) * size - 4,
+        (cz + dz) * size - 4,
+        (cx + dx + 1) * size + 4,
+        (cz + dz + 1) * size + 4,
+      );
       for (const s of springsInChunk(w, cx + dx, cz + dz)) marks.push({ x: s.x, z: s.z, room: s.r + 5 });
       for (const l of lookoutsInChunk(w, cx + dx, cz + dz)) marks.push({ x: l.x, z: l.z, room: 7 });
       const well = inkWellInChunk(w, cx + dx, cz + dz);

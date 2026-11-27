@@ -10,6 +10,7 @@ import { hashAt, hashInts, unit } from '../math/hash';
 import { type Wilderness, WATER_LEVEL } from './generator';
 import { pathsOf } from './paths';
 import { ruinCellOf, ruinInCell } from './ruins';
+import { finishSteps, StepCache } from '../math/steps';
 
 export interface Spring {
   /** `s<gx>_<gz>` */
@@ -52,6 +53,10 @@ function clear(w: Wilderness, x: number, z: number, room: number): boolean {
 
 /** The hot spring of a cell, if it has one. */
 export function springInCell(w: Wilderness, gx: number, gz: number): Spring | null {
+  return finishSteps(cached(springs, w, `${gx},${gz}`, () => springSteps(w, gx, gz)));
+}
+
+function* springSteps(w: Wilderness, gx: number, gz: number): Generator<void, Spring | null> {
   const h0 = hashAt(w.seed, 'spring', gx, gz);
   if (unit(h0) >= SPRING_CHANCE) return null;
   const span = SPRING_GRID * SIZE;
@@ -62,6 +67,7 @@ export function springInCell(w: Wilderness, gx: number, gz: number): Spring | nu
     if (Math.hypot(x - SIZE / 2, z - SIZE / 2) < 150) continue;
     // in hilly country, above the valley floor
     if (w.climate(x, z).relief < -0.15) continue;
+    yield* pathsOf(w).prepareGround(x - 12, z - 12, x + 12, z + 12);
     const y = w.heightAt(x, z);
     if (y < WATER_LEVEL + 2.5) continue;
     const r = 2.6 + unit(hashInts(h, 2)) * 1.6;
@@ -85,22 +91,30 @@ export function springInCell(w: Wilderness, gx: number, gz: number): Spring | nu
 
 /** The lookout of a cell: its highest ground, if that is high enough and clear. */
 export function lookoutInCell(w: Wilderness, gx: number, gz: number): Lookout | null {
+  return finishSteps(cached(lookouts, w, `${gx},${gz}`, () => lookoutSteps(w, gx, gz)));
+}
+
+function* lookoutSteps(w: Wilderness, gx: number, gz: number): Generator<void, Lookout | null> {
   const span = LOOKOUT_GRID * SIZE;
   const x0 = gx * span;
   const z0 = gz * span;
+  const paths = pathsOf(w);
+  yield* paths.prepareGround(x0 + 4, z0 + 4, x0 + span, z0 + span);
   // a coarse search for the highest ground, then a fine one round it (not at the cell's edge,
   // so a summit split between cells gets one lookout, in the cell its top is in)
   let bx = 0;
   let bz = 0;
   let by = -Infinity;
-  for (let i = 1; i < 16; i++)
+  for (let i = 1; i < 16; i++) {
     for (let k = 1; k < 16; k++) {
       const x = x0 + (i / 16) * span;
       const z = z0 + (k / 16) * span;
       const y = w.heightAt(x, z);
       if (y > by) [bx, bz, by] = [x, z, y];
     }
-  for (let i = -6; i <= 6; i++)
+    yield;
+  }
+  for (let i = -6; i <= 6; i++) {
     for (let k = -6; k <= 6; k++) {
       const x = bx + i * 4;
       const z = bz + k * 4;
@@ -108,6 +122,8 @@ export function lookoutInCell(w: Wilderness, gx: number, gz: number): Lookout | 
       const y = w.heightAt(x, z);
       if (y > by) [bx, bz, by] = [x, z, y];
     }
+    yield;
+  }
   // then up to the true top: step to higher ground round about until there is none. A summit
   // whose top is over the cell's edge belongs to the cell next door, which finds it too.
   for (let step = 0; step < 40; step++) {
@@ -116,6 +132,7 @@ export function lookoutInCell(w: Wilderness, gx: number, gz: number): Lookout | 
       for (let k = 0; k < 8; k++) {
         const x = bx + Math.cos((k * Math.PI) / 4) * d;
         const z = bz + Math.sin((k * Math.PI) / 4) * d;
+        yield* paths.prepareGround(x - 4, z - 4, x + 4, z + 4);
         const y = w.heightAt(x, z);
         if (y > by + 0.05) {
           [bx, bz, by] = [x, z, y];
@@ -142,18 +159,27 @@ export function springLevel(s: Spring, w: Pick<Wilderness, 'heightAt'>): number 
   return top + 0.08;
 }
 
-const springs = new WeakMap<Wilderness, Map<string, Spring | null>>();
-const lookouts = new WeakMap<Wilderness, Map<string, Lookout | null>>();
+const springs = new WeakMap<Wilderness, StepCache<string, Spring | null>>();
+const lookouts = new WeakMap<Wilderness, StepCache<string, Lookout | null>>();
 function cached<T>(
-  store: WeakMap<Wilderness, Map<string, T | null>>,
+  store: WeakMap<Wilderness, StepCache<string, T | null>>,
   w: Wilderness,
   key: string,
-  make: () => T | null,
-): T | null {
+  make: () => Generator<void, T | null>,
+): Generator<void, T | null> {
   let m = store.get(w);
-  if (!m) store.set(w, (m = new Map()));
-  if (!m.has(key)) m.set(key, make());
-  return m.get(key)!;
+  if (!m) store.set(w, (m = new StepCache()));
+  return m.prepare(key, make);
+}
+
+/** Prime the full survey cells, which can extend well beyond the chunk being streamed. */
+export function* prepareLandmarks(w: Wilderness, cx: number, cz: number): Generator<void, void> {
+  const sx = Math.floor(cx / SPRING_GRID),
+    sz = Math.floor(cz / SPRING_GRID);
+  yield* cached(springs, w, `${sx},${sz}`, () => springSteps(w, sx, sz));
+  const lx = Math.floor(cx / LOOKOUT_GRID),
+    lz = Math.floor(cz / LOOKOUT_GRID);
+  yield* cached(lookouts, w, `${lx},${lz}`, () => lookoutSteps(w, lx, lz));
 }
 
 const cellOf = (v: number, grid: number): number => Math.floor(v / (grid * SIZE));
@@ -162,7 +188,7 @@ const cellOf = (v: number, grid: number): number => Math.floor(v / (grid * SIZE)
 export function springsInChunk(w: Wilderness, cx: number, cz: number): Spring[] {
   const gx = Math.floor(cx / SPRING_GRID);
   const gz = Math.floor(cz / SPRING_GRID);
-  const s = cached(springs, w, `${gx},${gz}`, () => springInCell(w, gx, gz));
+  const s = springInCell(w, gx, gz);
   return s && Math.floor(s.x / SIZE) === cx && Math.floor(s.z / SIZE) === cz ? [s] : [];
 }
 
@@ -170,16 +196,25 @@ export function springsInChunk(w: Wilderness, cx: number, cz: number): Spring[] 
 export function lookoutsInChunk(w: Wilderness, cx: number, cz: number): Lookout[] {
   const gx = Math.floor(cx / LOOKOUT_GRID);
   const gz = Math.floor(cz / LOOKOUT_GRID);
-  const l = cached(lookouts, w, `${gx},${gz}`, () => lookoutInCell(w, gx, gz));
+  const l = lookoutInCell(w, gx, gz);
   return l && Math.floor(l.x / SIZE) === cx && Math.floor(l.z / SIZE) === cz ? [l] : [];
 }
 
 /** Hot springs within `reach` metres of (x, z), nearest first. */
 export function springsNear(w: Wilderness, x: number, z: number, reach: number): Spring[] {
+  return finishSteps(springsNearSteps(w, x, z, reach));
+}
+
+export function* springsNearSteps(
+  w: Wilderness,
+  x: number,
+  z: number,
+  reach: number,
+): Generator<void, Spring[]> {
   const out: Spring[] = [];
   for (let gx = cellOf(x - reach, SPRING_GRID); gx <= cellOf(x + reach, SPRING_GRID); gx++)
     for (let gz = cellOf(z - reach, SPRING_GRID); gz <= cellOf(z + reach, SPRING_GRID); gz++) {
-      const s = cached(springs, w, `${gx},${gz}`, () => springInCell(w, gx, gz));
+      const s = yield* cached(springs, w, `${gx},${gz}`, () => springSteps(w, gx, gz));
       if (s && Math.hypot(s.x - x, s.z - z) <= reach) out.push(s);
     }
   return out.sort((a, b) => Math.hypot(a.x - x, a.z - z) - Math.hypot(b.x - x, b.z - z));

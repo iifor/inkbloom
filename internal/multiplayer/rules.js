@@ -86,7 +86,7 @@ var Rules = (() => {
     validate: () => validate
   });
 
-  // ../../workspace/src/world/infection.ts
+  // src/world/infection.ts
   var INFECTION_RADIUS = 36;
   function sameScene(a, b) {
     return a.kind === b.kind && (a.kind === "wild" || b.kind === "city" && a.id === b.id);
@@ -103,7 +103,7 @@ var Rules = (() => {
     return !!s && (((_a2 = s.scene) == null ? void 0 : _a2.kind) === "wild" || ((_b = s.scene) == null ? void 0 : _b.kind) === "city" && /^c-?\d+_-?\d+$/.test(s.scene.id)) && [s.x, s.y, s.z].every((n) => typeof n === "number" && Number.isFinite(n) && Math.abs(n) <= 1e6);
   }
 
-  // ../../workspace/src/content/tuning.ts
+  // src/content/tuning.ts
   var TUNING = {
     world: {
       /** Metres per chunk side. */
@@ -114,6 +114,10 @@ var Rules = (() => {
       loadRadius: 2,
       /** Chunks beyond this radius are unloaded. */
       unloadRadius: 3,
+      /** Decorative ground cover streams ahead of the visible field, within a per-frame CPU budget. */
+      grassStreaming: { buildMs: 1.5, ahead: 8 },
+      /** Per-frame CPU allowances and disposal limit for streamed world detail. */
+      streaming: { chunkMs: 2, riverMs: 0.8, sceneryMs: 0.5, unloads: 2 },
       /** Visual-only terrain beyond the interactive chunks; no actors or colliders. */
       landscape: { rootSize: 1024, radius: 3, cells: 8, far: 5e3, hazeStart: 1600, hazeEnd: 3e3 },
       /** Spawn area is flattened grassland within this many metres. */
@@ -445,7 +449,7 @@ var Rules = (() => {
     }
   };
 
-  // ../../workspace/src/world/math/rng.ts
+  // src/world/math/rng.ts
   var Rng = class {
     constructor(seed) {
       __publicField(this, "state");
@@ -474,10 +478,10 @@ var Rules = (() => {
     }
   };
 
-  // ../../workspace/src/world/wilderness/water-level.ts
+  // src/world/wilderness/water-level.ts
   var WATER_LEVEL = -0.75;
 
-  // ../../workspace/src/world/city/site.ts
+  // src/world/city/site.ts
   var ROAD_NONE = 0;
   var ROAD_ALLEY = 1;
   var ROAD_SIDE = 2;
@@ -557,7 +561,7 @@ var Rules = (() => {
     };
   }
 
-  // ../../workspace/src/world/city/gates.ts
+  // src/world/city/gates.ts
   var GATE_DIR = { pz: 3, nz: 1, px: 2, nx: 0 };
   var OTHER_WALLS = {
     pz: ["nx", "px", "nz"],
@@ -657,7 +661,7 @@ var Rules = (() => {
     }));
   }
 
-  // ../../workspace/src/world/math/hash.ts
+  // src/world/math/hash.ts
   function hashString(text) {
     let h = 2166136261;
     for (let i = 0; i < text.length; i++) h = Math.imul(h ^ text.charCodeAt(i), 16777619);
@@ -678,7 +682,7 @@ var Rules = (() => {
   }
   var unit = (h) => (h >>> 0) / 4294967296;
 
-  // ../../workspace/src/world/nav/path.ts
+  // src/world/nav/path.ts
   var OFFSET = 1 << 15;
   var Heap = class {
     constructor() {
@@ -726,7 +730,7 @@ var Rules = (() => {
     }
   };
 
-  // ../../workspace/src/world/math/noise.ts
+  // src/world/math/noise.ts
   var F2 = 0.5 * (Math.sqrt(3) - 1);
   var G2 = (3 - Math.sqrt(3)) / 6;
   var GRAD = [
@@ -799,7 +803,7 @@ var Rules = (() => {
   }
   var lerp = (a, b, t) => a + (b - a) * t;
 
-  // ../../workspace/src/content/palette.ts
+  // src/content/palette.ts
   var PALETTE = [
     { key: "blue", name: "\u5B9D\u84DD", rgb: [0.27, 0.43, 0.74], paintable: true },
     { key: "red", name: "\u6731\u7EA2", rgb: [0.84, 0.34, 0.33], paintable: true },
@@ -849,7 +853,7 @@ var Rules = (() => {
   var MAX_COLORS = 32;
   if (PALETTE.length > MAX_COLORS) throw new Error("Palette exceeds shader capacity");
 
-  // ../../workspace/src/content/biomes.ts
+  // src/content/biomes.ts
   var BIOMES = [
     {
       key: "water",
@@ -901,7 +905,7 @@ var Rules = (() => {
     return RULES.find((rule) => rule.when(s)).biome;
   }
 
-  // ../../workspace/src/world/city/settlement.ts
+  // src/world/city/settlement.ts
   function settlementSize(chunks) {
     return chunks <= 2 ? "small" : chunks <= 3 ? "medium" : "town";
   }
@@ -919,7 +923,7 @@ var Rules = (() => {
     return others[hashAt(seed, "settlement-boundary-other") % others.length];
   }
 
-  // ../../workspace/src/world/wilderness/landforms.ts
+  // src/world/wilderness/landforms.ts
   function createLandforms(seed) {
     const noise = (salt) => createNoise2D(hashAt(seed, `landform-${salt}`));
     const warpX = noise("warp-x"), warpZ = noise("warp-z"), region = noise("region");
@@ -959,12 +963,12 @@ var Rules = (() => {
     };
   }
 
-  // ../../workspace/src/world/wilderness/river-corridors.ts
+  // src/world/wilderness/river-corridors.ts
   var RIVER_LANE = 720;
   var RIVER_X = 62;
   var RIVER_ORIGIN = TUNING.world.chunkSize / 2 + RIVER_X;
 
-  // ../../workspace/src/world/wilderness/drainage.ts
+  // src/world/wilderness/drainage.ts
   var DRAINAGE_REACH = 1024;
   function riverPool(lane, z) {
     const reach = 0.68 * Math.sin(z / 36 + lane * 2.1) + 0.32 * Math.sin(z / 17 - lane * 1.7);
@@ -1277,10 +1281,10 @@ var Rules = (() => {
     };
   }
 
-  // ../../workspace/src/world/wilderness/terrain-version.ts
+  // src/world/wilderness/terrain-version.ts
   var TERRAIN_VERSION = 6;
 
-  // ../../workspace/src/world/wilderness/settlement-siting.ts
+  // src/world/wilderness/settlement-siting.ts
   function createSettlementSiting(seed, ground) {
     const density = createNoise2D(hashAt(seed, "settlement-density"));
     const span = TUNING.structures.cityGrid * TUNING.world.chunkSize;
@@ -1331,7 +1335,7 @@ var Rules = (() => {
     };
   }
 
-  // ../../workspace/src/world/wilderness/generator.ts
+  // src/world/wilderness/generator.ts
   function townDistance(e, x, z) {
     const dx = Math.max(e.ox - x, 0, x - e.ox - e.size);
     const dz = Math.max(e.oz - z, 0, z - e.oz - e.size);
@@ -1661,7 +1665,7 @@ var Rules = (() => {
     return world;
   }
 
-  // ../../workspace/src/content/templates.ts
+  // src/content/templates.ts
   var BUILDINGS = [
     {
       key: "cottage",
@@ -1704,7 +1708,7 @@ var Rules = (() => {
     { key: "old-waystation", name: "\u53E4\u4E95\u9A7F\u7AD9", shape: "waystation", stone: color("rock") }
   ];
 
-  // ../../workspace/src/world/wilderness/ruins.ts
+  // src/world/wilderness/ruins.ts
   var S2 = TUNING.structures;
   var ATTEMPTS = 12;
   function ruinCellOf(chunk) {
@@ -1747,14 +1751,14 @@ var Rules = (() => {
     return (r == null ? void 0 : r.id) === id ? r : null;
   }
 
-  // ../../workspace/src/world/wilderness/spawn-circle.ts
+  // src/world/wilderness/spawn-circle.ts
   var SPAWN_CENTER = TUNING.world.chunkSize / 2;
   var SPAWN_STONE_RADIUS = 4.4;
   function spawnStoneDistance(x, z) {
     return Math.hypot(x - SPAWN_CENTER, z - SPAWN_CENTER) - SPAWN_STONE_RADIUS;
   }
 
-  // ../../workspace/src/world/wilderness/settlement-links.ts
+  // src/world/wilderness/settlement-links.ts
   function createSettlementLinks(w) {
     const cache3 = /* @__PURE__ */ new Map();
     const reach = TUNING.structures.cityGrid * TUNING.world.chunkSize * 1.8;
@@ -1775,7 +1779,43 @@ var Rules = (() => {
     };
   }
 
-  // ../../workspace/src/world/wilderness/paths.ts
+  // src/world/math/steps.ts
+  function finishSteps(steps) {
+    let next = steps.next();
+    while (!next.done) next = steps.next();
+    return next.value;
+  }
+  var StepCache = class {
+    constructor() {
+      __publicField(this, "values", /* @__PURE__ */ new Map());
+      __publicField(this, "pending", /* @__PURE__ */ new Map());
+    }
+    *prepare(key, make) {
+      if (this.values.has(key)) return this.values.get(key);
+      let work = this.pending.get(key);
+      if (!work) this.pending.set(key, work = { steps: make(), users: 0 });
+      work.users++;
+      try {
+        while (!this.values.has(key)) {
+          const next = work.steps.next();
+          if (next.done) {
+            this.values.set(key, next.value);
+            this.pending.delete(key);
+            return next.value;
+          }
+          yield;
+        }
+        return this.values.get(key);
+      } finally {
+        if (--work.users === 0 && this.pending.get(key) === work) {
+          this.pending.delete(key);
+          work.steps.return(void 0);
+        }
+      }
+    }
+  };
+
+  // src/world/wilderness/paths.ts
   var ROAD = 2.6;
   var TRACK = 1.8;
   var TOWN_ROOM = 22;
@@ -1803,7 +1843,7 @@ var Rules = (() => {
   var cityCell = (v) => Math.floor((v / SIZE + Math.floor(S3.cityGrid / 2)) / S3.cityGrid);
   function createNetwork(w) {
     const linksOf = createSettlementLinks(w);
-    const trails = /* @__PURE__ */ new Map();
+    const trails = new StepCache();
     const gates = /* @__PURE__ */ new Map();
     const buckets = /* @__PURE__ */ new Map();
     const bridgesBy = /* @__PURE__ */ new Map();
@@ -1830,7 +1870,7 @@ var Rules = (() => {
     };
     const deep = (x, z) => w.heightAt(x, z) < WATER_LEVEL - DEEP;
     const wet = (x, z) => w.heightAt(x, z) < WATER_LEVEL + 0.15;
-    const route = (a, b, gateA, gateB) => {
+    const route = function* (a, b, gateA, gateB) {
       const x0 = Math.floor((Math.min(a.x, b.x) - CORRIDOR) / GRID) * GRID;
       const z0 = Math.floor((Math.min(a.z, b.z) - CORRIDOR) / GRID) * GRID;
       const nx = Math.ceil((Math.max(a.x, b.x) + CORRIDOR - x0) / GRID) + 1;
@@ -1879,6 +1919,7 @@ var Rules = (() => {
       const channel = WATER_LEVEL - DEEP;
       let pops = 0;
       while (heap.size && pops++ < n * 2) {
+        if (pops % 32 === 0) yield;
         const i = heap.pop();
         if (i === goal) break;
         const ix = i % nx;
@@ -1927,7 +1968,7 @@ var Rules = (() => {
       out.push(pts[pts.length - 1]);
       return out;
     };
-    const build = (id, width, from, to) => {
+    const build = function* (id, width, from, to) {
       const lead = (p) => p.outX === void 0 ? [{ x: p.x, z: p.z }] : [
         { x: p.x + p.outX * 3, z: p.z + p.outZ * 3 },
         { x: p.x + p.outX * GATE_RUN, z: p.z + p.outZ * GATE_RUN }
@@ -1936,7 +1977,7 @@ var Rules = (() => {
       const tail = lead(to).reverse();
       const a = head[head.length - 1];
       const b = tail[0];
-      const way = route(a, b, from.outX !== void 0, to.outX !== void 0);
+      const way = yield* __yieldStar(route(a, b, from.outX !== void 0, to.outX !== void 0));
       if (!way) return null;
       const curve = smooth2(smooth2([...head.slice(0, -1), ...way, ...tail.slice(1)]));
       const pts = [];
@@ -1960,6 +2001,7 @@ var Rules = (() => {
         return true;
       };
       for (let i = 0; i < pts.length; i++) {
+        if (i % 16 === 0) yield;
         if (!deep(pts[i].x, pts[i].z)) continue;
         let j = i;
         while (j + 1 < pts.length && wet(pts[j + 1].x, pts[j + 1].z)) j++;
@@ -2030,17 +2072,19 @@ var Rules = (() => {
       }
       return { id, width, pts: dense, bridges, minX, maxX, minZ, maxZ };
     };
-    const trail = (id, make) => {
-      if (!trails.has(id)) trails.set(id, make());
-      return trails.get(id);
-    };
-    const road = (gx, gz, dx, dz) => trail(`t${gx}_${gz}${dx ? "e" : "s"}`, () => {
+    const trail = (id, make) => trails.prepare(id, make);
+    const road = (gx, gz, dx, dz) => trail(`t${gx}_${gz}${dx ? "e" : "s"}`, function* () {
       const a = w.entranceInCell(gx, gz);
       const b = w.entranceInCell(gx + dx, gz + dz);
       if (!a || !b) return null;
-      return build(`t${gx}_${gz}${dx ? "e" : "s"}`, ROAD, gateToward(a, b.x, b.z), gateToward(b, a.x, a.z));
+      return yield* __yieldStar(build(
+        `t${gx}_${gz}${dx ? "e" : "s"}`,
+        ROAD,
+        gateToward(a, b.x, b.z),
+        gateToward(b, a.x, a.z)
+      ));
     });
-    const ruinTrack = (rx, rz) => trail(`r${rx}_${rz}`, () => {
+    const ruinTrack = (rx, rz) => trail(`r${rx}_${rz}`, function* () {
       const r = ruinInCell(w, rx, rz);
       if (!r) return null;
       const towns = w.entrancesNear(r.x, r.z, 1);
@@ -2050,16 +2094,16 @@ var Rules = (() => {
       );
       const g = gateToward(town, r.x, r.z);
       const d = Math.hypot(g.x - r.x, g.z - r.z) || 1;
-      return build(`r${rx}_${rz}`, TRACK, g, {
+      return yield* __yieldStar(build(`r${rx}_${rz}`, TRACK, g, {
         x: r.x + (g.x - r.x) / d * 9,
         z: r.z + (g.z - r.z) / d * 9
-      });
+      }));
     });
-    const firstPath = () => trail("spawn", () => {
+    const firstPath = () => trail("spawn", function* () {
       const [cx, cz] = S3.firstCityChunk;
       const town = w.entrancesNear((cx + 0.5) * SIZE, (cz + 0.5) * SIZE, 0)[0];
       if (!town) return null;
-      const road2 = build("spawn", ROAD, { x: SPAWN_CENTER + 6, z: SPAWN_CENTER }, gateToward(town, SPAWN_CENTER, SPAWN_CENTER));
+      const road2 = yield* __yieldStar(build("spawn", ROAD, { x: SPAWN_CENTER + 6, z: SPAWN_CENTER }, gateToward(town, SPAWN_CENTER, SPAWN_CENTER)));
       if (!road2) return null;
       const join2 = SPAWN_CENTER + SPAWN_STONE_RADIUS - 0.8;
       return __spreadProps(__spreadValues({}, road2), { pts: [join2, SPAWN_CENTER, ...road2.pts], minX: Math.min(join2, road2.minX) });
@@ -2081,7 +2125,7 @@ var Rules = (() => {
                 const pad = Math.max(a.size, b.size) / 2 + CORRIDOR + GRID + GATE_RUN + TOWN_ROOM;
                 if (Math.max(a.x, b.x) + pad < x0 || Math.min(a.x, b.x) - pad > x1 || Math.max(a.z, b.z) + pad < z0 || Math.min(a.z, b.z) - pad > z1)
                   continue;
-                add(trail(id, () => build(id, ROAD, gateToward(a, b.x, b.z), gateToward(b, a.x, a.z))));
+                add(yield* __yieldStar(trail(id, () => build(id, ROAD, gateToward(a, b.x, b.z), gateToward(b, a.x, a.z)))));
                 yield;
               }
             yield;
@@ -2089,17 +2133,17 @@ var Rules = (() => {
       } else
         for (let gx = cityCell(x0) - 1; gx <= cityCell(x1) + 1; gx++)
           for (let gz = cityCell(z0) - 1; gz <= cityCell(z1) + 1; gz++) {
-            add(road(gx, gz, 1, 0));
+            add(yield* __yieldStar(road(gx, gz, 1, 0)));
             yield;
-            add(road(gx, gz, 0, 1));
+            add(yield* __yieldStar(road(gx, gz, 0, 1)));
             yield;
           }
       for (let rx = Math.floor((x0 - CITY_SPAN) / RUIN_SPAN); rx <= Math.floor((x1 + CITY_SPAN) / RUIN_SPAN); rx++)
         for (let rz = Math.floor((z0 - CITY_SPAN) / RUIN_SPAN); rz <= Math.floor((z1 + CITY_SPAN) / RUIN_SPAN); rz++) {
-          add(ruinTrack(rx, rz));
+          add(yield* __yieldStar(ruinTrack(rx, rz)));
           yield;
         }
-      if (x0 < CITY_SPAN && z0 < CITY_SPAN && x1 > -CITY_SPAN && z1 > -CITY_SPAN) add(firstPath());
+      if (x0 < CITY_SPAN && z0 < CITY_SPAN && x1 > -CITY_SPAN && z1 > -CITY_SPAN) add(yield* __yieldStar(firstPath()));
       return out;
     }
     const trailsNear = (x0, z0, x1, z1) => {
@@ -2157,6 +2201,16 @@ var Rules = (() => {
     };
     return {
       prepare,
+      *prepareGround(x0, z0, x1, z1) {
+        for (let bx = Math.floor(x0 / BUCKET); bx <= Math.floor(x1 / BUCKET); bx++)
+          for (let bz = Math.floor(z0 / BUCKET); bz <= Math.floor(z1 / BUCKET); bz++) {
+            if (buckets.has((bx + 32768) * 65536 + bz + 32768)) continue;
+            const x = bx * BUCKET, z = bz * BUCKET;
+            yield* __yieldStar(prepare(x - 24, z - 24, x + BUCKET + 24, z + BUCKET + 24));
+            bucket(bx, bz);
+            yield;
+          }
+      },
       trailsNear,
       groundAt(x, z, natural) {
         var _a2;
@@ -2214,7 +2268,7 @@ var Rules = (() => {
     };
   }
 
-  // ../../workspace/src/world/wilderness/traveller-options.ts
+  // src/world/wilderness/traveller-options.ts
   var MEMORY_LIMIT = 12;
   function validPlace(p) {
     return typeof p === "string" && /^(?:c-?\d{1,9}_-?\d{1,9}|bridge:\d{1,5}|spawn|ruin|roadside)$/.test(p);
@@ -2225,7 +2279,7 @@ var Rules = (() => {
     );
   }
 
-  // ../../workspace/src/world/wilderness/travellers.ts
+  // src/world/wilderness/travellers.ts
   function journeyOn(seed, trail) {
     var _a2;
     const key = hashInts(seed, hashString(trail.id));
@@ -2295,14 +2349,14 @@ var Rules = (() => {
     };
   }
 
-  // ../../workspace/src/content/brush-tiers.ts
+  // src/content/brush-tiers.ts
   var BRUSH_TIERS = [
     { name: "\u57FA\u7840\u7B14\u5237", range: 6, secondsPerSurface: 1, cost: null },
     { name: "\u957F\u67C4\u7B14\u5237", range: 10, secondsPerSurface: 0.7, cost: { generic: 40, ink: 30 } },
     { name: "\u5BBD\u5934\u7B14\u5237", range: 12, secondsPerSurface: 0.45, cost: { generic: 120, ink: 80 } }
   ];
 
-  // ../../workspace/src/content/weapons.ts
+  // src/content/weapons.ts
   var WEAPONS = [
     {
       key: "rifle",
@@ -2405,7 +2459,7 @@ var Rules = (() => {
     }
   ];
 
-  // ../../workspace/src/world/paint/surfaces.ts
+  // src/world/paint/surfaces.ts
   var DRAINED = 0;
   var ORIGINAL = 1;
   var GRAFFITI_BASE = 2;
@@ -2435,7 +2489,7 @@ var Rules = (() => {
     return total === 0 ? 0 : colored / total;
   }
 
-  // ../../workspace/src/world/city/origin.ts
+  // src/world/city/origin.ts
   function startsPeaceful(seed, cityId) {
     const match = /^c(-?\d+)_(-?\d+)$/.exec(cityId);
     if (!match) return false;
@@ -2445,7 +2499,7 @@ var Rules = (() => {
     return cx === firstX && cz === firstZ || unit(hashAt(seed, "peaceful-village", cx, cz)) < TUNING.city.peacefulChance;
   }
 
-  // ../../workspace/src/content/progression.ts
+  // src/content/progression.ts
   var XP = {
     surface: 1,
     blockColored: 60,
@@ -2473,7 +2527,7 @@ var Rules = (() => {
     cityRestored: 3
   };
 
-  // ../../workspace/src/world/progression.ts
+  // src/world/progression.ts
   function createGrowth() {
     return { xp: 0, points: 0, attrs: { health: 0, weapon: 0, skill: 0, armor: 0 }, milestones: [] };
   }
@@ -2501,7 +2555,7 @@ var Rules = (() => {
     return g;
   }
 
-  // ../../workspace/src/content/wild-models.ts
+  // src/content/wild-models.ts
   var WILD_MODELS = [
     { key: "skeleton/Skeleton_Mage", name: "\u9AB7\u9AC5\u6CD5\u5E08", halfWidth: 0.55, height: 1.6 },
     { key: "skeleton/Skeleton_Minion", name: "\u9AB7\u9AC5\u55BD\u5570", halfWidth: 0.49, height: 1.6 },
@@ -2601,7 +2655,7 @@ var Rules = (() => {
     { key: "cyber/Enemy_Large", name: "\u91CD\u88C5\u5DE1\u903B\u673A", halfWidth: 1.32, height: 1.7 }
   ];
 
-  // ../../workspace/src/content/enemies.ts
+  // src/content/enemies.ts
   var ENEMIES = [
     {
       key: "blot",
@@ -2822,7 +2876,7 @@ var Rules = (() => {
     return i;
   }
 
-  // ../../workspace/src/content/names.ts
+  // src/content/names.ts
   var CITY_PREFIX = ["\u9752", "\u767D", "\u58A8", "\u7EB8", "\u6674", "\u96FE", "\u6A58", "\u677E", "\u9E6D", "\u4E91", "\u781A", "\u67F3"];
   var CITY_SUFFIX = ["\u5DDD\u57CE", "\u6865\u9547", "\u6E2F", "\u77F3\u57CE", "\u5761\u9547", "\u6E7E", "\u539F\u57CE", "\u6EAA\u9547"];
   var RESIDENT_NAMES = [
@@ -2848,7 +2902,7 @@ var Rules = (() => {
     "\u5C0F\u67A3"
   ];
 
-  // ../../workspace/src/world/city/features.ts
+  // src/world/city/features.ts
   var BLOT = enemyIndex("blot");
   var SPITTER = enemyIndex("spitter");
   function placeFeatures(c) {
@@ -3002,7 +3056,7 @@ var Rules = (() => {
     return skel.monsters.flatMap((m, i) => m.chunk === chunk && !defeated[i] ? [i] : []);
   }
 
-  // ../../workspace/src/world/state.ts
+  // src/world/state.ts
   var SAVE_VERSION = 12;
   var newTide = () => ({ nextIn: TUNING.tide.firstDelay, wave: null });
   function validTide(t) {
@@ -3319,7 +3373,7 @@ var Rules = (() => {
     };
   }
 
-  // ../../workspace/src/world/wilderness/traveller-memory.ts
+  // src/world/wilderness/traveller-memory.ts
   function townKind(state, town) {
     var _a2;
     if (peacefulVillage(state, town.cityId)) return "peaceful";
@@ -3388,7 +3442,7 @@ var Rules = (() => {
     return [...towns, ...newest.filter((s) => !s.place.startsWith("c"))].slice(0, MEMORY_LIMIT).sort((a, b) => b.at - a.at);
   }
 
-  // ../../workspace/src/world/wilderness/traveller-talk.ts
+  // src/world/wilderness/traveller-talk.ts
   function travelOptions(w, state, j) {
     const p = travellerPose(j, state.clock, state.travellerLegs.get(j.trail.id));
     const length = j.lengths.at(-1);
@@ -3420,7 +3474,7 @@ var Rules = (() => {
     return !plan || clock >= plan.at + Math.abs(plan.to - plan.from) / j.speed + j.rest / 2;
   }
 
-  // ../../workspace/src/content/arena.ts
+  // src/content/arena.ts
   var ARENA = {
     /** Metres from the centre to the wall. */
     radius: 45,
@@ -3490,7 +3544,7 @@ var Rules = (() => {
     { dx: 20, dz: -22, w: 2, d: 2, h: 1.4 }
   ];
 
-  // ../../workspace/src/world/city/blocks.ts
+  // src/world/city/blocks.ts
   function studioStockSince(ratio, recorded = -1) {
     if (recorded >= 0) return recorded;
     return ratio >= TUNING.blocks.thrivingAt ? 0 : -1;
@@ -3508,7 +3562,7 @@ var Rules = (() => {
     );
   }
 
-  // ../../workspace/src/world/paint/release.ts
+  // src/world/paint/release.ts
   function releaseAround(surfaces, states, x, z, rule) {
     const r2 = rule.radius * rule.radius;
     const near2 = [];
@@ -3521,7 +3575,7 @@ var Rules = (() => {
     return near2.slice(0, rule.max).map((n) => n.i);
   }
 
-  // ../../workspace/src/world/wilderness/landmarks.ts
+  // src/world/wilderness/landmarks.ts
   var SIZE2 = TUNING.world.chunkSize;
   var SPRING_GRID = 5;
   var SPRING_CHANCE = 0.5;
@@ -3535,6 +3589,9 @@ var Rules = (() => {
     return pathsOf(w).edgeDistance(x, z) > room;
   }
   function springInCell(w, gx, gz) {
+    return finishSteps(cached(springs, w, `${gx},${gz}`, () => springSteps(w, gx, gz)));
+  }
+  function* springSteps(w, gx, gz) {
     const h0 = hashAt(w.seed, "spring", gx, gz);
     if (unit(h0) >= SPRING_CHANCE) return null;
     const span = SPRING_GRID * SIZE2;
@@ -3544,6 +3601,7 @@ var Rules = (() => {
       const z = gz * span + 30 + unit(hashInts(h, 1)) * (span - 60);
       if (Math.hypot(x - SIZE2 / 2, z - SIZE2 / 2) < 150) continue;
       if (w.climate(x, z).relief < -0.15) continue;
+      yield* __yieldStar(pathsOf(w).prepareGround(x - 12, z - 12, x + 12, z + 12));
       const y = w.heightAt(x, z);
       if (y < WATER_LEVEL + 2.5) continue;
       const r = 2.6 + unit(hashInts(h, 2)) * 1.6;
@@ -3564,20 +3622,27 @@ var Rules = (() => {
     return null;
   }
   function lookoutInCell(w, gx, gz) {
+    return finishSteps(cached(lookouts, w, `${gx},${gz}`, () => lookoutSteps(w, gx, gz)));
+  }
+  function* lookoutSteps(w, gx, gz) {
     const span = LOOKOUT_GRID * SIZE2;
     const x0 = gx * span;
     const z0 = gz * span;
+    const paths = pathsOf(w);
+    yield* __yieldStar(paths.prepareGround(x0 + 4, z0 + 4, x0 + span, z0 + span));
     let bx = 0;
     let bz = 0;
     let by = -Infinity;
-    for (let i = 1; i < 16; i++)
+    for (let i = 1; i < 16; i++) {
       for (let k = 1; k < 16; k++) {
         const x = x0 + i / 16 * span;
         const z = z0 + k / 16 * span;
         const y = w.heightAt(x, z);
         if (y > by) [bx, bz, by] = [x, z, y];
       }
-    for (let i = -6; i <= 6; i++)
+      yield;
+    }
+    for (let i = -6; i <= 6; i++) {
       for (let k = -6; k <= 6; k++) {
         const x = bx + i * 4;
         const z = bz + k * 4;
@@ -3585,12 +3650,15 @@ var Rules = (() => {
         const y = w.heightAt(x, z);
         if (y > by) [bx, bz, by] = [x, z, y];
       }
+      yield;
+    }
     for (let step = 0; step < 40; step++) {
       let moved = false;
       for (const d of [3, 8, 16])
         for (let k = 0; k < 8; k++) {
           const x = bx + Math.cos(k * Math.PI / 4) * d;
           const z = bz + Math.sin(k * Math.PI / 4) * d;
+          yield* __yieldStar(paths.prepareGround(x - 4, z - 4, x + 4, z + 4));
           const y = w.heightAt(x, z);
           if (y > by + 0.05) {
             [bx, bz, by] = [x, z, y];
@@ -3609,34 +3677,42 @@ var Rules = (() => {
   var lookouts = /* @__PURE__ */ new WeakMap();
   function cached(store, w, key, make) {
     let m = store.get(w);
-    if (!m) store.set(w, m = /* @__PURE__ */ new Map());
-    if (!m.has(key)) m.set(key, make());
-    return m.get(key);
+    if (!m) store.set(w, m = new StepCache());
+    return m.prepare(key, make);
+  }
+  function* prepareLandmarks(w, cx, cz) {
+    const sx = Math.floor(cx / SPRING_GRID), sz = Math.floor(cz / SPRING_GRID);
+    yield* __yieldStar(cached(springs, w, `${sx},${sz}`, () => springSteps(w, sx, sz)));
+    const lx = Math.floor(cx / LOOKOUT_GRID), lz = Math.floor(cz / LOOKOUT_GRID);
+    yield* __yieldStar(cached(lookouts, w, `${lx},${lz}`, () => lookoutSteps(w, lx, lz)));
   }
   var cellOf = (v, grid) => Math.floor(v / (grid * SIZE2));
   function springsInChunk(w, cx, cz) {
     const gx = Math.floor(cx / SPRING_GRID);
     const gz = Math.floor(cz / SPRING_GRID);
-    const s = cached(springs, w, `${gx},${gz}`, () => springInCell(w, gx, gz));
+    const s = springInCell(w, gx, gz);
     return s && Math.floor(s.x / SIZE2) === cx && Math.floor(s.z / SIZE2) === cz ? [s] : [];
   }
   function lookoutsInChunk(w, cx, cz) {
     const gx = Math.floor(cx / LOOKOUT_GRID);
     const gz = Math.floor(cz / LOOKOUT_GRID);
-    const l = cached(lookouts, w, `${gx},${gz}`, () => lookoutInCell(w, gx, gz));
+    const l = lookoutInCell(w, gx, gz);
     return l && Math.floor(l.x / SIZE2) === cx && Math.floor(l.z / SIZE2) === cz ? [l] : [];
   }
   function springsNear(w, x, z, reach) {
+    return finishSteps(springsNearSteps(w, x, z, reach));
+  }
+  function* springsNearSteps(w, x, z, reach) {
     const out = [];
     for (let gx = cellOf(x - reach, SPRING_GRID); gx <= cellOf(x + reach, SPRING_GRID); gx++)
       for (let gz = cellOf(z - reach, SPRING_GRID); gz <= cellOf(z + reach, SPRING_GRID); gz++) {
-        const s = cached(springs, w, `${gx},${gz}`, () => springInCell(w, gx, gz));
+        const s = yield* __yieldStar(cached(springs, w, `${gx},${gz}`, () => springSteps(w, gx, gz)));
         if (s && Math.hypot(s.x - x, s.z - z) <= reach) out.push(s);
       }
     return out.sort((a, b) => Math.hypot(a.x - x, a.z - z) - Math.hypot(b.x - x, b.z - z));
   }
 
-  // ../../workspace/src/content/pigment-sources.ts
+  // src/content/pigment-sources.ts
   var PIGMENT_SOURCES = [
     {
       key: "flowers",
@@ -3695,7 +3771,7 @@ var Rules = (() => {
     }
   ];
 
-  // ../../workspace/src/world/wilderness/sources.ts
+  // src/world/wilderness/sources.ts
   var ATTEMPTS2 = 16;
   function fits(placement, h) {
     switch (placement) {
@@ -3753,7 +3829,7 @@ var Rules = (() => {
     return (_a2 = sourcesInChunk(w, Number(m[1]), Number(m[2])).find((s) => s.id === id)) != null ? _a2 : null;
   }
 
-  // ../../workspace/src/world/wilderness/ink-wells.ts
+  // src/world/wilderness/ink-wells.ts
   var GUARD_BASE = 50;
   var cache = /* @__PURE__ */ new WeakMap();
   function near9(cx, cz, of) {
@@ -3828,7 +3904,7 @@ var Rules = (() => {
     return out;
   }
 
-  // ../../workspace/src/world/city/liberation.ts
+  // src/world/city/liberation.ts
   var ALTAR_GUARDS = [enemyIndex("giant"), enemyIndex("blot"), enemyIndex("spitter")];
   var ALTAR_CAPTURED = (1 << ALTAR_GUARDS.length) - 1;
   function liberation(skel, saved) {
@@ -3849,7 +3925,7 @@ var Rules = (() => {
     };
   }
 
-  // ../../workspace/src/world/patch.ts
+  // src/world/patch.ts
   var fail = (reason) => ({ ok: false, reason });
   var OK = { ok: true };
   function markThriving(state, city, skel, states, chunk) {
@@ -4169,7 +4245,7 @@ var Rules = (() => {
     }
   }
 
-  // ../../workspace/src/content/crew-characters.ts
+  // src/content/crew-characters.ts
   var FRONTIER_CHARACTERS = [
     { key: "cube/Character_Female_1", name: "\u65B9\u5757\u6A59\u8863\u65C5\u4EBA" },
     { key: "cube/Character_Female_2", name: "\u65B9\u5757\u53CC\u9A6C\u5C3E\u65C5\u4EBA" },
@@ -4216,7 +4292,7 @@ var Rules = (() => {
     ...FRONTIER_CHARACTERS
   ];
 
-  // ../../workspace/src/content/quaternius-characters.ts
+  // src/content/quaternius-characters.ts
   var animatedCharacters = {
     BaseCharacter: "\u7D20\u6A21\u6751\u6C11",
     BlueSoldierFemale: "\u84DD\u8863\u5973\u536B\u5175",
@@ -4293,7 +4369,7 @@ var Rules = (() => {
     { key: "space/RaeTheRedPanda", name: "\u5C0F\u718A\u732B\u5B87\u822A\u5458\u857E" }
   ];
 
-  // ../../workspace/src/content/characters.ts
+  // src/content/characters.ts
   var SKIN_TONES = ["skinLight", "skinWarm", "skinDeep"];
   var HAIR_COLORS = ["charcoal", "brown", "sand", "cream"];
   var PLAYER_PACK_NAMES = {
@@ -4561,7 +4637,7 @@ var Rules = (() => {
   }
   var CHARACTER_KEYS = CHARACTERS.map((c) => c.key);
 
-  // ../../workspace/src/world/profile.ts
+  // src/world/profile.ts
   var NAME_MAX = 12;
   var DEFAULT_NAME = "\u65C5\u4EBA";
   var index = (v, count) => Number.isInteger(v) && v >= 0 && v < count ? v : null;
@@ -4579,7 +4655,7 @@ var Rules = (() => {
     return s || DEFAULT_NAME;
   }
 
-  // ../../workspace/src/world/arena/hits.ts
+  // src/world/arena/hits.ts
   var BODY = { half: 0.35, height: 1.42 };
   var HEAD = { half: 0.18, centre: 1.62 };
   function bodyBox(p) {
@@ -4709,7 +4785,7 @@ var Rules = (() => {
     return p;
   }
 
-  // ../../workspace/src/world/arena/match.ts
+  // src/world/arena/match.ts
   var STATE = { kind: "state" };
   var ArenaMatch = class {
     constructor(site, where) {
@@ -4959,7 +5035,7 @@ var Rules = (() => {
     }
   };
 
-  // ../../workspace/src/world/wilderness/groves.ts
+  // src/world/wilderness/groves.ts
   var SEA_FLOWERS = [
     { name: "\u6CB9\u83DC\u82B1", colour: color("yellow"), dot: color("cream"), from: 0.02, to: 0.22 },
     { name: "\u85B0\u8863\u8349", colour: color("purple"), dot: color("sky"), from: 0.27, to: 0.47 },
@@ -4980,7 +5056,7 @@ var Rules = (() => {
     const edge = p.r * (1 + 0.16 * Math.sin(3 * a + p.lobes[0]) + 0.09 * Math.sin(5 * a + p.lobes[1]));
     return smoothstep(edge, edge * 0.7, d);
   }
-  function open(w, x, z, r, steep) {
+  function* open(w, x, z, r, steep) {
     if (Math.hypot(x - SIZE3 / 2, z - SIZE3 / 2) < 120) return false;
     if (w.townAt(x, z, r + 15)) return false;
     let lo = Infinity;
@@ -4988,7 +5064,9 @@ var Rules = (() => {
     for (let k = 0; k < 9; k++) {
       const a = k * Math.PI * 2 / 8;
       const f = k === 8 ? 0 : 0.7;
-      const g = w.heightAt(x + Math.cos(a) * r * f, z + Math.sin(a) * r * f);
+      const px = x + Math.cos(a) * r * f, pz = z + Math.sin(a) * r * f;
+      yield* __yieldStar(pathsOf(w).prepareGround(px - 4, pz - 4, px + 4, pz + 4));
+      const g = w.heightAt(px, pz);
       if (g < WATER_LEVEL + 0.6) return false;
       lo = Math.min(lo, g);
       hi = Math.max(hi, g);
@@ -4997,7 +5075,7 @@ var Rules = (() => {
   }
   var roll = (h, k) => unit(hashInts(h, k));
   var lobesOf = (h) => [roll(h, 4) * 6.283, roll(h, 5) * 6.283];
-  function groveInCell(w, gx, gz) {
+  function* groveSteps(w, gx, gz) {
     if (unit(hashAt(w.seed, "grove", gx, gz)) >= GROVE_CHANCE) return null;
     const span = GROVE_GRID * SIZE3;
     for (let a = 0; a < 16; a++) {
@@ -5007,12 +5085,12 @@ var Rules = (() => {
       const c = w.climate(x, z);
       if (c.moisture < 0.12 || c.relief > 0.3) continue;
       const r = 20 + roll(h, 2) * 16;
-      if (!open(w, x, z, r, 9)) continue;
+      if (!(yield* __yieldStar(open(w, x, z, r, 9)))) continue;
       return { id: `b${gx}_${gz}`, x, z, r, lobes: lobesOf(h), seed: h };
     }
     return null;
   }
-  function seaInCell(w, gx, gz) {
+  function* seaSteps(w, gx, gz) {
     const h0 = hashAt(w.seed, "flower-sea", gx, gz);
     if (unit(h0) >= SEA_CHANCE) return null;
     const span = SEA_GRID * SIZE3;
@@ -5023,7 +5101,7 @@ var Rules = (() => {
       const c = w.climate(x, z);
       if (c.moisture > 0.15 || c.relief > 0.25) continue;
       const r = 22 + roll(h, 2) * 20;
-      if (!open(w, x, z, r, 5)) continue;
+      if (!(yield* __yieldStar(open(w, x, z, r, 5)))) continue;
       const kind = Math.floor(roll(h0, 3) * SEA_FLOWERS.length);
       return { id: `f${gx}_${gz}`, x, z, r, lobes: lobesOf(h), seed: h, kind };
     }
@@ -5031,25 +5109,29 @@ var Rules = (() => {
   }
   var groves = /* @__PURE__ */ new WeakMap();
   var seas = /* @__PURE__ */ new WeakMap();
-  function near(store, make, grid, w, x, z, reach) {
+  function* near(store, make, grid, w, x, z, reach) {
     let m = store.get(w);
-    if (!m) store.set(w, m = /* @__PURE__ */ new Map());
+    if (!m) store.set(w, m = new StepCache());
     const cell = (v) => Math.floor(v / (grid * SIZE3));
     const out = [];
     const pad = reach + 60;
     for (let gx = cell(x - pad); gx <= cell(x + pad); gx++)
       for (let gz = cell(z - pad); gz <= cell(z + pad); gz++) {
         const key = `${gx},${gz}`;
-        if (!m.has(key)) m.set(key, make(w, gx, gz));
-        const p = m.get(key);
+        const p = yield* __yieldStar(m.prepare(key, () => make(w, gx, gz)));
         if (p && Math.hypot(p.x - x, p.z - z) <= reach + p.r * 1.3) out.push(p);
       }
     return out.sort((a, b) => Math.hypot(a.x - x, a.z - z) - Math.hypot(b.x - x, b.z - z));
   }
-  var grovesNear = (w, x, z, reach) => near(groves, groveInCell, GROVE_GRID, w, x, z, reach);
-  var seasNear = (w, x, z, reach) => near(seas, seaInCell, SEA_GRID, w, x, z, reach);
+  var grovesNear = (w, x, z, reach) => finishSteps(near(groves, groveSteps, GROVE_GRID, w, x, z, reach));
+  var seasNear = (w, x, z, reach) => finishSteps(seasNearSteps(w, x, z, reach));
+  var seasNearSteps = (w, x, z, reach) => near(seas, seaSteps, SEA_GRID, w, x, z, reach);
+  function* prepareGroves(w, x, z, reach) {
+    yield* __yieldStar(near(groves, groveSteps, GROVE_GRID, w, x, z, reach));
+    yield* __yieldStar(near(seas, seaSteps, SEA_GRID, w, x, z, reach));
+  }
 
-  // ../../workspace/src/world/wilderness/farmsteads.ts
+  // src/world/wilderness/farmsteads.ts
   var OUTSKIRTS_RANGE = 180;
   var SIZE4 = TUNING.world.chunkSize;
   var CELL = TUNING.world.cellSize;
@@ -5146,7 +5228,7 @@ var Rules = (() => {
     return { low, high };
   }
 
-  // ../../workspace/src/world/wilderness/ground-props.ts
+  // src/world/wilderness/ground-props.ts
   function groundPropsInChunk(w, cx, cz, trees, clear2) {
     const size = TUNING.world.chunkSize;
     const props = [];
@@ -5198,7 +5280,7 @@ var Rules = (() => {
     return props;
   }
 
-  // ../../workspace/src/world/wilderness/chunk.ts
+  // src/world/wilderness/chunk.ts
   var BAMBOO = { density: 0.75, maxSlope: 2.2, height: [7, 11], crown: [1.3, 2.1] };
   var PATH_ROOM = 2.5;
   function generateWildChunk(w, cx, cz) {
@@ -5230,6 +5312,7 @@ var Rules = (() => {
     }
     const trees = [];
     const mid = { x: x0 + size / 2, z: z0 + size / 2 };
+    yield* __yieldStar(prepareGroves(w, mid.x, mid.z, size * 0.75));
     const groves2 = grovesNear(w, mid.x, mid.z, size * 0.75);
     const seas2 = seasNear(w, mid.x, mid.z, size * 0.75);
     const at = (ix, iz) => ix >= 0 && iz >= 0 && ix < n && iz < n ? heights[iz * n + ix] : w.heightAt(x0 + (ix + 0.5) * cell, z0 + (iz + 0.5) * cell);
@@ -5337,11 +5420,20 @@ var Rules = (() => {
     yield;
     const great = greatTreeIn(w, cx, cz, sources, ruins);
     yield;
+    yield* __yieldStar(prepareLandmarks(w, cx, cz));
     const springs2 = springsInChunk(w, cx, cz);
     const lookouts2 = lookoutsInChunk(w, cx, cz);
     const marks = [];
     for (let dz = -1; dz <= 1; dz++)
       for (let dx = -1; dx <= 1; dx++) {
+        yield* __yieldStar(prepareLandmarks(w, cx + dx, cz + dz));
+        const size = TUNING.world.chunkSize;
+        yield* __yieldStar(pathsOf(w).prepareGround(
+          (cx + dx) * size - 4,
+          (cz + dz) * size - 4,
+          (cx + dx + 1) * size + 4,
+          (cz + dz + 1) * size + 4
+        ));
         for (const s of springsInChunk(w, cx + dx, cz + dz)) marks.push({ x: s.x, z: s.z, room: s.r + 5 });
         for (const l of lookoutsInChunk(w, cx + dx, cz + dz)) marks.push({ x: l.x, z: l.z, room: 7 });
         const well = inkWellInChunk(w, cx + dx, cz + dz);
@@ -5407,7 +5499,7 @@ var Rules = (() => {
     return null;
   }
 
-  // ../../workspace/src/world/arena/site.ts
+  // src/world/arena/site.ts
   var CANDIDATES = 4e3;
   var GOLDEN = Math.PI * (3 - Math.sqrt(5));
   var SAMPLE = 3;
@@ -5519,7 +5611,7 @@ var Rules = (() => {
     return site;
   }
 
-  // ../../workspace/src/world/net/validate.ts
+  // src/world/net/validate.ts
   var MAX_INDEX = 1e5;
   var MAX_AMOUNT = 1e5;
   var MAX_COORD = 1e6;
@@ -5632,7 +5724,7 @@ var Rules = (() => {
     }
   }
 
-  // ../../workspace/src/world/net/protocol.ts
+  // src/world/net/protocol.ts
   var PROTOCOL = 12;
   var DEFAULT_MAX_PLAYERS = 10;
   var VIEW_RANGE = 300;
@@ -5781,7 +5873,7 @@ var Rules = (() => {
     }
   }
 
-  // ../../workspace/src/world/net/arena-host.ts
+  // src/world/net/arena-host.ts
   var TRACK_SECONDS = 1;
   var EYE = 1.65;
   var FIELD_REACH = 42;
@@ -5965,7 +6057,7 @@ var Rules = (() => {
     }
   };
 
-  // ../../workspace/src/world/city/streets.ts
+  // src/world/city/streets.ts
   var BUCKET2 = 16;
   var bucketKey = (bx, bz) => bz * 4096 + bx;
   var NEIGHBOURS = [
@@ -6135,7 +6227,7 @@ var Rules = (() => {
     return { roads, streets, segments };
   }
 
-  // ../../workspace/src/world/city/houses.ts
+  // src/world/city/houses.ts
   var GARDEN_MIN = 1.1;
   function rectsOverlap(a, b) {
     const corners = (r) => {
@@ -6354,7 +6446,7 @@ var Rules = (() => {
     return { buildings, buildingOf };
   }
 
-  // ../../workspace/src/world/city/yards.ts
+  // src/world/city/yards.ts
   var TREE_SPACING = 9;
   var TOWN_GREAT = { height: 14, crown: 7 };
   function fillYards(site, roads, buildingOf) {
@@ -6468,10 +6560,10 @@ var Rules = (() => {
     return trees;
   }
 
-  // ../../workspace/src/world/city/outline.ts
+  // src/world/city/outline.ts
   var TAU = Math.PI * 2;
 
-  // ../../workspace/src/world/city/layout.ts
+  // src/world/city/layout.ts
   var WHEEL_RADIUS = 2.4;
   var WHEEL_DEPTH = 0.8;
   var WHEEL_REACH = 12;
@@ -6593,7 +6685,7 @@ var Rules = (() => {
     return placeCity(local, { x: e.ox, z: e.oz });
   }
 
-  // ../../workspace/src/world/wilderness/drain.ts
+  // src/world/wilderness/drain.ts
   function falloff(distance) {
     return 1 - smoothstep(TUNING.drain.innerRadius, TUNING.drain.outerRadius, distance);
   }
@@ -6610,7 +6702,7 @@ var Rules = (() => {
     return { x: e.x, z: e.z, half: e.size / 2, progress };
   }
 
-  // ../../workspace/src/world/wilderness/wild-monsters.ts
+  // src/world/wilderness/wild-monsters.ts
   var ATTEMPTS3 = 10;
   var wildCreatures = [
     "rat",
@@ -6692,7 +6784,7 @@ var Rules = (() => {
     return saturationAt(x, z, cities);
   }
 
-  // ../../workspace/src/world/city/travel-altar.ts
+  // src/world/city/travel-altar.ts
   var ALTAR_RADIUS = 2.3;
   var cache2 = /* @__PURE__ */ new WeakMap();
   function hasTravelAltar(_seed, chunks) {
@@ -6742,7 +6834,7 @@ var Rules = (() => {
     return best;
   }
 
-  // ../../workspace/src/world/net/patch-context.ts
+  // src/world/net/patch-context.ts
   function entranceById(wilderness, id) {
     var _a2;
     const m = /^c(-?\d+)_(-?\d+)$/.exec(id);
@@ -6787,7 +6879,7 @@ var Rules = (() => {
     };
   }
 
-  // ../../workspace/src/world/net/slices.ts
+  // src/world/net/slices.ts
   var KEYS = [
     "infectedAt",
     "inventory",
@@ -6837,7 +6929,7 @@ var Rules = (() => {
     return takeSlice(deserializeWorld(text));
   }
 
-  // ../../workspace/src/world/net/fix.ts
+  // src/world/net/fix.ts
   var ARRAYS = ["states", "stains", "defeated", "coloredOnce"];
   function diff(before, after) {
     const out = [];
@@ -6860,7 +6952,7 @@ var Rules = (() => {
     return Object.keys(fix).length > 1 ? fix : void 0;
   }
 
-  // ../../workspace/src/world/net/host.ts
+  // src/world/net/host.ts
   var NEAR = 600;
   var MAX_SAVED_PLAYERS = 500;
   var TIDE_GAP = 120;

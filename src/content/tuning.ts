@@ -12,6 +12,10 @@ export const TUNING = {
     loadRadius: 2,
     /** Chunks beyond this radius are unloaded. */
     unloadRadius: 3,
+    /** Decorative ground cover streams ahead of the visible field, within a per-frame CPU budget. */
+    grassStreaming: { buildMs: 1.5, ahead: 8 },
+    /** Per-frame CPU allowances and disposal limit for streamed world detail. */
+    streaming: { chunkMs: 2, riverMs: 0.8, sceneryMs: 0.5, unloads: 2 },
     /** Visual-only terrain beyond the interactive chunks; no actors or colliders. */
     landscape: { rootSize: 1024, radius: 3, cells: 8, far: 5000, hazeStart: 1600, hazeEnd: 3000 },
     /** Spawn area is flattened grassland within this many metres. */

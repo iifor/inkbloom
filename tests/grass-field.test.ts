@@ -1,9 +1,17 @@
 import * as THREE from 'three';
-import { expect, it } from 'vitest';
+import { expect, it, vi } from 'vitest';
 import { makeWindMap } from '@/engine/render/wind-map';
 import { GrassField } from '@/systems/wilderness/grass';
 import { grassCoverAt } from '@/world/climate/calendar';
 import { createWilderness } from '@/world/wilderness/generator';
+
+function settle(field: GrassField, player: THREE.Vector3, flowers = 1, grass = 1, phase = 0): void {
+  for (let frame = 0; frame < 2000; frame++) {
+    field.update(player, flowers, grass, phase);
+    if (field.ready) return;
+  }
+  throw new Error('Grass streaming did not settle');
+}
 
 it('keeps the same visible grass on an approach, a retreat and a revisit after streaming it out', () => {
   const land = {
@@ -20,7 +28,7 @@ it('keeps the same visible grass on an approach, a retreat and a revisit after s
     player.set(-2, 1, -3 + distance);
     camera.position.copy(player).y += 1.6;
     camera.lookAt(-2, 1, -3);
-    field.update(player);
+    settle(field, player);
     const plants = new Map<string, number[]>();
     root.traverseVisible((obj) => {
       if (obj.name !== 'grass-tufts') return;
@@ -84,7 +92,7 @@ it('leaves the meadow bare all winter and brings back the same tufts in spring',
   );
   const player = new THREE.Vector3();
   const tuftsAt = (phase: number) => {
-    field.update(player, 1, grassCoverAt(phase));
+    settle(field, player, 1, grassCoverAt(phase));
     const positions = new Set<string>();
     fieldRoot.traverseVisible((obj) => {
       if (obj.name !== 'grass-tufts') return;
@@ -120,4 +128,70 @@ it('leaves the meadow bare all winter and brings back the same tufts in spring',
   expect(tuftsAt(0.0625)).toEqual(autumn);
   expect(tuftsAt(0.125)).toEqual(summer);
   field.dispose();
+});
+
+it('spreads planting across frames, discards obsolete work and releases partly built patches', () => {
+  let samples = 0;
+  const root = new THREE.Group();
+  const camera = new THREE.PerspectiveCamera(65, 1.5, 0.1, 200);
+  const field = new GrassField(
+    {
+      ...createWilderness(42),
+      heightAt: () => {
+        samples++;
+        return 1;
+      },
+      climate: () => ({ relief: 0, moisture: 0, water: 1, wildness: 0 }),
+    },
+    root,
+    camera,
+  );
+  const player = new THREE.Vector3();
+  let time = 0;
+  // Deterministic frame budget: no machine-dependent wall-clock assertion.
+  const now = vi.spyOn(performance, 'now').mockImplementation(() => (time += 0.3));
+  try {
+    field.update(player);
+    expect(field.ready).toBe(false);
+    expect(samples).toBeGreaterThan(0);
+    expect(samples).toBeLessThan(500);
+    const partial: THREE.Object3D[] = [];
+    root.traverseVisible((obj) => {
+      if (obj instanceof THREE.InstancedMesh) partial.push(obj);
+    });
+    expect(partial).toHaveLength(0);
+
+    player.set(400, 1, 400);
+    camera.position.copy(player);
+    settle(field, player);
+    root.traverseVisible((obj) => {
+      if (!(obj instanceof THREE.InstancedMesh) || !obj.count) return;
+      const matrix = new THREE.Matrix4();
+      obj.getMatrixAt(0, matrix);
+      expect(Math.abs(matrix.elements[12]! - player.x)).toBeLessThan(80);
+      expect(Math.abs(matrix.elements[14]! - player.z)).toBeLessThan(80);
+    });
+    const meshes: THREE.InstancedMesh[] = [];
+    root.traverse((obj) => {
+      if (obj instanceof THREE.InstancedMesh) meshes.push(obj);
+    });
+    const count = meshes.length;
+    field.invalidate();
+    field.update(player);
+    expect(field.ready).toBe(false);
+    settle(field, player);
+    let rebuilt = 0;
+    root.traverse((obj) => {
+      if (obj instanceof THREE.InstancedMesh) rebuilt++;
+    });
+    expect(rebuilt).toBe(count);
+    const disposals = meshes.map((mesh) => vi.spyOn(mesh, 'dispose'));
+    field.invalidate();
+    field.update(player);
+    field.dispose();
+    expect(root.children).toHaveLength(0);
+    for (const dispose of disposals) expect(dispose).toHaveBeenCalledOnce();
+  } finally {
+    now.mockRestore();
+  }
 });
